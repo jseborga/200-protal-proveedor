@@ -85,11 +85,40 @@ async def get_current_user_optional(
 
 async def verify_api_key(
     api_key: str | None = Security(api_key_header),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Dependency: verifies X-API-Key header for external integrations."""
+    """Dependency: verifies X-API-Key header against DB keys and env fallback."""
     if not api_key:
         raise HTTPException(status_code=401, detail="API key requerida")
-    if api_key == settings.admin_api_key:
-        return {"role": "admin", "key": api_key}
-    # TODO: lookup api_key in database for per-client keys
+
+    # Fallback: env var for backwards compat / bootstrap
+    if settings.admin_api_key and api_key == settings.admin_api_key:
+        return {"role": "admin", "key_id": None, "scopes": ["read", "write", "delete"]}
+
+    # DB lookup by hash
+    from app.models.api_key import ApiKey
+    from datetime import datetime, timezone
+
+    key_hash = pwd_context.hash(api_key) if False else None  # skip — compare below
+    # Since bcrypt is slow for lookups, use prefix + verify pattern
+    key_prefix = api_key[:8]
+    result = await db.execute(
+        select(ApiKey).where(ApiKey.key_prefix == key_prefix, ApiKey.is_active == True)
+    )
+    candidates = result.scalars().all()
+
+    for candidate in candidates:
+        if pwd_context.verify(api_key, candidate.key_hash):
+            # Check expiration
+            if candidate.expires_at and candidate.expires_at < datetime.now(timezone.utc):
+                raise HTTPException(status_code=403, detail="API key expirada")
+
+            # Update usage tracking
+            candidate.last_used_at = datetime.now(timezone.utc)
+            candidate.usage_count += 1
+            await db.flush()
+
+            scopes = [s.strip() for s in (candidate.scopes or "read").split(",")]
+            return {"role": "integration", "key_id": candidate.id, "scopes": scopes, "name": candidate.name}
+
     raise HTTPException(status_code=403, detail="API key invalida")

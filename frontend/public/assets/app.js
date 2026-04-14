@@ -98,6 +98,12 @@ const API = {
     adminCreateUser: (data) => API.post('/admin/users', data),
     adminUpdateUser: (id, data) => API.put(`/admin/users/${id}`, data),
     adminResetPassword: (id) => API.post(`/admin/users/${id}/reset-password`),
+
+    // Admin — API keys
+    apiKeys: () => API.get('/admin/api-keys'),
+    createApiKey: (data) => API.post('/admin/api-keys', data),
+    updateApiKey: (id, data) => API.put(`/admin/api-keys/${id}`, data),
+    revokeApiKey: (id) => API.del(`/admin/api-keys/${id}`),
 };
 
 // ── Categories config ──────────────────────────────────────────
@@ -765,6 +771,7 @@ async function renderAdmin() {
         { key: 'products', label: 'Productos', icon: 'tag' },
     ];
     if (isManager()) tabs.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
+    if (isAdmin()) tabs.push({ key: 'apikeys', label: 'API Keys', icon: 'key' });
 
     page.innerHTML = `
         <div class="page-header">
@@ -796,6 +803,7 @@ function renderAdminTab() {
         case 'suppliers': renderAdminSuppliers(); break;
         case 'products': renderAdminProducts(); break;
         case 'users': renderAdminUsers(); break;
+        case 'apikeys': renderAdminApiKeys(); break;
     }
 }
 
@@ -1374,6 +1382,236 @@ async function resetUserPassword(userId, name) {
         } else {
             toast(resp.detail || 'Error', 'error');
         }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Admin: API Keys ────────────────────────────────────────────
+async function renderAdminApiKeys() {
+    if (!isAdmin()) { toast('Sin permisos', 'error'); return; }
+
+    const c = document.getElementById('admin-content');
+    c.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+            <div>
+                <p style="font-size:13px;color:var(--gray-500)">
+                    Las API keys permiten a integraciones externas (n8n, MCP, Zapier) acceder a los datos.
+                    <br>Endpoint base: <code>/api/v1/integration/</code> con header <code>X-API-Key</code>
+                </p>
+            </div>
+            <button class="btn btn-primary" onclick="showCreateApiKeyModal()">
+                ${icon('plus',16)} Nueva API Key
+            </button>
+        </div>
+        <div id="admin-apikeys-list"><div class="empty-state"><p>Cargando...</p></div></div>
+    `;
+    loadAdminApiKeys();
+}
+
+async function loadAdminApiKeys() {
+    try {
+        const resp = await API.apiKeys();
+        const container = document.getElementById('admin-apikeys-list');
+        if (!container) return;
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = '<div class="empty-state"><p>No hay API keys creadas</p></div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="table-wrap"><table>
+                <thead><tr>
+                    <th>Nombre</th><th>Key</th><th>Permisos</th><th>Estado</th>
+                    <th>Expiracion</th><th>Ultimo uso</th><th>Usos</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>${resp.data.map(k => {
+                    const isExpired = k.expires_at && new Date(k.expires_at) < new Date();
+                    const statusBadge = !k.is_active
+                        ? '<span class="badge badge-danger">Revocada</span>'
+                        : isExpired
+                            ? '<span class="badge badge-warning">Expirada</span>'
+                            : '<span class="badge badge-success">Activa</span>';
+                    const scopeBadges = (k.scopes || '').split(',').map(s =>
+                        `<span class="badge badge-gray">${esc(s.trim())}</span>`).join(' ');
+                    return `
+                    <tr style="${!k.is_active ? 'opacity:0.5' : ''}">
+                        <td><strong>${esc(k.name)}</strong>${k.description ? `<br><small style="color:var(--gray-500)">${esc(k.description)}</small>` : ''}</td>
+                        <td><code>${esc(k.key_prefix)}...</code></td>
+                        <td>${scopeBadges}</td>
+                        <td>${statusBadge}</td>
+                        <td>${k.expires_at ? new Date(k.expires_at).toLocaleDateString('es') : 'Sin expiracion'}</td>
+                        <td>${k.last_used_at ? new Date(k.last_used_at).toLocaleDateString('es') : 'Nunca'}</td>
+                        <td>${k.usage_count}</td>
+                        <td style="white-space:nowrap">
+                            <button class="btn btn-sm btn-secondary" onclick="showEditApiKeyModal(${k.id}, '${esc(k.name)}', '${esc(k.scopes)}', ${k.is_active})">${icon('edit',14)}</button>
+                            ${k.is_active ? `<button class="btn btn-sm btn-secondary" style="color:var(--danger)" onclick="revokeApiKey(${k.id}, '${esc(k.name)}')" title="Revocar">${icon('trash',14)}</button>` : ''}
+                        </td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table></div>
+        `;
+    } catch { document.getElementById('admin-apikeys-list').innerHTML = '<div class="empty-state"><p>Error cargando</p></div>'; }
+}
+
+function showCreateApiKeyModal() {
+    showModal('Crear API Key', `
+        <form id="create-apikey-form" onsubmit="handleCreateApiKey(event)">
+            <div class="form-group">
+                <label class="form-label">Nombre *</label>
+                <input class="form-input" name="name" required placeholder="Ej: n8n Produccion, MCP Claude, Zapier">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Descripcion</label>
+                <input class="form-input" name="description" placeholder="Para que se usa esta key">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Permisos</label>
+                <div style="display:flex;gap:12px;margin-top:4px">
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" name="scope_read" checked> Leer</label>
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" name="scope_write" checked> Escribir</label>
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" name="scope_delete"> Eliminar</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Expiracion</label>
+                <select class="form-select" name="expires_in_days">
+                    <option value="">Sin expiracion</option>
+                    <option value="7">7 dias</option>
+                    <option value="30">30 dias</option>
+                    <option value="90" selected>90 dias</option>
+                    <option value="180">6 meses</option>
+                    <option value="365">1 ano</option>
+                </select>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
+                Generar API Key
+            </button>
+        </form>
+    `);
+}
+
+async function handleCreateApiKey(e) {
+    e.preventDefault();
+    const f = e.target;
+    const scopes = [];
+    if (f.scope_read.checked) scopes.push('read');
+    if (f.scope_write.checked) scopes.push('write');
+    if (f.scope_delete.checked) scopes.push('delete');
+
+    const data = {
+        name: f.name.value,
+        description: f.description.value || null,
+        scopes: scopes.join(',') || 'read',
+        expires_in_days: f.expires_in_days.value ? parseInt(f.expires_in_days.value) : null,
+    };
+
+    try {
+        const resp = await API.createApiKey(data);
+        if (resp.ok) {
+            closeModal();
+            // Show the raw key in a special modal — only shown once!
+            showModal('API Key Creada', `
+                <div style="text-align:center;padding:8px 0">
+                    <p style="color:var(--danger);font-weight:600;margin-bottom:12px">
+                        Copia esta key ahora. No se puede recuperar despues.
+                    </p>
+                    <div style="background:var(--gray-100);padding:16px;border-radius:var(--radius);margin-bottom:16px;word-break:break-all">
+                        <code id="raw-key-display" style="font-size:15px;user-select:all">${esc(resp.data.raw_key)}</code>
+                    </div>
+                    <button class="btn btn-primary" onclick="copyApiKey('${esc(resp.data.raw_key)}')" style="margin-bottom:8px">
+                        Copiar al portapapeles
+                    </button>
+                    <p style="font-size:12px;color:var(--gray-500);margin-top:8px">
+                        Usa esta key en el header <code>X-API-Key</code> de tus peticiones HTTP.
+                    </p>
+                </div>
+            `);
+            loadAdminApiKeys();
+        } else {
+            toast(resp.detail || 'Error al crear key', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+function copyApiKey(key) {
+    navigator.clipboard.writeText(key).then(() => {
+        toast('API Key copiada al portapapeles', 'success');
+    }).catch(() => {
+        // Fallback: select the text
+        const el = document.getElementById('raw-key-display');
+        if (el) {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            toast('Selecciona y copia manualmente (Ctrl+C)', 'info');
+        }
+    });
+}
+
+function showEditApiKeyModal(keyId, name, scopes, isActive) {
+    const scopeList = scopes.split(',').map(s => s.trim());
+    showModal(`Editar: ${name}`, `
+        <form onsubmit="handleUpdateApiKey(event, ${keyId})">
+            <div class="form-group">
+                <label class="form-label">Nombre</label>
+                <input class="form-input" name="name" value="${esc(name)}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Permisos</label>
+                <div style="display:flex;gap:12px;margin-top:4px">
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" name="scope_read" ${scopeList.includes('read') ? 'checked' : ''}> Leer</label>
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" name="scope_write" ${scopeList.includes('write') ? 'checked' : ''}> Escribir</label>
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px"><input type="checkbox" name="scope_delete" ${scopeList.includes('delete') ? 'checked' : ''}> Eliminar</label>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Renovar expiracion</label>
+                <select class="form-select" name="expires_in_days">
+                    <option value="">No cambiar</option>
+                    <option value="7">7 dias desde hoy</option>
+                    <option value="30">30 dias desde hoy</option>
+                    <option value="90">90 dias desde hoy</option>
+                    <option value="365">1 ano desde hoy</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                    <input type="checkbox" name="is_active" ${isActive ? 'checked' : ''}>
+                    <span class="form-label" style="margin:0">Key activa</span>
+                </label>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">Guardar</button>
+        </form>
+    `);
+}
+
+async function handleUpdateApiKey(e, keyId) {
+    e.preventDefault();
+    const f = e.target;
+    const scopes = [];
+    if (f.scope_read.checked) scopes.push('read');
+    if (f.scope_write.checked) scopes.push('write');
+    if (f.scope_delete.checked) scopes.push('delete');
+
+    const data = {
+        name: f.name.value || undefined,
+        scopes: scopes.join(',') || 'read',
+        is_active: f.is_active.checked,
+    };
+    if (f.expires_in_days.value) data.expires_in_days = parseInt(f.expires_in_days.value);
+
+    try {
+        const resp = await API.updateApiKey(keyId, data);
+        if (resp.ok) { closeModal(); toast('API Key actualizada', 'success'); loadAdminApiKeys(); }
+        else toast(resp.detail || 'Error', 'error');
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function revokeApiKey(keyId, name) {
+    if (!confirm(`Revocar API key "${name}"? Las integraciones que la usen dejaran de funcionar.`)) return;
+    try {
+        const resp = await API.revokeApiKey(keyId);
+        if (resp.ok) { toast('API Key revocada', 'success'); loadAdminApiKeys(); }
+        else toast(resp.detail || 'Error', 'error');
     } catch { toast('Error de conexion', 'error'); }
 }
 

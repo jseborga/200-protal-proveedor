@@ -4,12 +4,13 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import hash_password, verify_api_key
+from app.core.security import hash_password, verify_api_key, pwd_context
 from app.api.deps import require_admin, require_manager, require_staff, STAFF_ROLES
 from app.models.insumo import Insumo, InsumoRegionalPrice
 from app.models.quotation import Quotation
 from app.models.supplier import Supplier
 from app.models.user import User
+from app.models.api_key import ApiKey
 
 router = APIRouter()
 
@@ -211,6 +212,128 @@ async def api_prices(
         data.append(item)
 
     return {"ok": True, "data": data, "total": len(data)}
+
+
+# ── API Key management ─────────────────────────────────────────
+class ApiKeyCreate(BaseModel):
+    name: str
+    description: str | None = None
+    scopes: str = "read,write"
+    expires_in_days: int | None = None  # None = no expiration
+
+
+class ApiKeyUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    scopes: str | None = None
+    is_active: bool | None = None
+    expires_in_days: int | None = None  # reset expiration
+
+
+@router.get("/api-keys")
+async def list_api_keys(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    result = await db.execute(select(ApiKey).order_by(ApiKey.created_at.desc()))
+    keys = result.scalars().all()
+    return {
+        "ok": True,
+        "data": [_apikey_to_dict(k) for k in keys],
+    }
+
+
+@router.post("/api-keys", status_code=201)
+async def create_api_key(
+    body: ApiKeyCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    import secrets
+    from datetime import datetime, timezone, timedelta
+
+    # Generate a secure random key
+    raw_key = f"mkt_{secrets.token_urlsafe(32)}"
+
+    expires_at = None
+    if body.expires_in_days:
+        expires_at = datetime.now(timezone.utc) + timedelta(days=body.expires_in_days)
+
+    api_key = ApiKey(
+        name=body.name,
+        key_hash=pwd_context.hash(raw_key),
+        key_prefix=raw_key[:8],
+        description=body.description,
+        scopes=body.scopes,
+        expires_at=expires_at,
+        created_by_id=user.id,
+    )
+    db.add(api_key)
+    await db.flush()
+
+    # Return the raw key ONLY on creation — it can't be retrieved later
+    data = _apikey_to_dict(api_key)
+    data["raw_key"] = raw_key
+
+    return {"ok": True, "data": data}
+
+
+@router.put("/api-keys/{key_id}")
+async def update_api_key(
+    key_id: int,
+    body: ApiKeyUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    from datetime import datetime, timezone, timedelta
+
+    api_key = await db.get(ApiKey, key_id)
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key no encontrada")
+
+    update_data = body.model_dump(exclude_unset=True)
+
+    if "expires_in_days" in update_data:
+        days = update_data.pop("expires_in_days")
+        if days:
+            api_key.expires_at = datetime.now(timezone.utc) + timedelta(days=days)
+        else:
+            api_key.expires_at = None
+
+    for field, value in update_data.items():
+        setattr(api_key, field, value)
+    await db.flush()
+
+    return {"ok": True, "data": _apikey_to_dict(api_key)}
+
+
+@router.delete("/api-keys/{key_id}")
+async def revoke_api_key(
+    key_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    api_key = await db.get(ApiKey, key_id)
+    if not api_key:
+        raise HTTPException(status_code=404, detail="API key no encontrada")
+    api_key.is_active = False
+    await db.flush()
+    return {"ok": True}
+
+
+def _apikey_to_dict(k: ApiKey) -> dict:
+    return {
+        "id": k.id,
+        "name": k.name,
+        "key_prefix": k.key_prefix,
+        "description": k.description,
+        "scopes": k.scopes,
+        "is_active": k.is_active,
+        "expires_at": k.expires_at.isoformat() if k.expires_at else None,
+        "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
+        "usage_count": k.usage_count,
+        "created_at": k.created_at.isoformat() if k.created_at else None,
+    }
 
 
 # ── Helpers ────────────────────────────────────────────────────
