@@ -1,36 +1,62 @@
-version: "3.8"
+# ═══════════════════════════════════════════════════════════════
+# APU Marketplace — Docker Compose para EasyPanel / Produccion
+# Variables se sobreescriben desde EasyPanel UI > Environment
+# Para desarrollo local usar: docker compose -f docker-compose.dev.yml up
+# ═══════════════════════════════════════════════════════════════
 
 services:
   # ── App FastAPI ──────────────────────────────────────
   app:
     build: .
     ports:
-      - "${APP_PORT:-8000}:8000"
-    env_file: .env
+      - "8000:8000"
+    environment:
+      APP_NAME: "APU Marketplace"
+      APP_ENV: "production"
+      APP_DEBUG: "false"
+      APP_PORT: "8000"
+      APP_SECRET_KEY: "cambiar-en-easypanel-settings"
+      APP_URL: "https://tu-dominio.com"
+      CORS_ORIGINS: '["*"]'
+      DATABASE_URL: "postgresql+asyncpg://apu_mkt:apu_mkt_prod@db:5432/apu_marketplace"
+      JWT_SECRET_KEY: "cambiar-en-easypanel-settings"
+      JWT_ALGORITHM: "HS256"
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: "1440"
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: "30"
+      ADMIN_API_KEY: ""
+      AI_PROVIDER: "openrouter"
+      AI_API_KEY: ""
+      AI_MODEL: ""
+      EVOLUTION_API_URL: "http://evolution-api:8080"
+      EVOLUTION_API_KEY: ""
+      EVOLUTION_INSTANCE_NAME: "apu-marketplace"
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_WEBHOOK_SECRET: ""
+      SMTP_HOST: "smtp.gmail.com"
+      SMTP_PORT: "587"
+      SMTP_USER: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM: "noreply@localhost"
+      SMTP_TLS: "true"
+      WORKERS: "2"
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - ./app:/app/app
-      - ./frontend:/app/frontend
-      - ./migrations:/app/migrations
     restart: unless-stopped
 
   # ── PostgreSQL ───────────────────────────────────────
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: apu_mkt
-      POSTGRES_PASSWORD: apu_mkt_dev
-      POSTGRES_DB: apu_marketplace
-    ports:
-      - "5433:5432"
+      POSTGRES_USER: "apu_mkt"
+      POSTGRES_PASSWORD: "apu_mkt_prod"
+      POSTGRES_DB: "apu_marketplace"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U apu_mkt -d apu_marketplace"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
@@ -38,18 +64,14 @@ services:
   # ── Evolution API (WhatsApp) ─────────────────────────
   evolution-api:
     image: atendai/evolution-api:latest
-    ports:
-      - "8080:8080"
     environment:
-      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY:-dev-evo-key}
-      - DATABASE_PROVIDER=postgresql
-      - DATABASE_CONNECTION_URI=postgresql://apu_mkt:apu_mkt_dev@db:5432/apu_marketplace
+      AUTHENTICATION_API_KEY: "cambiar-en-easypanel"
+      DATABASE_PROVIDER: "postgresql"
+      DATABASE_CONNECTION_URI: "postgresql://apu_mkt:apu_mkt_prod@db:5432/apu_marketplace"
     depends_on:
       db:
         condition: service_healthy
     restart: unless-stopped
-    profiles:
-      - messaging
 
 volumes:
   pgdata:
