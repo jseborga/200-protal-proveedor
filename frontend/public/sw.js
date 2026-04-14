@@ -1,4 +1,4 @@
-const CACHE_NAME = 'apu-mkt-v1';
+const CACHE_NAME = 'apu-mkt-v2';
 const PRECACHE = [
     '/',
     '/assets/app.js',

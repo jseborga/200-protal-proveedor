@@ -1,6 +1,6 @@
 /**
- * APU Marketplace — SPA Principal
- * Vanilla JS, sin frameworks. PWA-ready.
+ * APU Marketplace — Portal Publico de Precios de Construccion
+ * Public-first SPA. No login required to browse prices and suppliers.
  */
 
 // ── State ──────────────────────────────────────────────────────
@@ -8,7 +8,10 @@ const state = {
     user: null,
     token: null,
     refreshToken: null,
-    currentPage: 'dashboard',
+    currentPage: 'home',
+    searchQuery: '',
+    selectedCategory: null,
+    selectedDepartment: null,
 };
 
 // ── API Client ─────────────────────────────────────────────────
@@ -18,9 +21,7 @@ const API = {
     async _fetch(path, opts = {}) {
         const headers = { 'Content-Type': 'application/json', ...opts.headers };
         if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
-
         const resp = await fetch(`${API_BASE}${path}`, { ...opts, headers });
-
         if (resp.status === 401 && state.refreshToken) {
             const refreshed = await this._refresh();
             if (refreshed) {
@@ -28,7 +29,6 @@ const API = {
                 return fetch(`${API_BASE}${path}`, { ...opts, headers });
             }
             logout();
-            return resp;
         }
         return resp;
     },
@@ -68,99 +68,146 @@ const API = {
     login: (email, password) => API.post('/auth/login', { email, password }),
     register: (data) => API.post('/auth/register', data),
 
-    // Suppliers
+    // Public — no auth
+    publicPrices: (params = '') => API.get(`/prices/public${params}`),
+    searchPrices: (q) => API.get(`/prices/public/search?q=${encodeURIComponent(q)}`),
+    publicSuppliers: (params = '') => API.get(`/suppliers/public${params}`),
+    supplierCategories: () => API.get('/suppliers/public/categories'),
+    supplierCities: () => API.get('/suppliers/public/cities'),
+    priceCategories: () => API.get('/prices/categories/list'),
+
+    // Authenticated
     suppliers: (params = '') => API.get(`/suppliers${params}`),
     supplier: (id) => API.get(`/suppliers/${id}`),
     createSupplier: (data) => API.post('/suppliers', data),
     updateSupplier: (id, data) => API.put(`/suppliers/${id}`, data),
-
-    // Quotations
     quotations: (params = '') => API.get(`/quotations${params}`),
     quotation: (id) => API.get(`/quotations/${id}`),
     createQuotation: (data) => API.post('/quotations', data),
     processQuotation: (id) => API.post(`/quotations/${id}/process`),
     uploadQuotation: (formData) => API.upload('/quotations/upload', formData),
-
-    // Prices
-    publicPrices: (params = '') => API.get(`/prices/public${params}`),
-    searchPrices: (q, region) => API.get(`/prices/public/search?q=${encodeURIComponent(q)}${region ? '&region=' + region : ''}`),
     insumos: (params = '') => API.get(`/prices${params}`),
     insumo: (id) => API.get(`/prices/${id}`),
     createInsumo: (data) => API.post('/prices', data),
-    categories: () => API.get('/prices/categories/list'),
-    regions: () => API.get('/prices/regions/list'),
-
-    // RFQ
     rfqs: (params = '') => API.get(`/rfq${params}`),
-    rfq: (id) => API.get(`/rfq/${id}`),
     createRFQ: (data) => API.post('/rfq', data),
-    sendRFQ: (id) => API.post(`/rfq/${id}/send`),
-
-    // Admin
     stats: () => API.get('/admin/stats'),
 };
 
-// ── Router ─────────────────────────────────────────────────────
-const PAGES = {
-    dashboard: { title: 'Dashboard', icon: 'home', render: renderDashboard },
-    prices: { title: 'Precios', icon: 'tag', render: renderPrices },
-    suppliers: { title: 'Proveedores', icon: 'users', render: renderSuppliers },
-    quotations: { title: 'Cotizaciones', icon: 'file-text', render: renderQuotations },
-    rfq: { title: 'RFQ', icon: 'send', render: renderRFQ },
+// ── Categories config ──────────────────────────────────────────
+const CATEGORY_META = {
+    ferreteria:  { label: 'Ferreteria',  icon: '&#128295;' },
+    agregados:   { label: 'Agregados',   icon: '&#9968;' },
+    acero:       { label: 'Acero',       icon: '&#128681;' },
+    electrico:   { label: 'Electrico',   icon: '&#9889;' },
+    sanitario:   { label: 'Sanitario',   icon: '&#128703;' },
+    madera:      { label: 'Madera',      icon: '&#127795;' },
+    cemento:     { label: 'Cemento',     icon: '&#127959;' },
+    pintura:     { label: 'Pintura',     icon: '&#127912;' },
+    ceramica:    { label: 'Ceramica',    icon: '&#129521;' },
+    herramientas:{ label: 'Herramientas',icon: '&#128736;' },
 };
 
-function navigate(page) {
-    state.currentPage = page;
-    renderApp();
-}
+const DEPARTMENTS = [
+    'Santa Cruz', 'La Paz', 'Cochabamba', 'Tarija',
+    'Sucre', 'Oruro', 'Potosi', 'Beni', 'Pando',
+];
 
 // ── Icons (inline SVG) ─────────────────────────────────────────
 const ICONS = {
     home: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/><polyline points="9,22 9,12 15,12 15,22"/></svg>',
     tag: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',
     users: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>',
+    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
     'file-text': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>',
     send: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22,2 15,22 11,13 2,9"/></svg>',
-    search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>',
     plus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>',
     upload: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17,8 12,3 7,8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>',
+    login: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><polyline points="10,17 15,12 10,7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>',
     logout: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><polyline points="16,17 21,12 16,7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>',
+    whatsapp: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>',
+    map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+    star: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>',
+    'bar-chart': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>',
 };
 
 function icon(name, size = 20) {
     return `<span class="icon" style="width:${size}px;height:${size}px;display:inline-flex">${ICONS[name] || ''}</span>`;
 }
 
+// ── Navigation ─────────────────────────────────────────────────
+function navigate(page) {
+    state.currentPage = page;
+    window.scrollTo(0, 0);
+    renderApp();
+}
+
 // ── Render: App shell ──────────────────────────────────────────
 function renderApp() {
     const app = document.getElementById('app');
-    if (!state.user) {
-        renderLogin();
-        return;
-    }
+
+    const publicPages = {
+        home:      { title: 'Inicio',       icon: 'home',     render: renderHome },
+        prices:    { title: 'Precios',       icon: 'tag',      render: renderPublicPrices },
+        suppliers: { title: 'Proveedores',   icon: 'users',    render: renderPublicSuppliers },
+    };
+
+    const authPages = {
+        quotations: { title: 'Cotizaciones', icon: 'file-text', render: renderQuotations },
+        rfq:        { title: 'RFQ',          icon: 'send',      render: renderRFQ },
+        dashboard:  { title: 'Dashboard',    icon: 'bar-chart', render: renderDashboard },
+    };
+
+    const allPages = { ...publicPages, ...(state.user ? authPages : {}) };
 
     app.innerHTML = `
-        ${renderTopbar()}
+        ${renderTopbar(publicPages, authPages)}
         <div class="app-container">
             <div class="page" id="page-content"></div>
         </div>
-        ${renderBottombar()}
+        <div class="footer">
+            APU Marketplace &mdash; Portal de Precios de Construccion
+        </div>
         <div id="toast-container" class="toast-container"></div>
     `;
 
-    const pageConfig = PAGES[state.currentPage];
-    if (pageConfig) pageConfig.render();
-
-    // Update active tab
-    document.querySelectorAll('.bottombar-item').forEach(el => {
-        el.classList.toggle('active', el.dataset.page === state.currentPage);
-    });
+    const pageConfig = allPages[state.currentPage];
+    if (pageConfig) {
+        pageConfig.render();
+    } else {
+        navigate('home');
+        return;
+    }
 }
 
-function renderTopbar() {
+function renderTopbar(publicPages, authPages) {
+    const navItems = Object.entries(publicPages).map(([key, cfg]) => `
+        <button class="topbar-nav-item${state.currentPage === key ? ' active' : ''}"
+                onclick="navigate('${key}')">
+            ${cfg.title}
+        </button>
+    `).join('');
+
+    const authNav = state.user
+        ? Object.entries(authPages).map(([key, cfg]) => `
+            <button class="topbar-nav-item${state.currentPage === key ? ' active' : ''}"
+                    onclick="navigate('${key}')">
+                ${cfg.title}
+            </button>
+        `).join('')
+        : '';
+
+    const userActions = state.user
+        ? `<span class="topbar-btn" style="cursor:default;font-size:13px">${esc(state.user.full_name)}</span>
+           <button class="topbar-btn" onclick="logout()" title="Cerrar sesion">${icon('logout', 16)}</button>`
+        : `<button class="topbar-btn-accent topbar-btn" onclick="showLoginModal()">
+               ${icon('login', 16)} Ingresar
+           </button>`;
+
     return `
         <div class="topbar">
-            <div class="topbar-logo">
+            <div class="topbar-logo" onclick="navigate('home')">
                 <svg width="32" height="32" viewBox="0 0 48 48" fill="none">
                     <rect width="48" height="48" rx="10" fill="rgba(255,255,255,0.2)"/>
                     <path d="M12 36V16l12-6 12 6v20" stroke="white" stroke-width="2.5" fill="none"/>
@@ -168,72 +215,432 @@ function renderTopbar() {
                 </svg>
                 APU MKT
             </div>
+            <div class="topbar-nav">
+                ${navItems}${authNav}
+            </div>
             <div class="topbar-spacer"></div>
             <div class="topbar-actions">
-                <span class="topbar-user">${state.user.full_name}</span>
-                <button class="topbar-btn" onclick="logout()" title="Cerrar sesion">
-                    ${icon('logout', 18)}
+                ${userActions}
+            </div>
+        </div>
+    `;
+}
+
+// ── Render: Home (public) ──────────────────────────────────────
+async function renderHome() {
+    const page = document.getElementById('page-content');
+    page.innerHTML = `
+        <div class="hero">
+            <h1 class="hero-title">Precios de Construccion en Bolivia</h1>
+            <p class="hero-subtitle">Busca materiales, compara precios y contacta proveedores directamente</p>
+            <div class="hero-search">
+                <input class="form-input" id="hero-search-input"
+                       placeholder="Buscar cemento, acero, arena, tuberias..."
+                       value="${esc(state.searchQuery)}"
+                       onkeydown="if(event.key==='Enter')heroSearch()">
+                <button class="btn btn-primary" onclick="heroSearch()">
+                    ${icon('search', 18)} Buscar
                 </button>
             </div>
         </div>
+
+        <div class="categories-bar" id="home-categories">
+            <span class="chip${!state.selectedCategory ? ' active' : ''}" onclick="selectCategory(null)">Todos</span>
+        </div>
+
+        <div id="home-stats" class="stats-grid" style="margin-top:16px"></div>
+
+        <h2 style="font-size:18px;font-weight:600;margin:20px 0 12px">Proveedores destacados</h2>
+        <div class="supplier-grid" id="home-suppliers">
+            <div class="empty-state"><p>Cargando proveedores...</p></div>
+        </div>
+
+        <h2 style="font-size:18px;font-weight:600;margin:24px 0 12px">Precios recientes</h2>
+        <div class="price-grid" id="home-prices">
+            <div class="empty-state"><p>Cargando precios...</p></div>
+        </div>
     `;
+
+    // Load all data in parallel
+    loadHomeCategories();
+    loadHomeSuppliers();
+    loadHomePrices();
+    loadHomeStats();
 }
 
-function renderBottombar() {
-    const items = Object.entries(PAGES).map(([key, cfg]) => `
-        <button class="bottombar-item${state.currentPage === key ? ' active' : ''}"
-                data-page="${key}" onclick="navigate('${key}')">
-            ${icon(cfg.icon, 22)}
-            <span>${cfg.title}</span>
-        </button>
-    `).join('');
-    return `<div class="bottombar">${items}</div>`;
+async function loadHomeCategories() {
+    try {
+        const resp = await API.supplierCategories();
+        if (resp.ok && resp.data.length) {
+            const container = document.getElementById('home-categories');
+            const chips = resp.data.map(c => {
+                const meta = CATEGORY_META[c.name] || { label: c.name, icon: '' };
+                return `<span class="chip${state.selectedCategory === c.name ? ' active' : ''}"
+                              onclick="selectCategory('${esc(c.name)}')">${meta.icon} ${esc(meta.label || c.name)} <small>(${c.count})</small></span>`;
+            }).join('');
+            container.innerHTML = `
+                <span class="chip${!state.selectedCategory ? ' active' : ''}" onclick="selectCategory(null)">Todos</span>
+                ${chips}
+            `;
+        }
+    } catch {}
 }
 
-// ── Render: Login ──────────────────────────────────────────────
-function renderLogin() {
-    const app = document.getElementById('app');
-    app.innerHTML = `
-        <div class="login-page">
-            <div class="login-card">
-                <div class="login-logo">
-                    <svg width="64" height="64" viewBox="0 0 48 48" fill="none">
-                        <rect width="48" height="48" rx="10" fill="#1e40af"/>
-                        <path d="M12 36V16l12-6 12 6v20" stroke="white" stroke-width="2.5" fill="none"/>
-                        <path d="M20 36V26h8v10" stroke="white" stroke-width="2"/>
-                    </svg>
+async function loadHomeSuppliers() {
+    let params = '?limit=6';
+    if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
+    if (state.selectedDepartment) params += `&department=${encodeURIComponent(state.selectedDepartment)}`;
+
+    try {
+        const resp = await API.publicSuppliers(params);
+        const container = document.getElementById('home-suppliers');
+        if (resp.ok && resp.data.length) {
+            container.innerHTML = resp.data.map(renderSupplierCard).join('');
+        } else {
+            container.innerHTML = '<div class="empty-state"><p>No hay proveedores registrados aun. Estamos trabajando para traerte los mejores.</p></div>';
+        }
+    } catch {
+        document.getElementById('home-suppliers').innerHTML = '<div class="empty-state"><p>No se pudo cargar proveedores</p></div>';
+    }
+}
+
+async function loadHomePrices() {
+    let params = '?limit=8';
+    if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
+
+    try {
+        const resp = await API.publicPrices(params);
+        const container = document.getElementById('home-prices');
+        if (resp.ok && resp.data.length) {
+            container.innerHTML = resp.data.map(renderPriceCard).join('');
+        } else {
+            container.innerHTML = '<div class="empty-state"><p>Pronto tendras precios actualizados aqui</p></div>';
+        }
+    } catch {
+        document.getElementById('home-prices').innerHTML = '';
+    }
+}
+
+async function loadHomeStats() {
+    try {
+        const [prices, suppliers] = await Promise.all([
+            API.publicPrices('?limit=1'),
+            API.publicSuppliers('?limit=1'),
+        ]);
+        const container = document.getElementById('home-stats');
+        const totalPrices = prices.ok ? prices.total : 0;
+        const totalSuppliers = suppliers.ok ? suppliers.total : 0;
+        if (totalPrices > 0 || totalSuppliers > 0) {
+            container.innerHTML = `
+                <div class="stat-card"><div class="stat-value">${totalSuppliers}</div><div class="stat-label">Proveedores</div></div>
+                <div class="stat-card"><div class="stat-value">${totalPrices}</div><div class="stat-label">Precios</div></div>
+                <div class="stat-card"><div class="stat-value">${DEPARTMENTS.length}</div><div class="stat-label">Departamentos</div></div>
+                <div class="stat-card"><div class="stat-value">${Object.keys(CATEGORY_META).length}+</div><div class="stat-label">Categorias</div></div>
+            `;
+        }
+    } catch {}
+}
+
+function selectCategory(cat) {
+    state.selectedCategory = cat;
+    // Re-render chips + data
+    loadHomeCategories();
+    loadHomeSuppliers();
+    loadHomePrices();
+}
+
+function heroSearch() {
+    const input = document.getElementById('hero-search-input');
+    state.searchQuery = (input?.value || '').trim();
+    if (state.searchQuery.length >= 2) {
+        navigate('prices');
+    }
+}
+
+// ── Render: Supplier card (reusable) ───────────────────────────
+function renderSupplierCard(s) {
+    const cats = (s.categories || []).map(c => {
+        const meta = CATEGORY_META[c] || { label: c };
+        return `<span class="supplier-cat">${esc(meta.label || c)}</span>`;
+    }).join('');
+
+    const location = [s.city, s.department].filter(Boolean).join(', ');
+
+    const waBtn = s.whatsapp
+        ? `<a href="https://wa.me/${s.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" rel="noopener"
+              class="btn-whatsapp" onclick="event.stopPropagation()">
+              ${icon('whatsapp', 16)} WhatsApp
+           </a>`
+        : '';
+
+    const callBtn = s.phone
+        ? `<a href="tel:${s.phone}" class="btn-call" onclick="event.stopPropagation()">
+              ${icon('phone', 16)} Llamar
+           </a>`
+        : '';
+
+    const rating = s.rating > 0
+        ? `<span style="color:#f59e0b;font-size:13px">${icon('star', 14)} ${s.rating.toFixed(1)}</span>`
+        : '';
+
+    return `
+        <div class="supplier-card">
+            <div class="supplier-card-header">
+                <div>
+                    <div class="supplier-name">${esc(s.trade_name || s.name)}</div>
+                    <div class="supplier-location">${icon('map', 14)} ${location || 'Bolivia'}</div>
                 </div>
-                <h1 class="login-title">APU Marketplace</h1>
-                <p class="login-subtitle">Portal de Precios Unitarios de Construccion</p>
-                <form id="login-form" onsubmit="handleLogin(event)">
-                    <div class="form-group">
-                        <label class="form-label">Email</label>
-                        <input class="form-input" type="email" name="email" required placeholder="correo@empresa.com">
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Contrasena</label>
-                        <input class="form-input" type="password" name="password" required placeholder="********">
-                    </div>
-                    <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
-                        Iniciar Sesion
-                    </button>
-                </form>
-                <div class="login-footer">
-                    No tienes cuenta? <a href="#" onclick="showRegister(event)">Registrate</a>
-                </div>
+                ${rating}
+            </div>
+            <div class="supplier-categories">${cats || '<span style="font-size:12px;color:var(--gray-400)">Sin categorias</span>'}</div>
+            <div class="supplier-actions">
+                ${waBtn}
+                ${callBtn}
             </div>
         </div>
     `;
+}
+
+// ── Render: Price card (reusable) ──────────────────────────────
+function renderPriceCard(p) {
+    return `
+        <div class="price-card">
+            <div class="price-info">
+                <div class="price-name">${esc(p.name)}</div>
+                <div class="price-detail">${p.category ? esc(p.category) : ''} ${p.uom ? '&middot; ' + esc(p.uom) : ''}</div>
+            </div>
+            <div class="price-value">
+                ${p.ref_price ? p.ref_price.toFixed(2) : '--.--'}
+                <span class="price-currency">${esc(p.ref_currency || 'BOB')}</span>
+            </div>
+        </div>
+    `;
+}
+
+// ── Render: Public Prices page ─────────────────────────────────
+async function renderPublicPrices() {
+    const page = document.getElementById('page-content');
+    page.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Precios de Materiales</h1>
+            <p class="page-subtitle">Catalogo publico de precios unitarios de construccion</p>
+        </div>
+        <div class="search-bar">
+            <input class="form-input" id="price-search" placeholder="Buscar material, insumo..."
+                   value="${esc(state.searchQuery)}" oninput="debouncePriceSearch()">
+        </div>
+        <div class="categories-bar" id="price-categories"></div>
+        <div id="prices-list"><div class="empty-state"><p>Cargando...</p></div></div>
+        <div id="prices-pagination" style="text-align:center;margin-top:16px"></div>
+    `;
+
+    loadPriceCategories();
+
+    if (state.searchQuery.length >= 2) {
+        searchPublicPrices(state.searchQuery);
+    } else {
+        loadPublicPrices();
+    }
+}
+
+async function loadPriceCategories() {
+    try {
+        const resp = await API.priceCategories();
+        if (resp.ok && resp.data.length) {
+            const container = document.getElementById('price-categories');
+            container.innerHTML = `
+                <span class="chip${!state.selectedCategory ? ' active' : ''}" onclick="filterPriceCategory(null)">Todos</span>
+                ${resp.data.map(c => `
+                    <span class="chip${state.selectedCategory === c.name ? ' active' : ''}"
+                          onclick="filterPriceCategory('${esc(c.name)}')">${esc(c.name)} (${c.count})</span>
+                `).join('')}
+            `;
+        }
+    } catch {}
+}
+
+function filterPriceCategory(cat) {
+    state.selectedCategory = cat;
+    state.searchQuery = '';
+    const searchInput = document.getElementById('price-search');
+    if (searchInput) searchInput.value = '';
+    loadPriceCategories();
+    loadPublicPrices();
+}
+
+let _priceTimer;
+function debouncePriceSearch() {
+    clearTimeout(_priceTimer);
+    _priceTimer = setTimeout(() => {
+        const q = document.getElementById('price-search')?.value?.trim() || '';
+        state.searchQuery = q;
+        if (q.length >= 2) {
+            searchPublicPrices(q);
+        } else {
+            loadPublicPrices();
+        }
+    }, 350);
+}
+
+async function loadPublicPrices(offset = 0) {
+    let params = `?offset=${offset}&limit=30`;
+    if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
+
+    try {
+        const resp = await API.publicPrices(params);
+        const container = document.getElementById('prices-list');
+        if (!resp.ok) { container.innerHTML = '<div class="empty-state"><p>Error cargando precios</p></div>'; return; }
+        if (!resp.data.length) { container.innerHTML = '<div class="empty-state"><p>No se encontraron materiales</p></div>'; return; }
+
+        container.innerHTML = `
+            <div class="price-grid">${resp.data.map(renderPriceCard).join('')}</div>
+        `;
+        renderPagination(resp.total, offset, 30, loadPublicPrices);
+    } catch { document.getElementById('prices-list').innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>'; }
+}
+
+async function searchPublicPrices(q) {
+    try {
+        const resp = await API.searchPrices(q);
+        const container = document.getElementById('prices-list');
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = `<div class="empty-state"><p>No se encontraron resultados para "${esc(q)}"</p></div>`;
+            return;
+        }
+        container.innerHTML = `
+            <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">${resp.data.length} resultados para "${esc(q)}"</p>
+            <div class="price-grid">${resp.data.map(p => renderPriceCard({
+                ...p, ref_currency: 'BOB',
+            })).join('')}</div>
+        `;
+    } catch {
+        document.getElementById('prices-list').innerHTML = '<div class="empty-state"><p>Error buscando</p></div>';
+    }
+}
+
+function renderPagination(total, offset, limit, loadFn) {
+    const container = document.getElementById('prices-pagination');
+    if (!container || total <= limit) { if (container) container.innerHTML = ''; return; }
+
+    const pages = Math.ceil(total / limit);
+    const current = Math.floor(offset / limit);
+    let html = '';
+    for (let i = 0; i < pages && i < 10; i++) {
+        html += `<button class="btn btn-sm ${i === current ? 'btn-primary' : 'btn-secondary'}"
+                         onclick="(${loadFn.name})(${i * limit})" style="min-width:36px">${i + 1}</button> `;
+    }
+    container.innerHTML = html;
+}
+
+// ── Render: Public Suppliers page ──────────────────────────────
+async function renderPublicSuppliers() {
+    const page = document.getElementById('page-content');
+    page.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Directorio de Proveedores</h1>
+            <p class="page-subtitle">Encuentra proveedores de materiales de construccion en Bolivia</p>
+        </div>
+        <div class="search-bar">
+            <input class="form-input" id="supplier-search" placeholder="Buscar proveedor..." oninput="debounceSupplierSearch()">
+            <select class="form-select" id="supplier-dept-filter" onchange="filterSupplierDept()" style="max-width:180px">
+                <option value="">Todos los departamentos</option>
+                ${DEPARTMENTS.map(d => `<option value="${d}"${state.selectedDepartment === d ? ' selected' : ''}>${d}</option>`).join('')}
+            </select>
+        </div>
+        <div class="categories-bar" id="supplier-categories"></div>
+        <div class="supplier-grid" id="suppliers-list">
+            <div class="empty-state"><p>Cargando...</p></div>
+        </div>
+    `;
+
+    loadSupplierCategoryChips();
+    loadPublicSuppliers();
+}
+
+async function loadSupplierCategoryChips() {
+    try {
+        const resp = await API.supplierCategories();
+        if (resp.ok && resp.data.length) {
+            const container = document.getElementById('supplier-categories');
+            if (!container) return;
+            container.innerHTML = `
+                <span class="chip${!state.selectedCategory ? ' active' : ''}" onclick="filterSupplierCategory(null)">Todos</span>
+                ${resp.data.map(c => {
+                    const meta = CATEGORY_META[c.name] || { label: c.name, icon: '' };
+                    return `<span class="chip${state.selectedCategory === c.name ? ' active' : ''}"
+                                  onclick="filterSupplierCategory('${esc(c.name)}')">${meta.icon} ${esc(meta.label || c.name)}</span>`;
+                }).join('')}
+            `;
+        }
+    } catch {}
+}
+
+function filterSupplierCategory(cat) {
+    state.selectedCategory = cat;
+    loadSupplierCategoryChips();
+    loadPublicSuppliers();
+}
+
+function filterSupplierDept() {
+    state.selectedDepartment = document.getElementById('supplier-dept-filter')?.value || null;
+    loadPublicSuppliers();
+}
+
+let _supplierTimer;
+function debounceSupplierSearch() {
+    clearTimeout(_supplierTimer);
+    _supplierTimer = setTimeout(loadPublicSuppliers, 350);
+}
+
+async function loadPublicSuppliers() {
+    const q = document.getElementById('supplier-search')?.value?.trim() || '';
+    let params = '?limit=50';
+    if (q) params += `&q=${encodeURIComponent(q)}`;
+    if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
+    if (state.selectedDepartment) params += `&department=${encodeURIComponent(state.selectedDepartment)}`;
+
+    try {
+        const resp = await API.publicSuppliers(params);
+        const container = document.getElementById('suppliers-list');
+        if (!container) return;
+        if (resp.ok && resp.data.length) {
+            container.innerHTML = resp.data.map(renderSupplierCard).join('');
+        } else {
+            container.innerHTML = '<div class="empty-state"><p>No se encontraron proveedores con esos filtros</p></div>';
+        }
+    } catch {
+        const container = document.getElementById('suppliers-list');
+        if (container) container.innerHTML = '<div class="empty-state"><p>Error cargando proveedores</p></div>';
+    }
+}
+
+// ── Login Modal (not a page) ───────────────────────────────────
+function showLoginModal() {
+    showModal('Iniciar Sesion', `
+        <form id="login-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input class="form-input" type="email" name="email" required placeholder="correo@empresa.com">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Contrasena</label>
+                <input class="form-input" type="password" name="password" required placeholder="********">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
+                Iniciar Sesion
+            </button>
+            <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--gray-500)">
+                No tienes cuenta? <a href="#" onclick="showRegisterModal(event)">Registrate</a>
+            </div>
+        </form>
+    `);
 }
 
 async function handleLogin(e) {
     e.preventDefault();
     const form = e.target;
-    const email = form.email.value;
-    const password = form.password.value;
-
     try {
-        const data = await API.login(email, password);
+        const data = await API.login(form.email.value, form.password.value);
         if (data.access_token) {
             state.token = data.access_token;
             state.refreshToken = data.refresh_token;
@@ -241,57 +648,45 @@ async function handleLogin(e) {
             localStorage.setItem('_mkt_token', state.token);
             localStorage.setItem('_mkt_refresh', state.refreshToken);
             localStorage.setItem('_mkt_user', JSON.stringify(state.user));
+            closeModal();
+            toast('Bienvenido, ' + (state.user.full_name || ''), 'success');
             renderApp();
         } else {
-            toast(data.detail || 'Error al iniciar sesion', 'error');
+            toast(data.detail || 'Credenciales invalidas', 'error');
         }
-    } catch (err) {
-        toast('Error de conexion', 'error');
-    }
+    } catch { toast('Error de conexion', 'error'); }
 }
 
-function showRegister(e) {
+function showRegisterModal(e) {
     e && e.preventDefault();
-    showModal('Registrarse', `
+    showModal('Crear Cuenta', `
         <form id="register-form" onsubmit="handleRegister(event)">
-            <div class="form-group">
-                <label class="form-label">Nombre completo</label>
-                <input class="form-input" name="full_name" required>
+            <div class="form-group"><label class="form-label">Nombre completo</label><input class="form-input" name="full_name" required></div>
+            <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" name="email" required></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Empresa (opcional)</label><input class="form-input" name="company_name"></div>
+                <div class="form-group"><label class="form-label">Telefono</label><input class="form-input" name="phone"></div>
             </div>
-            <div class="form-group">
-                <label class="form-label">Email</label>
-                <input class="form-input" type="email" name="email" required>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Empresa (opcional)</label>
-                <input class="form-input" name="company_name">
-            </div>
-            <div class="form-group">
-                <label class="form-label">Telefono (opcional)</label>
-                <input class="form-input" name="phone">
-            </div>
-            <div class="form-group">
-                <label class="form-label">Contrasena</label>
-                <input class="form-input" type="password" name="password" required minlength="6">
-            </div>
+            <div class="form-group"><label class="form-label">Contrasena</label><input class="form-input" type="password" name="password" required minlength="6"></div>
             <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">Crear Cuenta</button>
+            <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--gray-500)">
+                Ya tienes cuenta? <a href="#" onclick="showLoginModal()">Ingresa aqui</a>
+            </div>
         </form>
     `);
 }
 
 async function handleRegister(e) {
     e.preventDefault();
-    const form = e.target;
-    const data = {
-        full_name: form.full_name.value,
-        email: form.email.value,
-        company_name: form.company_name.value || null,
-        phone: form.phone.value || null,
-        password: form.password.value,
-    };
-
+    const f = e.target;
     try {
-        const resp = await API.register(data);
+        const resp = await API.register({
+            full_name: f.full_name.value,
+            email: f.email.value,
+            company_name: f.company_name.value || null,
+            phone: f.phone.value || null,
+            password: f.password.value,
+        });
         if (resp.access_token) {
             state.token = resp.access_token;
             state.refreshToken = resp.refresh_token;
@@ -300,8 +695,8 @@ async function handleRegister(e) {
             localStorage.setItem('_mkt_refresh', state.refreshToken);
             localStorage.setItem('_mkt_user', JSON.stringify(state.user));
             closeModal();
+            toast('Cuenta creada. Bienvenido!', 'success');
             renderApp();
-            toast('Cuenta creada exitosamente', 'success');
         } else {
             toast(resp.detail || 'Error al registrarse', 'error');
         }
@@ -315,10 +710,12 @@ function logout() {
     localStorage.removeItem('_mkt_token');
     localStorage.removeItem('_mkt_refresh');
     localStorage.removeItem('_mkt_user');
+    state.currentPage = 'home';
+    toast('Sesion cerrada', 'info');
     renderApp();
 }
 
-// ── Render: Dashboard ──────────────────────────────────────────
+// ── Render: Dashboard (auth) ───────────────────────────────────
 async function renderDashboard() {
     const page = document.getElementById('page-content');
     page.innerHTML = `
@@ -338,7 +735,6 @@ async function renderDashboard() {
             </div>
         </div>
     `;
-
     try {
         const resp = await API.stats();
         if (resp.ok) {
@@ -354,227 +750,10 @@ async function renderDashboard() {
     } catch {}
 }
 
-// ── Render: Prices ─────────────────────────────────────────────
-async function renderPrices() {
-    const page = document.getElementById('page-content');
-    page.innerHTML = `
-        <div class="page-header">
-            <h1 class="page-title">Precios Unitarios</h1>
-            <p class="page-subtitle">Catalogo centralizado de insumos y precios</p>
-        </div>
-        <div class="search-bar">
-            <input class="form-input" id="price-search" placeholder="Buscar insumo..." oninput="searchPrices()">
-            <button class="btn btn-primary" onclick="showNewInsumoModal()">${icon('plus',16)} Nuevo</button>
-        </div>
-        <div id="prices-list"></div>
-    `;
-    await loadPrices();
-}
-
-async function loadPrices(q = '') {
-    const params = q ? `?q=${encodeURIComponent(q)}` : '';
-    try {
-        const resp = await API.insumos(params);
-        if (resp.ok) {
-            const container = document.getElementById('prices-list');
-            if (!resp.data.length) {
-                container.innerHTML = '<div class="empty-state"><p>No se encontraron insumos</p></div>';
-                return;
-            }
-            container.innerHTML = `
-                <div class="table-wrap"><table>
-                    <thead><tr><th>Nombre</th><th>UOM</th><th>Categoria</th><th>Precio Ref.</th></tr></thead>
-                    <tbody>${resp.data.map(i => `
-                        <tr onclick="showInsumoDetail(${i.id})" style="cursor:pointer">
-                            <td><strong>${esc(i.name)}</strong>${i.code ? ` <span class="badge badge-gray">${esc(i.code)}</span>` : ''}</td>
-                            <td>${esc(i.uom)}</td>
-                            <td>${i.category ? esc(i.category) : '-'}</td>
-                            <td>${i.ref_price ? `${i.ref_price.toFixed(2)} ${esc(i.ref_currency)}` : '-'}</td>
-                        </tr>
-                    `).join('')}</tbody>
-                </table></div>
-                <p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${resp.total} insumos encontrados</p>
-            `;
-        }
-    } catch { toast('Error cargando precios', 'error'); }
-}
-
-let _searchTimer;
-function searchPrices() {
-    clearTimeout(_searchTimer);
-    _searchTimer = setTimeout(() => {
-        const q = document.getElementById('price-search')?.value || '';
-        loadPrices(q);
-    }, 300);
-}
-
-async function showInsumoDetail(id) {
-    try {
-        const resp = await API.insumo(id);
-        if (!resp.ok) return;
-        const i = resp.data;
-        const regPrices = (i.regional_prices || []).map(rp => `
-            <tr><td>${esc(rp.region)}</td><td>${rp.price.toFixed(2)} ${esc(rp.currency)}</td>
-            <td>${rp.sample_count}</td><td>${(rp.confidence * 100).toFixed(0)}%</td></tr>
-        `).join('');
-
-        showModal(i.name, `
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-                <div><span class="form-label">Codigo</span><p>${i.code || '-'}</p></div>
-                <div><span class="form-label">UOM</span><p>${esc(i.uom)}</p></div>
-                <div><span class="form-label">Categoria</span><p>${i.category || '-'}</p></div>
-                <div><span class="form-label">Precio Ref.</span><p>${i.ref_price ? i.ref_price.toFixed(2) + ' ' + i.ref_currency : '-'}</p></div>
-            </div>
-            ${i.description ? `<p style="margin-bottom:16px;color:var(--gray-600)">${esc(i.description)}</p>` : ''}
-            <h3 style="font-size:14px;margin-bottom:8px">Precios Regionales</h3>
-            ${regPrices ? `<div class="table-wrap"><table>
-                <thead><tr><th>Region</th><th>Precio</th><th>Muestras</th><th>Confianza</th></tr></thead>
-                <tbody>${regPrices}</tbody>
-            </table></div>` : '<p style="color:var(--gray-400)">Sin precios regionales</p>'}
-        `);
-    } catch {}
-}
-
-function showNewInsumoModal() {
-    showModal('Nuevo Insumo', `
-        <form id="new-insumo-form" onsubmit="handleCreateInsumo(event)">
-            <div class="form-group"><label class="form-label">Nombre</label><input class="form-input" name="name" required></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                <div class="form-group"><label class="form-label">UOM</label>
-                    <select class="form-select" name="uom" required>
-                        <option value="m3">m3</option><option value="m2">m2</option><option value="ml">ml</option>
-                        <option value="kg">kg</option><option value="tn">tn</option><option value="pza">pza</option>
-                        <option value="bls">bls</option><option value="lt">lt</option><option value="gl">gl</option>
-                        <option value="glb">glb</option>
-                    </select>
-                </div>
-                <div class="form-group"><label class="form-label">Codigo</label><input class="form-input" name="code"></div>
-            </div>
-            <div class="form-group"><label class="form-label">Categoria</label><input class="form-input" name="category"></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                <div class="form-group"><label class="form-label">Precio Ref.</label><input class="form-input" type="number" step="0.01" name="ref_price"></div>
-                <div class="form-group"><label class="form-label">Moneda</label>
-                    <select class="form-select" name="ref_currency"><option value="BOB">BOB</option><option value="USD">USD</option></select>
-                </div>
-            </div>
-            <div class="form-group"><label class="form-label">Descripcion</label><textarea class="form-input" name="description"></textarea></div>
-            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">Crear Insumo</button>
-        </form>
-    `);
-}
-
-async function handleCreateInsumo(e) {
-    e.preventDefault();
-    const f = e.target;
-    const data = {
-        name: f.name.value,
-        uom: f.uom.value,
-        code: f.code.value || null,
-        category: f.category.value || null,
-        ref_price: f.ref_price.value ? parseFloat(f.ref_price.value) : null,
-        ref_currency: f.ref_currency.value,
-        description: f.description.value || null,
-    };
-    const resp = await API.createInsumo(data);
-    if (resp.ok) { closeModal(); toast('Insumo creado', 'success'); loadPrices(); }
-    else toast(resp.detail || 'Error', 'error');
-}
-
-// ── Render: Suppliers ──────────────────────────────────────────
-async function renderSuppliers() {
-    const page = document.getElementById('page-content');
-    page.innerHTML = `
-        <div class="page-header">
-            <h1 class="page-title">Proveedores</h1>
-        </div>
-        <div class="search-bar">
-            <input class="form-input" id="supplier-search" placeholder="Buscar proveedor...">
-            <button class="btn btn-primary" onclick="showNewSupplierModal()">${icon('plus',16)} Nuevo</button>
-        </div>
-        <div id="suppliers-list"></div>
-    `;
-    await loadSuppliers();
-}
-
-async function loadSuppliers(q = '') {
-    const params = q ? `?q=${encodeURIComponent(q)}` : '';
-    try {
-        const resp = await API.suppliers(params);
-        if (resp.ok) {
-            const container = document.getElementById('suppliers-list');
-            if (!resp.data.length) {
-                container.innerHTML = '<div class="empty-state"><p>No hay proveedores registrados</p></div>';
-                return;
-            }
-            container.innerHTML = `<div class="table-wrap"><table>
-                <thead><tr><th>Nombre</th><th>Ciudad</th><th>Canal</th><th>Estado</th><th>Cotizaciones</th></tr></thead>
-                <tbody>${resp.data.map(s => `
-                    <tr>
-                        <td><strong>${esc(s.name)}</strong>${s.nit ? `<br><small>${esc(s.nit)}</small>` : ''}</td>
-                        <td>${s.city || '-'}</td>
-                        <td><span class="badge badge-gray">${esc(s.preferred_channel)}</span></td>
-                        <td><span class="badge badge-${s.verification_state === 'verified' ? 'success' : s.verification_state === 'rejected' ? 'danger' : 'warning'}">${esc(s.verification_state)}</span></td>
-                        <td>${s.quotation_count}</td>
-                    </tr>
-                `).join('')}</tbody>
-            </table></div>`;
-        }
-    } catch { toast('Error cargando proveedores', 'error'); }
-}
-
-function showNewSupplierModal() {
-    showModal('Nuevo Proveedor', `
-        <form id="new-supplier-form" onsubmit="handleCreateSupplier(event)">
-            <div class="form-group"><label class="form-label">Nombre / Razon Social</label><input class="form-input" name="name" required></div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                <div class="form-group"><label class="form-label">NIT</label><input class="form-input" name="nit"></div>
-                <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" name="email"></div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                <div class="form-group"><label class="form-label">Telefono</label><input class="form-input" name="phone"></div>
-                <div class="form-group"><label class="form-label">WhatsApp</label><input class="form-input" name="whatsapp"></div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                <div class="form-group"><label class="form-label">Ciudad</label><input class="form-input" name="city"></div>
-                <div class="form-group"><label class="form-label">Departamento</label>
-                    <select class="form-select" name="department">
-                        <option value="">Seleccionar...</option>
-                        <option>Santa Cruz</option><option>La Paz</option><option>Cochabamba</option>
-                        <option>Tarija</option><option>Sucre</option><option>Oruro</option>
-                        <option>Potosi</option><option>Beni</option><option>Pando</option>
-                    </select>
-                </div>
-            </div>
-            <div class="form-group"><label class="form-label">Canal preferido</label>
-                <select class="form-select" name="preferred_channel">
-                    <option value="email">Email</option><option value="whatsapp">WhatsApp</option><option value="telegram">Telegram</option>
-                </select>
-            </div>
-            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">Crear Proveedor</button>
-        </form>
-    `);
-}
-
-async function handleCreateSupplier(e) {
-    e.preventDefault();
-    const f = e.target;
-    const data = {
-        name: f.name.value,
-        nit: f.nit.value || null,
-        email: f.email.value || null,
-        phone: f.phone.value || null,
-        whatsapp: f.whatsapp.value || null,
-        city: f.city.value || null,
-        department: f.department.value || null,
-        preferred_channel: f.preferred_channel.value,
-    };
-    const resp = await API.createSupplier(data);
-    if (resp.ok) { closeModal(); toast('Proveedor creado', 'success'); loadSuppliers(); }
-    else toast(resp.detail || 'Error', 'error');
-}
-
-// ── Render: Quotations ─────────────────────────────────────────
+// ── Render: Quotations (auth) ──────────────────────────────────
 async function renderQuotations() {
+    if (!state.user) { showLoginModal(); navigate('home'); return; }
+
     const page = document.getElementById('page-content');
     page.innerHTML = `
         <div class="page-header">
@@ -641,18 +820,13 @@ async function handleUploadQuotation(e) {
     fd.append('file', f.file.files[0]);
     fd.append('region', f.region.value);
     fd.append('currency', f.currency.value);
-
     const resp = await API.uploadQuotation(fd);
-    if (resp.ok) {
-        closeModal();
-        toast(`Cotizacion creada: ${resp.extracted_lines} lineas extraidas`, 'success');
-        loadQuotations();
-    } else toast(resp.detail || 'Error al procesar archivo', 'error');
+    if (resp.ok) { closeModal(); toast(`Cotizacion creada: ${resp.extracted_lines} lineas`, 'success'); loadQuotations(); }
+    else toast(resp.detail || 'Error al procesar archivo', 'error');
 }
 
 function showManualQuotationModal() {
     showModal('Cotizacion Manual', `
-        <p style="color:var(--gray-500);margin-bottom:16px">Ingrese los datos de la cotizacion manualmente</p>
         <form id="manual-quot-form" onsubmit="handleManualQuotation(event)">
             <div class="form-group"><label class="form-label">Proveedor ID</label><input class="form-input" type="number" name="supplier_id" required></div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -661,10 +835,9 @@ function showManualQuotationModal() {
                     <select class="form-select" name="currency"><option value="BOB">BOB</option><option value="USD">USD</option></select>
                 </div>
             </div>
-            <div id="manual-lines">
-                <h3 style="font-size:14px;margin-bottom:8px">Lineas</h3>
-                <div class="manual-line" style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px">
-                    <input class="form-input" name="line_name_0" placeholder="Nombre del producto" required>
+            <div id="manual-lines"><h3 style="font-size:14px;margin-bottom:8px">Lineas</h3>
+                <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px">
+                    <input class="form-input" name="line_name_0" placeholder="Producto" required>
                     <input class="form-input" name="line_uom_0" placeholder="UOM">
                     <input class="form-input" type="number" step="0.01" name="line_price_0" placeholder="Precio" required>
                 </div>
@@ -680,10 +853,9 @@ function addManualLine() {
     const i = _manualLineCount++;
     const container = document.getElementById('manual-lines');
     const div = document.createElement('div');
-    div.className = 'manual-line';
     div.style = 'display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px';
     div.innerHTML = `
-        <input class="form-input" name="line_name_${i}" placeholder="Nombre del producto" required>
+        <input class="form-input" name="line_name_${i}" placeholder="Producto" required>
         <input class="form-input" name="line_uom_${i}" placeholder="UOM">
         <input class="form-input" type="number" step="0.01" name="line_price_${i}" placeholder="Precio" required>
     `;
@@ -703,19 +875,20 @@ async function handleManualQuotation(e) {
             unit_price: parseFloat(f[`line_price_${i}`]?.value || 0),
         });
     }
-    const data = {
+    const resp = await API.createQuotation({
         supplier_id: parseInt(f.supplier_id.value),
         region: f.region.value || null,
         currency: f.currency.value,
         lines,
-    };
-    const resp = await API.createQuotation(data);
+    });
     if (resp.ok) { closeModal(); toast('Cotizacion creada', 'success'); loadQuotations(); }
     else toast(resp.detail || 'Error', 'error');
 }
 
-// ── Render: RFQ ────────────────────────────────────────────────
+// ── Render: RFQ (auth) ─────────────────────────────────────────
 async function renderRFQ() {
+    if (!state.user) { showLoginModal(); navigate('home'); return; }
+
     const page = document.getElementById('page-content');
     page.innerHTML = `
         <div class="page-header">
@@ -737,7 +910,7 @@ async function loadRFQs() {
                 return;
             }
             container.innerHTML = `<div class="table-wrap"><table>
-                <thead><tr><th>Ref.</th><th>Titulo</th><th>Estado</th><th>Proveedores</th><th>Respuestas</th><th>Canales</th></tr></thead>
+                <thead><tr><th>Ref.</th><th>Titulo</th><th>Estado</th><th>Proveedores</th><th>Respuestas</th></tr></thead>
                 <tbody>${resp.data.map(r => `
                     <tr>
                         <td><strong>${esc(r.reference)}</strong></td>
@@ -745,7 +918,6 @@ async function loadRFQs() {
                         <td><span class="badge badge-${r.state === 'sent' ? 'success' : r.state === 'closed' ? 'gray' : 'primary'}">${esc(r.state)}</span></td>
                         <td>${r.supplier_count}</td>
                         <td>${r.response_count}</td>
-                        <td>${(r.channels_used || []).map(c => `<span class="chip">${esc(c)}</span>`).join(' ')}</td>
                     </tr>
                 `).join('')}</tbody>
             </table></div>`;
@@ -774,7 +946,7 @@ function showNewRFQModal() {
                 <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-bottom:8px">
                     <input class="form-input" name="item_name_0" placeholder="Nombre" required>
                     <input class="form-input" name="item_uom_0" placeholder="UOM">
-                    <input class="form-input" type="number" step="0.01" name="item_qty_0" placeholder="Cantidad" value="1">
+                    <input class="form-input" type="number" step="0.01" name="item_qty_0" placeholder="Cant." value="1">
                 </div>
             </div>
             <button type="button" class="btn btn-secondary btn-sm" onclick="addRFQItem()" style="margin-bottom:16px">+ Agregar item</button>
@@ -792,7 +964,7 @@ function addRFQItem() {
     div.innerHTML = `
         <input class="form-input" name="item_name_${i}" placeholder="Nombre" required>
         <input class="form-input" name="item_uom_${i}" placeholder="UOM">
-        <input class="form-input" type="number" step="0.01" name="item_qty_${i}" placeholder="Cantidad" value="1">
+        <input class="form-input" type="number" step="0.01" name="item_qty_${i}" placeholder="Cant." value="1">
     `;
     container.appendChild(div);
 }
@@ -814,16 +986,14 @@ async function handleCreateRFQ(e) {
     if (f.ch_whatsapp.checked) channels.push('whatsapp');
     if (f.ch_telegram.checked) channels.push('telegram');
 
-    const data = {
+    const resp = await API.createRFQ({
         title: f.title.value,
         description: f.description.value || null,
         region: f.region.value || null,
         deadline: f.deadline.value || null,
         supplier_ids: f.supplier_ids.value.split(',').map(s => parseInt(s.trim())).filter(Boolean),
-        channels,
-        items,
-    };
-    const resp = await API.createRFQ(data);
+        channels, items,
+    });
     if (resp.ok) { closeModal(); toast('RFQ creada', 'success'); loadRFQs(); }
     else toast(resp.detail || 'Error', 'error');
 }
@@ -878,12 +1048,12 @@ function esc(str) {
 
 // ── Init ───────────────────────────────────────────────────────
 function init() {
-    // Restore session
+    // Restore session (optional — app works without it)
     state.token = localStorage.getItem('_mkt_token');
     state.refreshToken = localStorage.getItem('_mkt_refresh');
     try { state.user = JSON.parse(localStorage.getItem('_mkt_user')); } catch {}
 
-    // Hide loading
+    // Hide loading screen
     const loading = document.getElementById('loading-screen');
     if (loading) loading.classList.add('hidden');
 
@@ -895,5 +1065,4 @@ function init() {
     renderApp();
 }
 
-// Start
 document.addEventListener('DOMContentLoaded', init);

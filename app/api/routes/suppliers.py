@@ -44,7 +44,86 @@ class SupplierUpdate(BaseModel):
     is_active: bool | None = None
 
 
-# ── Endpoints ───────────────────────────────────────────────────
+# ── Public endpoints ────────────────────────────────────────────
+@router.get("/public")
+async def public_suppliers(
+    q: str | None = Query(None),
+    city: str | None = Query(None),
+    department: str | None = Query(None),
+    category: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """Public supplier directory — no auth required."""
+    query = select(Supplier).where(
+        Supplier.is_active == True,
+        Supplier.verification_state == "verified",
+    )
+    if q:
+        query = query.where(Supplier.name.ilike(f"%{q}%"))
+    if city:
+        query = query.where(Supplier.city == city)
+    if department:
+        query = query.where(Supplier.department == department)
+    if category:
+        query = query.where(Supplier.categories.contains([category]))
+
+    total_q = select(func.count()).select_from(query.subquery())
+    total = (await db.execute(total_q)).scalar() or 0
+
+    result = await db.execute(
+        query.order_by(Supplier.name).offset(offset).limit(limit)
+    )
+    suppliers = result.scalars().all()
+
+    return {
+        "ok": True,
+        "data": [_public_supplier_dict(s) for s in suppliers],
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@router.get("/public/cities")
+async def public_cities(db: AsyncSession = Depends(get_db)):
+    """List cities with verified suppliers."""
+    result = await db.execute(
+        select(Supplier.city, Supplier.department, func.count(Supplier.id))
+        .where(
+            Supplier.is_active == True,
+            Supplier.verification_state == "verified",
+            Supplier.city.isnot(None),
+        )
+        .group_by(Supplier.city, Supplier.department)
+        .order_by(Supplier.department, Supplier.city)
+    )
+    return {
+        "ok": True,
+        "data": [
+            {"city": r[0], "department": r[1], "count": r[2]}
+            for r in result.all()
+        ],
+    }
+
+
+@router.get("/public/categories")
+async def public_supplier_categories(db: AsyncSession = Depends(get_db)):
+    """List distinct supplier categories with counts."""
+    result = await db.execute(
+        select(func.unnest(Supplier.categories).label("cat"))
+        .where(Supplier.is_active == True, Supplier.verification_state == "verified")
+    )
+    from collections import Counter
+    cats = Counter(r[0] for r in result.all())
+    return {
+        "ok": True,
+        "data": [{"name": k, "count": v} for k, v in sorted(cats.items())],
+    }
+
+
+# ── Authenticated endpoints ────────────────────────────────────
 @router.get("")
 async def list_suppliers(
     q: str | None = Query(None),
@@ -140,6 +219,21 @@ async def delete_supplier(
 
 
 # ── Helpers ─────────────────────────────────────────────────────
+def _public_supplier_dict(s: Supplier) -> dict:
+    """Public-safe fields only — no email, NIT, or internal data."""
+    return {
+        "id": s.id,
+        "name": s.name,
+        "trade_name": s.trade_name,
+        "phone": s.phone,
+        "whatsapp": s.whatsapp,
+        "city": s.city,
+        "department": s.department,
+        "categories": s.categories,
+        "rating": s.rating,
+    }
+
+
 def _supplier_to_dict(s: Supplier) -> dict:
     return {
         "id": s.id,
