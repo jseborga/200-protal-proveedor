@@ -25,6 +25,9 @@ class Settings(BaseSettings):
 
     # Admin
     admin_api_key: str = ""
+    admin_email: str = ""
+    admin_password: str = ""
+    admin_name: str = "Super Admin"
 
     # AI
     ai_provider: str = "openrouter"

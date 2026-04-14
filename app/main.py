@@ -4,10 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.core.config import settings
-from app.core.database import engine
+from app.core.database import engine, async_session
 from app.models.base import Base
 
 
@@ -20,18 +20,45 @@ async def _init_db():
       y este bloque solo actua como safety net para el primer deploy
     """
     async with engine.begin() as conn:
-        # Extensiones PostgreSQL necesarias para matching semantico
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
-
-        # Crear tablas que no existan (checkfirst=True es el default de create_all)
         await conn.run_sync(Base.metadata.create_all)
+
+
+async def _ensure_superadmin():
+    """Crea el superadmin si ADMIN_EMAIL y ADMIN_PASSWORD estan configurados
+    y el usuario no existe todavia. Si ya existe, actualiza su rol a admin."""
+    if not settings.admin_email or not settings.admin_password:
+        return
+
+    from app.models.user import User
+    from app.core.security import hash_password
+
+    async with async_session() as db:
+        result = await db.execute(select(User).where(User.email == settings.admin_email))
+        user = result.scalar_one_or_none()
+
+        if user:
+            if user.role != "admin":
+                user.role = "admin"
+                await db.commit()
+        else:
+            user = User(
+                email=settings.admin_email,
+                hashed_password=hash_password(settings.admin_password),
+                full_name=settings.admin_name,
+                role="admin",
+                is_active=True,
+            )
+            db.add(user)
+            await db.commit()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await _init_db()
+    await _ensure_superadmin()
     yield
     # Shutdown
     await engine.dispose()
