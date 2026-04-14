@@ -37,6 +37,9 @@ class Insumo(TimestampMixin, Base):
     matches: Mapped[list["ProductMatch"]] = relationship(
         "ProductMatch", back_populates="insumo"
     )
+    price_history: Mapped[list["PriceHistory"]] = relationship(
+        "PriceHistory", back_populates="insumo", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<Insumo {self.id} {self.name} [{self.uom}]>"

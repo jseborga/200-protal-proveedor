@@ -3,15 +3,18 @@
 Auth: X-API-Key header. Set ADMIN_API_KEY in environment variables.
 """
 
+from datetime import date
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import verify_api_key
 from app.models.supplier import Supplier
 from app.models.insumo import Insumo
+from app.models.price_history import PriceHistory
 
 router = APIRouter()
 
@@ -50,6 +53,25 @@ class BulkSuppliersIn(BaseModel):
 
 class BulkProductsIn(BaseModel):
     products: list[ProductIn]
+
+
+class PriceHistoryIn(BaseModel):
+    insumo_id: int | None = None
+    product_name: str | None = None
+    supplier_id: int | None = None
+    supplier_name: str | None = None
+    unit_price: float
+    currency: str = "BOB"
+    quantity: float | None = None
+    uom: str | None = None
+    observed_date: date
+    source: str = "import"
+    source_ref: str | None = None
+    notes: str | None = None
+
+
+class BulkPriceHistoryIn(BaseModel):
+    records: list[PriceHistoryIn]
 
 
 # ── Suppliers ──────────────────────────────────────────────────
@@ -260,6 +282,175 @@ async def update_product(
     return {"ok": True, "action": "updated", "data": _prod_dict(insumo)}
 
 
+# ── Price History ─────────────────────────────────────────────
+@router.post("/prices/bulk")
+async def create_price_history_bulk(
+    body: BulkPriceHistoryIn,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Upload price history records in bulk.
+
+    Each record can reference insumo by ID or by product_name (resolved to insumo).
+    Supplier can be referenced by ID or supplier_name.
+    """
+    created, skipped, errors = 0, 0, 0
+    error_details = []
+
+    for rec in body.records:
+        # Resolve insumo
+        insumo_id = rec.insumo_id
+        if not insumo_id and rec.product_name:
+            insumo = await _find_product_by_name(db, rec.product_name)
+            if insumo:
+                insumo_id = insumo.id
+
+        if not insumo_id:
+            errors += 1
+            error_details.append({"product": rec.product_name, "reason": "insumo_not_found"})
+            continue
+
+        # Resolve supplier
+        supplier_id = rec.supplier_id
+        if not supplier_id and rec.supplier_name:
+            supplier = await _find_supplier_by_name(db, rec.supplier_name)
+            if supplier:
+                supplier_id = supplier.id
+
+        # Check for duplicate (same insumo + supplier + date + source_ref)
+        if rec.source_ref:
+            existing = await db.execute(
+                select(PriceHistory).where(
+                    PriceHistory.insumo_id == insumo_id,
+                    PriceHistory.supplier_id == supplier_id,
+                    PriceHistory.observed_date == rec.observed_date,
+                    PriceHistory.source_ref == rec.source_ref,
+                ).limit(1)
+            )
+            if existing.scalar_one_or_none():
+                skipped += 1
+                continue
+
+        ph = PriceHistory(
+            insumo_id=insumo_id,
+            supplier_id=supplier_id,
+            unit_price=rec.unit_price,
+            currency=rec.currency,
+            quantity=rec.quantity,
+            uom=rec.uom,
+            observed_date=rec.observed_date,
+            source=rec.source,
+            source_ref=rec.source_ref,
+            notes=rec.notes,
+        )
+        db.add(ph)
+        created += 1
+
+    if created:
+        await db.flush()
+
+    return {
+        "ok": True,
+        "created": created,
+        "skipped": skipped,
+        "errors": errors,
+        "error_details": error_details[:20],
+    }
+
+
+@router.get("/prices/history/{insumo_id}")
+async def get_price_history(
+    insumo_id: int,
+    supplier_id: int | None = Query(None),
+    date_from: date | None = Query(None),
+    date_to: date | None = Query(None),
+    source: str | None = Query(None),
+    limit: int = Query(500, ge=1, le=2000),
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Get price history for a specific insumo."""
+    query = select(PriceHistory).where(PriceHistory.insumo_id == insumo_id)
+    if supplier_id:
+        query = query.where(PriceHistory.supplier_id == supplier_id)
+    if date_from:
+        query = query.where(PriceHistory.observed_date >= date_from)
+    if date_to:
+        query = query.where(PriceHistory.observed_date <= date_to)
+    if source:
+        query = query.where(PriceHistory.source == source)
+
+    query = query.order_by(PriceHistory.observed_date.desc()).limit(limit)
+    result = await db.execute(query)
+    records = result.scalars().all()
+
+    return {
+        "ok": True,
+        "data": [_ph_dict(r) for r in records],
+        "total": len(records),
+    }
+
+
+@router.get("/prices/evolution/{insumo_id}")
+async def get_price_evolution(
+    insumo_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Get price evolution stats for an insumo: min, max, avg, median by year."""
+    result = await db.execute(
+        text("""
+            SELECT
+                EXTRACT(YEAR FROM observed_date)::int AS year,
+                COUNT(*) AS samples,
+                ROUND(AVG(unit_price)::numeric, 2) AS avg_price,
+                ROUND(MIN(unit_price)::numeric, 2) AS min_price,
+                ROUND(MAX(unit_price)::numeric, 2) AS max_price,
+                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price)::numeric, 2) AS median_price
+            FROM mkt_price_history
+            WHERE insumo_id = :insumo_id
+            GROUP BY EXTRACT(YEAR FROM observed_date)
+            ORDER BY year
+        """),
+        {"insumo_id": insumo_id},
+    )
+    rows = result.mappings().all()
+    return {
+        "ok": True,
+        "insumo_id": insumo_id,
+        "evolution": [dict(r) for r in rows],
+    }
+
+
+# ── Purge ─────────────────────────────────────────────────────
+@router.delete("/purge")
+async def purge_all_data(
+    confirm: str = Query(..., description="Must be 'yes' to confirm"),
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Delete ALL suppliers, products and price history. Requires confirm=yes."""
+    if confirm != "yes":
+        raise HTTPException(status_code=400, detail="Set confirm=yes to proceed")
+
+    ph = (await db.execute(select(func.count(PriceHistory.id)))).scalar() or 0
+    prod = (await db.execute(select(func.count(Insumo.id)))).scalar() or 0
+    sup = (await db.execute(select(func.count(Supplier.id)))).scalar() or 0
+
+    await db.execute(text("DELETE FROM mkt_price_history"))
+    await db.execute(text("DELETE FROM mkt_product_match"))
+    await db.execute(text("DELETE FROM mkt_insumo_regional_price"))
+    await db.execute(text("DELETE FROM mkt_insumo"))
+    await db.execute(text("DELETE FROM mkt_quotation_line"))
+    await db.execute(text("DELETE FROM mkt_quotation"))
+    await db.execute(text("DELETE FROM mkt_supplier WHERE user_id IS NULL"))
+
+    return {
+        "ok": True,
+        "deleted": {"price_records": ph, "products": prod, "suppliers": sup},
+    }
+
+
 # ── Stats ──────────────────────────────────────────────────────
 @router.get("/stats")
 async def integration_stats(
@@ -269,7 +460,8 @@ async def integration_stats(
     """Quick stats for monitoring."""
     suppliers = (await db.execute(select(func.count(Supplier.id)).where(Supplier.is_active == True))).scalar() or 0
     products = (await db.execute(select(func.count(Insumo.id)).where(Insumo.is_active == True))).scalar() or 0
-    return {"ok": True, "suppliers": suppliers, "products": products}
+    price_records = (await db.execute(select(func.count(PriceHistory.id)))).scalar() or 0
+    return {"ok": True, "suppliers": suppliers, "products": products, "price_records": price_records}
 
 
 # ── Helpers ────────────────────────────────────────────────────
@@ -302,4 +494,41 @@ def _prod_dict(i: Insumo) -> dict:
         "id": i.id, "name": i.name, "code": i.code,
         "uom": i.uom, "category": i.category,
         "ref_price": i.ref_price, "ref_currency": i.ref_currency,
+    }
+
+
+async def _find_product_by_name(db, name: str) -> Insumo | None:
+    from app.services.matching import normalize_text
+    name_norm = normalize_text(name)
+    result = await db.execute(
+        select(Insumo).where(
+            Insumo.name_normalized == name_norm,
+            Insumo.is_active == True,
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _find_supplier_by_name(db, name: str) -> Supplier | None:
+    result = await db.execute(
+        select(Supplier).where(
+            Supplier.name == name,
+            Supplier.is_active == True,
+        ).limit(1)
+    )
+    return result.scalar_one_or_none()
+
+
+def _ph_dict(r: PriceHistory) -> dict:
+    return {
+        "id": r.id,
+        "insumo_id": r.insumo_id,
+        "supplier_id": r.supplier_id,
+        "unit_price": r.unit_price,
+        "currency": r.currency,
+        "quantity": r.quantity,
+        "uom": r.uom,
+        "observed_date": r.observed_date.isoformat(),
+        "source": r.source,
+        "source_ref": r.source_ref,
     }

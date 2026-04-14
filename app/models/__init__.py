@@ -7,10 +7,11 @@ from .match import ProductMatch
 from .user import User
 from .api_key import ApiKey
 from .catalog import Category, UnitOfMeasure
+from .price_history import PriceHistory
 
 __all__ = [
     "Base", "Supplier", "Insumo", "InsumoRegionalPrice",
     "Quotation", "QuotationLine", "RFQ", "RFQItem",
     "ProductMatch", "User", "ApiKey",
-    "Category", "UnitOfMeasure",
+    "Category", "UnitOfMeasure", "PriceHistory",
 ]
