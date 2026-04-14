@@ -1,20 +1,32 @@
-FROM python:3.12-slim AS base
+FROM python:3.12-slim
 
 WORKDIR /app
 
-# System deps for asyncpg + bcrypt
+# System dependencies: compiladores para asyncpg/bcrypt, libpq para PostgreSQL, curl para healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential libpq-dev curl \
+    build-essential \
+    libpq-dev \
+    libffi-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Python deps (cached layer)
+# Python dependencies (cached layer — solo se reconstruye si cambia requirements.txt)
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# App code + frontend + migrations + scripts
+COPY app/ ./app/
+COPY frontend/ ./frontend/
+COPY migrations/ ./migrations/
+COPY scripts/ ./scripts/
+COPY alembic.ini .
 COPY pyproject.toml .
-RUN pip install --no-cache-dir . && pip install email-validator
 
-# App code
-COPY . .
+# Permisos para el script de inicio
+RUN chmod +x scripts/start.sh
 
-# Create non-root user
+# Usuario no-root para seguridad
 RUN adduser --disabled-password --gecos '' appuser && chown -R appuser:appuser /app
 USER appuser
 
