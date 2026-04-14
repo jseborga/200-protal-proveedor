@@ -45,7 +45,7 @@ class Supplier(TimestampMixin, Base):
     )  # email, whatsapp, telegram
 
     # Extra data
-    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    extra_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     # Relationships
     user: Mapped["User | None"] = relationship("User", back_populates="supplier")
