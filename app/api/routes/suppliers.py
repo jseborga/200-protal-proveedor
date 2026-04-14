@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.api.deps import require_manager
+from app.api.deps import require_manager, require_staff
 from app.models.supplier import Supplier
 from app.models.user import User
 
@@ -192,7 +192,7 @@ async def update_supplier(
     supplier_id: int,
     body: SupplierUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_manager),
+    user: User = Depends(require_staff),
 ):
     supplier = await db.get(Supplier, supplier_id)
     if not supplier:

@@ -92,6 +92,12 @@ const API = {
     rfqs: (params = '') => API.get(`/rfq${params}`),
     createRFQ: (data) => API.post('/rfq', data),
     stats: () => API.get('/admin/stats'),
+
+    // Admin — user management
+    adminUsers: (params = '') => API.get(`/admin/users${params}`),
+    adminCreateUser: (data) => API.post('/admin/users', data),
+    adminUpdateUser: (id, data) => API.put(`/admin/users/${id}`, data),
+    adminResetPassword: (id) => API.post(`/admin/users/${id}/reset-password`),
 };
 
 // ── Categories config ──────────────────────────────────────────
@@ -130,6 +136,11 @@ const ICONS = {
     map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
     star: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>',
     'bar-chart': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>',
+    settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
+    edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
+    trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
+    'user-plus': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>',
+    key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -156,13 +167,16 @@ function renderApp() {
     const authPages = {
         quotations: { title: 'Cotizaciones', icon: 'file-text', render: renderQuotations },
         rfq:        { title: 'RFQ',          icon: 'send',      render: renderRFQ },
-        dashboard:  { title: 'Dashboard',    icon: 'bar-chart', render: renderDashboard },
     };
 
-    const allPages = { ...publicPages, ...(state.user ? authPages : {}) };
+    const staffPages = isStaff() ? {
+        admin:     { title: 'Admin',        icon: 'settings',   render: renderAdmin },
+    } : {};
+
+    const allPages = { ...publicPages, ...(state.user ? { ...authPages, ...staffPages } : {}) };
 
     app.innerHTML = `
-        ${renderTopbar(publicPages, authPages)}
+        ${renderTopbar(publicPages, { ...authPages, ...staffPages })}
         <div class="app-container">
             <div class="page" id="page-content"></div>
         </div>
@@ -715,23 +729,89 @@ function logout() {
     renderApp();
 }
 
-// ── Render: Dashboard (auth) ───────────────────────────────────
-async function renderDashboard() {
+// ── Role helpers ───────────────────────────────────────────────
+const STAFF_ROLES = ['admin', 'superadmin', 'manager', 'field_agent'];
+const MANAGER_ROLES = ['admin', 'superadmin', 'manager'];
+
+function isStaff() { return state.user && STAFF_ROLES.includes(state.user.role); }
+function isManager() { return state.user && MANAGER_ROLES.includes(state.user.role); }
+function isAdmin() { return state.user && ['admin', 'superadmin'].includes(state.user.role); }
+
+const ROLE_LABELS = {
+    admin: 'Administrador',
+    superadmin: 'Super Admin',
+    manager: 'Gestor',
+    field_agent: 'Agente de Campo',
+    user: 'Usuario',
+    supplier: 'Proveedor',
+};
+
+const ROLE_COLORS = {
+    admin: 'danger', superadmin: 'danger', manager: 'warning',
+    field_agent: 'primary', user: 'gray', supplier: 'success',
+};
+
+// ── Admin state ────────────────────────────────────────────────
+let _adminTab = 'dashboard';
+
+// ── Render: Admin panel ────────────────────────────────────────
+async function renderAdmin() {
+    if (!isStaff()) { showLoginModal(); navigate('home'); return; }
+
     const page = document.getElementById('page-content');
+    const tabs = [
+        { key: 'dashboard', label: 'Dashboard', icon: 'bar-chart' },
+        { key: 'suppliers', label: 'Proveedores', icon: 'users' },
+        { key: 'products', label: 'Productos', icon: 'tag' },
+    ];
+    if (isManager()) tabs.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
+
     page.innerHTML = `
         <div class="page-header">
-            <h1 class="page-title">Dashboard</h1>
-            <p class="page-subtitle">Resumen general del marketplace</p>
+            <h1 class="page-title">${icon('settings', 24)} Panel de Administracion</h1>
+            <p class="page-subtitle">Gestion de datos para trabajo de campo</p>
         </div>
-        <div class="stats-grid" id="stats-grid">
+        <div class="admin-tabs">
+            ${tabs.map(t => `
+                <button class="admin-tab${_adminTab === t.key ? ' active' : ''}"
+                        onclick="switchAdminTab('${t.key}')">
+                    ${icon(t.icon, 16)} ${t.label}
+                </button>
+            `).join('')}
+        </div>
+        <div id="admin-content"></div>
+    `;
+
+    renderAdminTab();
+}
+
+function switchAdminTab(tab) {
+    _adminTab = tab;
+    renderAdmin();
+}
+
+function renderAdminTab() {
+    switch (_adminTab) {
+        case 'dashboard': renderAdminDashboard(); break;
+        case 'suppliers': renderAdminSuppliers(); break;
+        case 'products': renderAdminProducts(); break;
+        case 'users': renderAdminUsers(); break;
+    }
+}
+
+// ── Admin: Dashboard ───────────────────────────────────────────
+async function renderAdminDashboard() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = `
+        <div class="stats-grid" id="admin-stats">
             <div class="stat-card"><div class="stat-value">-</div><div class="stat-label">Cargando...</div></div>
         </div>
-        <div class="card">
+        <div class="card" style="margin-top:16px">
             <div class="card-header"><span class="card-title">Acciones rapidas</span></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button class="btn btn-primary" onclick="navigate('prices')">${icon('search',16)} Buscar Precios</button>
-                <button class="btn btn-secondary" onclick="navigate('quotations')">${icon('upload',16)} Subir Cotizacion</button>
-                <button class="btn btn-secondary" onclick="navigate('rfq')">${icon('send',16)} Nueva RFQ</button>
+                <button class="btn btn-primary" onclick="switchAdminTab('suppliers')">${icon('plus',16)} Nuevo Proveedor</button>
+                <button class="btn btn-secondary" onclick="switchAdminTab('products')">${icon('plus',16)} Nuevo Producto</button>
+                ${isManager() ? `<button class="btn btn-secondary" onclick="switchAdminTab('users')">${icon('user-plus',16)} Crear Agente</button>` : ''}
             </div>
         </div>
     `;
@@ -739,15 +819,562 @@ async function renderDashboard() {
         const resp = await API.stats();
         if (resp.ok) {
             const s = resp.data;
-            document.getElementById('stats-grid').innerHTML = `
-                <div class="stat-card"><div class="stat-value">${s.insumos}</div><div class="stat-label">Insumos</div></div>
+            document.getElementById('admin-stats').innerHTML = `
                 <div class="stat-card"><div class="stat-value">${s.suppliers}</div><div class="stat-label">Proveedores</div></div>
+                <div class="stat-card"><div class="stat-value">${s.insumos}</div><div class="stat-label">Productos</div></div>
                 <div class="stat-card"><div class="stat-value">${s.quotations}</div><div class="stat-label">Cotizaciones</div></div>
-                <div class="stat-card"><div class="stat-value">${s.regions}</div><div class="stat-label">Regiones</div></div>
                 <div class="stat-card"><div class="stat-value">${s.users}</div><div class="stat-label">Usuarios</div></div>
+                <div class="stat-card"><div class="stat-value">${s.regions}</div><div class="stat-label">Regiones</div></div>
             `;
         }
     } catch {}
+}
+
+// ── Admin: Suppliers ───────────────────────────────────────────
+async function renderAdminSuppliers() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = `
+        <div class="search-bar">
+            <input class="form-input" id="admin-supplier-search" placeholder="Buscar proveedor..." oninput="debounceAdminSuppliers()">
+            <select class="form-select" id="admin-supplier-state" onchange="loadAdminSuppliers()" style="max-width:160px">
+                <option value="">Todos los estados</option>
+                <option value="pending">Pendiente</option>
+                <option value="verified">Verificado</option>
+                <option value="rejected">Rechazado</option>
+            </select>
+            <button class="btn btn-primary" onclick="showAdminSupplierForm()">
+                ${icon('plus',16)} Nuevo
+            </button>
+        </div>
+        <div id="admin-suppliers-list"></div>
+    `;
+    loadAdminSuppliers();
+}
+
+let _admSupTimer;
+function debounceAdminSuppliers() {
+    clearTimeout(_admSupTimer);
+    _admSupTimer = setTimeout(loadAdminSuppliers, 300);
+}
+
+async function loadAdminSuppliers() {
+    const q = document.getElementById('admin-supplier-search')?.value?.trim() || '';
+    const st = document.getElementById('admin-supplier-state')?.value || '';
+    let params = '?limit=100';
+    if (q) params += `&q=${encodeURIComponent(q)}`;
+    if (st) params += `&state=${encodeURIComponent(st)}`;
+
+    try {
+        const resp = await API.suppliers(params);
+        const container = document.getElementById('admin-suppliers-list');
+        if (!container) return;
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = '<div class="empty-state"><p>No hay proveedores</p></div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="table-wrap"><table>
+                <thead><tr>
+                    <th>Nombre</th><th>Ciudad</th><th>Depto.</th><th>WhatsApp</th>
+                    <th>Categorias</th><th>Estado</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>${resp.data.map(s => `
+                    <tr>
+                        <td><strong>${esc(s.name)}</strong>${s.trade_name ? `<br><small style="color:var(--gray-500)">${esc(s.trade_name)}</small>` : ''}</td>
+                        <td>${esc(s.city) || '-'}</td>
+                        <td>${esc(s.department) || '-'}</td>
+                        <td>${s.whatsapp ? `<a href="https://wa.me/${s.whatsapp.replace(/[^0-9]/g,'')}" target="_blank" style="color:var(--whatsapp)">${esc(s.whatsapp)}</a>` : '-'}</td>
+                        <td>${(s.categories || []).map(c => `<span class="supplier-cat">${esc(c)}</span>`).join(' ') || '-'}</td>
+                        <td><span class="badge badge-${s.verification_state === 'verified' ? 'success' : s.verification_state === 'rejected' ? 'danger' : 'warning'}">${esc(s.verification_state)}</span></td>
+                        <td style="white-space:nowrap">
+                            <button class="btn btn-sm btn-secondary" onclick="showAdminSupplierForm(${s.id})" title="Editar">${icon('edit',14)}</button>
+                            ${isManager() ? `<button class="btn btn-sm btn-secondary" onclick="verifySupplier(${s.id},'verified')" title="Verificar" style="color:var(--success)">&#10003;</button>` : ''}
+                        </td>
+                    </tr>
+                `).join('')}</tbody>
+            </table></div>
+            <p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${resp.total} proveedores</p>
+        `;
+    } catch { document.getElementById('admin-suppliers-list').innerHTML = '<div class="empty-state"><p>Error cargando</p></div>'; }
+}
+
+async function verifySupplier(id, newState) {
+    try {
+        const resp = await API.updateSupplier(id, { verification_state: newState });
+        if (resp.ok) { toast('Proveedor actualizado', 'success'); loadAdminSuppliers(); }
+        else toast(resp.detail || 'Error', 'error');
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+function showAdminSupplierForm(editId) {
+    const title = editId ? 'Editar Proveedor' : 'Nuevo Proveedor (Campo)';
+    const catOptions = Object.entries(CATEGORY_META).map(([k, v]) =>
+        `<label style="display:flex;align-items:center;gap:4px;font-size:13px">
+            <input type="checkbox" name="cat_${k}" value="${k}"> ${v.icon} ${v.label}
+        </label>`
+    ).join('');
+
+    showModal(title, `
+        <form id="admin-supplier-form" onsubmit="handleAdminSupplier(event, ${editId || 'null'})">
+            <div class="form-group">
+                <label class="form-label">Nombre / Razon Social *</label>
+                <input class="form-input" name="name" required placeholder="Ferreteria El Constructor">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Nombre comercial</label>
+                <input class="form-input" name="trade_name" placeholder="El Constructor">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">NIT</label><input class="form-input" name="nit" placeholder="1234567890"></div>
+                <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" name="email" placeholder="contacto@empresa.com"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Telefono</label><input class="form-input" name="phone" placeholder="33445566"></div>
+                <div class="form-group"><label class="form-label">WhatsApp *</label><input class="form-input" name="whatsapp" required placeholder="59177889900"></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Ciudad *</label><input class="form-input" name="city" required placeholder="Santa Cruz de la Sierra"></div>
+                <div class="form-group"><label class="form-label">Departamento *</label>
+                    <select class="form-select" name="department" required>
+                        <option value="">Seleccionar...</option>
+                        ${DEPARTMENTS.map(d => `<option value="${d}">${d}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            <div class="form-group"><label class="form-label">Direccion</label><input class="form-input" name="address" placeholder="Av. Principal #123, Zona Centro"></div>
+            <div class="form-group">
+                <label class="form-label">Categorias de productos *</label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:4px">
+                    ${catOptions}
+                </div>
+            </div>
+            <div class="form-group"><label class="form-label">Canal preferido</label>
+                <select class="form-select" name="preferred_channel">
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="email">Email</option>
+                    <option value="telegram">Telegram</option>
+                </select>
+            </div>
+            ${isManager() ? `
+            <div class="form-group"><label class="form-label">Estado de verificacion</label>
+                <select class="form-select" name="verification_state">
+                    <option value="pending">Pendiente</option>
+                    <option value="verified">Verificado</option>
+                    <option value="rejected">Rechazado</option>
+                </select>
+            </div>` : ''}
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
+                ${editId ? 'Guardar Cambios' : 'Registrar Proveedor'}
+            </button>
+        </form>
+    `);
+
+    // If editing, load existing data
+    if (editId) loadSupplierIntoForm(editId);
+}
+
+async function loadSupplierIntoForm(id) {
+    try {
+        const resp = await API.supplier(id);
+        if (!resp.ok) return;
+        const s = resp.data;
+        const f = document.getElementById('admin-supplier-form');
+        if (!f) return;
+        if (s.name) f.name.value = s.name;
+        if (s.trade_name) f.trade_name.value = s.trade_name;
+        if (s.nit) f.nit.value = s.nit;
+        if (s.email) f.email.value = s.email;
+        if (s.phone) f.phone.value = s.phone;
+        if (s.whatsapp) f.whatsapp.value = s.whatsapp;
+        if (s.city) f.city.value = s.city;
+        if (s.department) f.department.value = s.department;
+        if (s.address) f.address.value = s.address;
+        if (s.preferred_channel) f.preferred_channel.value = s.preferred_channel;
+        if (f.verification_state && s.verification_state) f.verification_state.value = s.verification_state;
+        // Check category checkboxes
+        (s.categories || []).forEach(c => {
+            const cb = f[`cat_${c}`];
+            if (cb) cb.checked = true;
+        });
+    } catch {}
+}
+
+async function handleAdminSupplier(e, editId) {
+    e.preventDefault();
+    const f = e.target;
+
+    // Collect checked categories
+    const categories = Object.keys(CATEGORY_META).filter(k => f[`cat_${k}`]?.checked);
+
+    const data = {
+        name: f.name.value,
+        trade_name: f.trade_name.value || null,
+        nit: f.nit.value || null,
+        email: f.email.value || null,
+        phone: f.phone.value || null,
+        whatsapp: f.whatsapp.value || null,
+        city: f.city.value || null,
+        department: f.department.value || null,
+        address: f.address.value || null,
+        categories: categories.length ? categories : null,
+        preferred_channel: f.preferred_channel.value,
+    };
+
+    if (f.verification_state) {
+        data.verification_state = f.verification_state.value;
+    }
+
+    try {
+        const resp = editId
+            ? await API.updateSupplier(editId, data)
+            : await API.createSupplier(data);
+        if (resp.ok) {
+            closeModal();
+            toast(editId ? 'Proveedor actualizado' : 'Proveedor registrado', 'success');
+            loadAdminSuppliers();
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Admin: Products ────────────────────────────────────────────
+async function renderAdminProducts() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = `
+        <div class="search-bar">
+            <input class="form-input" id="admin-product-search" placeholder="Buscar producto/insumo..." oninput="debounceAdminProducts()">
+            <button class="btn btn-primary" onclick="showAdminProductForm()">
+                ${icon('plus',16)} Nuevo
+            </button>
+        </div>
+        <div id="admin-products-list"></div>
+    `;
+    loadAdminProducts();
+}
+
+let _admProdTimer;
+function debounceAdminProducts() {
+    clearTimeout(_admProdTimer);
+    _admProdTimer = setTimeout(loadAdminProducts, 300);
+}
+
+async function loadAdminProducts() {
+    const q = document.getElementById('admin-product-search')?.value?.trim() || '';
+    let params = '?limit=100';
+    if (q) params += `&q=${encodeURIComponent(q)}`;
+
+    try {
+        const resp = await API.insumos(params);
+        const container = document.getElementById('admin-products-list');
+        if (!container) return;
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = '<div class="empty-state"><p>No hay productos</p></div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="table-wrap"><table>
+                <thead><tr>
+                    <th>Nombre</th><th>Codigo</th><th>UOM</th><th>Categoria</th><th>Precio Ref.</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>${resp.data.map(p => `
+                    <tr>
+                        <td><strong>${esc(p.name)}</strong></td>
+                        <td>${p.code ? `<span class="badge badge-gray">${esc(p.code)}</span>` : '-'}</td>
+                        <td>${esc(p.uom)}</td>
+                        <td>${p.category ? esc(p.category) : '-'}</td>
+                        <td>${p.ref_price ? `${p.ref_price.toFixed(2)} ${esc(p.ref_currency)}` : '-'}</td>
+                        <td><button class="btn btn-sm btn-secondary" onclick="showAdminProductForm(${p.id})">${icon('edit',14)}</button></td>
+                    </tr>
+                `).join('')}</tbody>
+            </table></div>
+            <p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${resp.total} productos</p>
+        `;
+    } catch { document.getElementById('admin-products-list').innerHTML = '<div class="empty-state"><p>Error cargando</p></div>'; }
+}
+
+function showAdminProductForm(editId) {
+    const title = editId ? 'Editar Producto' : 'Nuevo Producto';
+    const catSuggestions = Object.values(CATEGORY_META).map(v => v.label).join(', ');
+
+    showModal(title, `
+        <form id="admin-product-form" onsubmit="handleAdminProduct(event, ${editId || 'null'})">
+            <div class="form-group">
+                <label class="form-label">Nombre del producto *</label>
+                <input class="form-input" name="name" required placeholder="Ej: Cemento Portland IP-30">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Unidad de medida *</label>
+                    <select class="form-select" name="uom" required>
+                        <option value="bls">bls (Bolsa)</option>
+                        <option value="kg">kg</option>
+                        <option value="tn">tn (Tonelada)</option>
+                        <option value="m3">m3</option>
+                        <option value="m2">m2</option>
+                        <option value="ml">ml (Metro lineal)</option>
+                        <option value="pza">pza (Pieza)</option>
+                        <option value="lt">lt (Litro)</option>
+                        <option value="gl">gl (Galon)</option>
+                        <option value="glb">glb (Global)</option>
+                        <option value="rollo">rollo</option>
+                        <option value="varilla">varilla</option>
+                    </select>
+                </div>
+                <div class="form-group"><label class="form-label">Codigo</label><input class="form-input" name="code" placeholder="CEM-001"></div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Categoria</label>
+                <input class="form-input" name="category" placeholder="${catSuggestions}" list="cat-suggestions">
+                <datalist id="cat-suggestions">
+                    ${Object.values(CATEGORY_META).map(v => `<option value="${v.label}">`).join('')}
+                </datalist>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Precio referencial</label><input class="form-input" type="number" step="0.01" name="ref_price" placeholder="0.00"></div>
+                <div class="form-group"><label class="form-label">Moneda</label>
+                    <select class="form-select" name="ref_currency"><option value="BOB">BOB</option><option value="USD">USD</option></select>
+                </div>
+            </div>
+            <div class="form-group"><label class="form-label">Descripcion</label><textarea class="form-input" name="description" placeholder="Descripcion adicional del producto..."></textarea></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
+                ${editId ? 'Guardar Cambios' : 'Crear Producto'}
+            </button>
+        </form>
+    `);
+
+    if (editId) loadProductIntoForm(editId);
+}
+
+async function loadProductIntoForm(id) {
+    try {
+        const resp = await API.insumo(id);
+        if (!resp.ok) return;
+        const p = resp.data;
+        const f = document.getElementById('admin-product-form');
+        if (!f) return;
+        if (p.name) f.name.value = p.name;
+        if (p.uom) f.uom.value = p.uom;
+        if (p.code) f.code.value = p.code;
+        if (p.category) f.category.value = p.category;
+        if (p.ref_price) f.ref_price.value = p.ref_price;
+        if (p.ref_currency) f.ref_currency.value = p.ref_currency;
+        if (p.description) f.description.value = p.description;
+    } catch {}
+}
+
+async function handleAdminProduct(e, editId) {
+    e.preventDefault();
+    const f = e.target;
+    const data = {
+        name: f.name.value,
+        uom: f.uom.value,
+        code: f.code.value || null,
+        category: f.category.value || null,
+        ref_price: f.ref_price.value ? parseFloat(f.ref_price.value) : null,
+        ref_currency: f.ref_currency.value,
+        description: f.description.value || null,
+    };
+
+    try {
+        const resp = editId
+            ? await API.put(`/prices/${editId}`, data)
+            : await API.createInsumo(data);
+        if (resp.ok) {
+            closeModal();
+            toast(editId ? 'Producto actualizado' : 'Producto creado', 'success');
+            loadAdminProducts();
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Admin: Users ───────────────────────────────────────────────
+async function renderAdminUsers() {
+    if (!isManager()) { toast('Sin permisos', 'error'); return; }
+
+    const c = document.getElementById('admin-content');
+    c.innerHTML = `
+        <div class="search-bar">
+            <input class="form-input" id="admin-user-search" placeholder="Buscar por nombre o email..." oninput="debounceAdminUsers()">
+            <select class="form-select" id="admin-user-role" onchange="loadAdminUsers()" style="max-width:180px">
+                <option value="">Todos los roles</option>
+                <option value="admin">Admin</option>
+                <option value="manager">Gestor</option>
+                <option value="field_agent">Agente de Campo</option>
+                <option value="user">Usuario</option>
+                <option value="supplier">Proveedor</option>
+            </select>
+            <button class="btn btn-primary" onclick="showAdminUserForm()">
+                ${icon('user-plus',16)} Nuevo
+            </button>
+        </div>
+        <div id="admin-users-list"></div>
+    `;
+    loadAdminUsers();
+}
+
+let _admUsrTimer;
+function debounceAdminUsers() {
+    clearTimeout(_admUsrTimer);
+    _admUsrTimer = setTimeout(loadAdminUsers, 300);
+}
+
+async function loadAdminUsers() {
+    const q = document.getElementById('admin-user-search')?.value?.trim() || '';
+    const role = document.getElementById('admin-user-role')?.value || '';
+    let params = '?limit=100';
+    if (q) params += `&q=${encodeURIComponent(q)}`;
+    if (role) params += `&role=${encodeURIComponent(role)}`;
+
+    try {
+        const resp = await API.adminUsers(params);
+        const container = document.getElementById('admin-users-list');
+        if (!container) return;
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = '<div class="empty-state"><p>No hay usuarios</p></div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="table-wrap"><table>
+                <thead><tr>
+                    <th>Nombre</th><th>Email</th><th>Rol</th><th>Empresa</th><th>Activo</th><th>Ultimo acceso</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>${resp.data.map(u => `
+                    <tr>
+                        <td><strong>${esc(u.full_name)}</strong></td>
+                        <td>${esc(u.email)}</td>
+                        <td><span class="badge badge-${ROLE_COLORS[u.role] || 'gray'}">${ROLE_LABELS[u.role] || u.role}</span></td>
+                        <td>${u.company_name ? esc(u.company_name) : '-'}</td>
+                        <td>${u.is_active ? '<span style="color:var(--success)">Si</span>' : '<span style="color:var(--danger)">No</span>'}</td>
+                        <td>${u.last_login ? new Date(u.last_login).toLocaleDateString('es') : 'Nunca'}</td>
+                        <td style="white-space:nowrap">
+                            <button class="btn btn-sm btn-secondary" onclick="showEditUserModal(${u.id}, '${esc(u.full_name)}', '${esc(u.role)}', ${u.is_active})" title="Editar">${icon('edit',14)}</button>
+                            ${isAdmin() ? `<button class="btn btn-sm btn-secondary" onclick="resetUserPassword(${u.id}, '${esc(u.full_name)}')" title="Resetear contrasena">${icon('key',14)}</button>` : ''}
+                        </td>
+                    </tr>
+                `).join('')}</tbody>
+            </table></div>
+            <p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${resp.total} usuarios</p>
+        `;
+    } catch { document.getElementById('admin-users-list').innerHTML = '<div class="empty-state"><p>Error cargando</p></div>'; }
+}
+
+function showAdminUserForm() {
+    const roleOptions = isAdmin()
+        ? `<option value="field_agent" selected>Agente de Campo</option>
+           <option value="manager">Gestor</option>
+           <option value="admin">Administrador</option>
+           <option value="user">Usuario</option>`
+        : `<option value="field_agent" selected>Agente de Campo</option>
+           <option value="user">Usuario</option>`;
+
+    showModal('Crear Usuario', `
+        <form id="admin-user-form" onsubmit="handleCreateUser(event)">
+            <div class="form-group">
+                <label class="form-label">Nombre completo *</label>
+                <input class="form-input" name="full_name" required placeholder="Juan Perez">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email *</label>
+                <input class="form-input" type="email" name="email" required placeholder="juan@empresa.com">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Telefono</label><input class="form-input" name="phone" placeholder="77889900"></div>
+                <div class="form-group"><label class="form-label">Empresa</label><input class="form-input" name="company_name" placeholder="SSA Ingenieria"></div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Rol *</label>
+                <select class="form-select" name="role">${roleOptions}</select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Contrasena temporal *</label>
+                <input class="form-input" name="password" required minlength="6" placeholder="Min. 6 caracteres" value="${generateTempPassword()}">
+                <small style="color:var(--gray-500)">El usuario debera cambiarla al ingresar</small>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
+                Crear Usuario
+            </button>
+        </form>
+    `);
+}
+
+function generateTempPassword() {
+    const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+    let pwd = '';
+    for (let i = 0; i < 8; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
+    return pwd;
+}
+
+async function handleCreateUser(e) {
+    e.preventDefault();
+    const f = e.target;
+    const data = {
+        email: f.email.value,
+        password: f.password.value,
+        full_name: f.full_name.value,
+        role: f.role.value,
+        phone: f.phone.value || null,
+        company_name: f.company_name.value || null,
+    };
+    try {
+        const resp = await API.adminCreateUser(data);
+        if (resp.ok) {
+            closeModal();
+            toast(`Usuario ${data.full_name} creado como ${ROLE_LABELS[data.role]}. Contrasena: ${data.password}`, 'success');
+            loadAdminUsers();
+        } else {
+            toast(resp.detail || 'Error al crear usuario', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+function showEditUserModal(userId, name, currentRole, isActive) {
+    const roleOptions = isAdmin()
+        ? ['admin','manager','field_agent','user','supplier'].map(r =>
+            `<option value="${r}"${r === currentRole ? ' selected' : ''}>${ROLE_LABELS[r]}</option>`).join('')
+        : `<option value="${currentRole}" selected>${ROLE_LABELS[currentRole] || currentRole}</option>`;
+
+    showModal(`Editar: ${name}`, `
+        <form onsubmit="handleUpdateUser(event, ${userId})">
+            <div class="form-group">
+                <label class="form-label">Rol</label>
+                <select class="form-select" name="role">${roleOptions}</select>
+            </div>
+            <div class="form-group">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                    <input type="checkbox" name="is_active" ${isActive ? 'checked' : ''}>
+                    <span class="form-label" style="margin:0">Cuenta activa</span>
+                </label>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">Guardar</button>
+        </form>
+    `);
+}
+
+async function handleUpdateUser(e, userId) {
+    e.preventDefault();
+    const f = e.target;
+    try {
+        const resp = await API.adminUpdateUser(userId, {
+            role: f.role.value,
+            is_active: f.is_active.checked,
+        });
+        if (resp.ok) { closeModal(); toast('Usuario actualizado', 'success'); loadAdminUsers(); }
+        else toast(resp.detail || 'Error', 'error');
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function resetUserPassword(userId, name) {
+    if (!confirm(`Resetear contrasena de ${name}?`)) return;
+    try {
+        const resp = await API.adminResetPassword(userId);
+        if (resp.ok) {
+            toast(`Nueva contrasena temporal para ${name}: ${resp.temp_password}`, 'success');
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
 }
 
 // ── Render: Quotations (auth) ──────────────────────────────────
