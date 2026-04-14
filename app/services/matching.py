@@ -28,7 +28,8 @@ STOPWORDS = {
     "tipo", "clase", "calidad", "marca", "similar",
 }
 
-UOM_MAP = {
+# Fallback hardcoded — used when DB is unavailable (tests, CLI tools)
+_FALLBACK_UOM_MAP = {
     "m3": "m3", "metro cubico": "m3", "metros cubicos": "m3", "m³": "m3",
     "m2": "m2", "metro cuadrado": "m2", "metros cuadrados": "m2", "m²": "m2",
     "ml": "ml", "metro lineal": "ml", "metros lineales": "ml", "m": "ml",
@@ -43,6 +44,31 @@ UOM_MAP = {
     "lata": "lata", "latas": "lata",
     "global": "glb", "glb": "glb",
 }
+
+# Cached UOM map built from DB — refreshed on first use and on demand
+_db_uom_map: dict[str, str] | None = None
+
+
+async def build_uom_map_from_db(db: AsyncSession) -> dict[str, str]:
+    """Build UOM alias map from the mkt_uom table."""
+    global _db_uom_map
+    from app.models.catalog import UnitOfMeasure
+
+    result = await db.execute(
+        select(UnitOfMeasure).where(UnitOfMeasure.is_active == True)
+    )
+    uom_map = {}
+    for uom in result.scalars().all():
+        uom_map[uom.key] = uom.key
+        for alias in (uom.aliases or []):
+            uom_map[alias.lower().strip()] = uom.key
+    _db_uom_map = uom_map
+    return uom_map
+
+
+def get_uom_map() -> dict[str, str]:
+    """Return the current UOM map (DB-backed if loaded, fallback otherwise)."""
+    return _db_uom_map if _db_uom_map is not None else _FALLBACK_UOM_MAP
 
 MEASURE_RE = re.compile(
     r'\b(\d+(?:[.,]\d+)?)\s*(?:x\s*(\d+(?:[.,]\d+)?)\s*(?:x\s*(\d+(?:[.,]\d+)?))?)?\s*'
@@ -68,7 +94,7 @@ def normalize_text(text_val: str) -> str:
 def normalize_uom(uom: str) -> str:
     """Normalize unit of measure."""
     key = uom.lower().strip().rstrip(".")
-    return UOM_MAP.get(key, key)
+    return get_uom_map().get(key, key)
 
 
 def tokenize(text_val: str) -> set[str]:
@@ -80,6 +106,10 @@ def tokenize(text_val: str) -> set[str]:
 # ── Matching engine ─────────────────────────────────────────────
 async def run_matching(db: AsyncSession, quotation_id: int) -> int:
     """Run 4-level matching on all lines of a quotation. Returns count of matched lines."""
+    # Ensure UOM map is loaded from DB
+    if _db_uom_map is None:
+        await build_uom_map_from_db(db)
+
     result = await db.execute(
         select(Quotation).where(Quotation.id == quotation_id)
     )

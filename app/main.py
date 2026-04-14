@@ -54,11 +54,77 @@ async def _ensure_superadmin():
             await db.commit()
 
 
+async def _seed_catalog():
+    """Seed initial categories and units of measure if tables are empty."""
+    from app.models.catalog import Category, UnitOfMeasure
+
+    async with async_session() as db:
+        cat_count = (await db.execute(select(Category.id).limit(1))).first()
+        if not cat_count:
+            categories = [
+                ("ferreteria", "Ferreteria", "&#128295;", 1),
+                ("agregados", "Agregados", "&#9968;", 2),
+                ("acero", "Acero", "&#128681;", 3),
+                ("electrico", "Electrico", "&#9889;", 4),
+                ("sanitario", "Sanitario", "&#128703;", 5),
+                ("madera", "Madera", "&#127795;", 6),
+                ("cemento", "Cemento", "&#127959;", 7),
+                ("pintura", "Pintura", "&#127912;", 8),
+                ("ceramica", "Ceramica", "&#129521;", 9),
+                ("herramientas", "Herramientas", "&#128736;", 10),
+                ("plomeria", "Plomeria", "&#128688;", 11),
+                ("vidrios", "Vidrios", "&#129695;", 12),
+                ("impermeabilizantes", "Impermeabilizantes", "&#128167;", 13),
+                ("aislantes", "Aislantes", "&#129535;", 14),
+                ("prefabricados", "Prefabricados", "&#127975;", 15),
+                ("seguridad", "Seguridad Industrial", "&#9937;", 16),
+                ("maquinaria", "Maquinaria y Equipos", "&#128755;", 17),
+                ("techos", "Techos y Cubiertas", "&#127968;", 18),
+            ]
+            for key, label, icon, order in categories:
+                db.add(Category(key=key, label=label, icon=icon, sort_order=order))
+
+        uom_count = (await db.execute(select(UnitOfMeasure.id).limit(1))).first()
+        if not uom_count:
+            units = [
+                ("m3", "Metro cubico (m3)", ["metro cubico", "metros cubicos", "m\u00b3"], 1),
+                ("m2", "Metro cuadrado (m2)", ["metro cuadrado", "metros cuadrados", "m\u00b2"], 2),
+                ("ml", "Metro lineal (ml)", ["metro lineal", "metros lineales", "m"], 3),
+                ("kg", "Kilogramo (kg)", ["kilogramo", "kilogramos", "kilo", "kilos"], 4),
+                ("tn", "Tonelada (tn)", ["tonelada", "toneladas", "ton"], 5),
+                ("pza", "Pieza (pza)", ["pieza", "piezas", "unidad", "und", "u"], 6),
+                ("bls", "Bolsa (bls)", ["bolsa", "bolsas"], 7),
+                ("lt", "Litro (lt)", ["litro", "litros", "l"], 8),
+                ("gl", "Galon (gl)", ["galon", "galones"], 9),
+                ("rollo", "Rollo", ["rollos"], 10),
+                ("pliego", "Pliego", ["pliegos"], 11),
+                ("lata", "Lata", ["latas"], 12),
+                ("glb", "Global (glb)", ["global"], 13),
+                ("varilla", "Varilla", ["varillas"], 14),
+                ("barra", "Barra", ["barras"], 15),
+                ("par", "Par", ["pares"], 16),
+                ("juego", "Juego", ["juegos", "jgo"], 17),
+                ("caja", "Caja", ["cajas"], 18),
+                ("saco", "Saco", ["sacos"], 19),
+                ("tubo", "Tubo", ["tubos"], 20),
+            ]
+            for key, label, aliases, order in units:
+                db.add(UnitOfMeasure(key=key, label=label, aliases=aliases, sort_order=order))
+
+        await db.commit()
+
+    # Build UOM map cache for matching engine
+    from app.services.matching import build_uom_map_from_db
+    async with async_session() as db:
+        await build_uom_map_from_db(db)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     await _init_db()
     await _ensure_superadmin()
+    await _seed_catalog()
     yield
     # Shutdown
     await engine.dispose()

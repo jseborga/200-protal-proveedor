@@ -104,21 +104,43 @@ const API = {
     createApiKey: (data) => API.post('/admin/api-keys', data),
     updateApiKey: (id, data) => API.put(`/admin/api-keys/${id}`, data),
     revokeApiKey: (id) => API.del(`/admin/api-keys/${id}`),
+
+    // Admin — catalog (categories & UOMs)
+    adminCategories: () => API.get('/admin/categories'),
+    adminCreateCategory: (data) => API.post('/admin/categories', data),
+    adminUpdateCategory: (id, data) => API.put(`/admin/categories/${id}`, data),
+    adminDeleteCategory: (id) => API.del(`/admin/categories/${id}`),
+    adminUoms: () => API.get('/admin/uoms'),
+    adminCreateUom: (data) => API.post('/admin/uoms', data),
+    adminUpdateUom: (id, data) => API.put(`/admin/uoms/${id}`, data),
+    adminDeleteUom: (id) => API.del(`/admin/uoms/${id}`),
+
+    // Public catalog
+    catalogCategories: () => API.get('/admin/catalog/categories'),
+    catalogUoms: () => API.get('/admin/catalog/uoms'),
 };
 
-// ── Categories config ──────────────────────────────────────────
-const CATEGORY_META = {
-    ferreteria:  { label: 'Ferreteria',  icon: '&#128295;' },
-    agregados:   { label: 'Agregados',   icon: '&#9968;' },
-    acero:       { label: 'Acero',       icon: '&#128681;' },
-    electrico:   { label: 'Electrico',   icon: '&#9889;' },
-    sanitario:   { label: 'Sanitario',   icon: '&#128703;' },
-    madera:      { label: 'Madera',      icon: '&#127795;' },
-    cemento:     { label: 'Cemento',     icon: '&#127959;' },
-    pintura:     { label: 'Pintura',     icon: '&#127912;' },
-    ceramica:    { label: 'Ceramica',    icon: '&#129521;' },
-    herramientas:{ label: 'Herramientas',icon: '&#128736;' },
-};
+// ── Categories & UOMs (loaded from API) ───────────────────────
+let CATEGORY_META = {};
+let UOM_LIST = [];
+
+async function loadCatalogData() {
+    try {
+        const [catResp, uomResp] = await Promise.all([
+            API.catalogCategories(),
+            API.catalogUoms(),
+        ]);
+        if (catResp.ok) {
+            CATEGORY_META = {};
+            catResp.data.forEach(c => {
+                CATEGORY_META[c.key] = { label: c.label, icon: c.icon || '' };
+            });
+        }
+        if (uomResp.ok) {
+            UOM_LIST = uomResp.data;
+        }
+    } catch {}
+}
 
 const DEPARTMENTS = [
     'Santa Cruz', 'La Paz', 'Cochabamba', 'Tarija',
@@ -770,6 +792,8 @@ async function renderAdmin() {
         { key: 'suppliers', label: 'Proveedores', icon: 'users' },
         { key: 'products', label: 'Productos', icon: 'tag' },
     ];
+    if (isAdmin()) tabs.push({ key: 'categories', label: 'Categorias', icon: 'tag' });
+    if (isAdmin()) tabs.push({ key: 'uoms', label: 'Unidades', icon: 'settings' });
     if (isManager()) tabs.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
     if (isAdmin()) tabs.push({ key: 'apikeys', label: 'API Keys', icon: 'key' });
 
@@ -802,6 +826,8 @@ function renderAdminTab() {
         case 'dashboard': renderAdminDashboard(); break;
         case 'suppliers': renderAdminSuppliers(); break;
         case 'products': renderAdminProducts(); break;
+        case 'categories': renderAdminCategories(); break;
+        case 'uoms': renderAdminUoms(); break;
         case 'users': renderAdminUsers(); break;
         case 'apikeys': renderAdminApiKeys(); break;
     }
@@ -1103,7 +1129,7 @@ async function loadAdminProducts() {
 
 function showAdminProductForm(editId) {
     const title = editId ? 'Editar Producto' : 'Nuevo Producto';
-    const catSuggestions = Object.values(CATEGORY_META).map(v => v.label).join(', ');
+    const catSuggestions = Object.values(CATEGORY_META).map(v => v.label).join(', ') || 'Ferreteria, Acero, Cemento...';
 
     showModal(title, `
         <form id="admin-product-form" onsubmit="handleAdminProduct(event, ${editId || 'null'})">
@@ -1114,18 +1140,11 @@ function showAdminProductForm(editId) {
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                 <div class="form-group"><label class="form-label">Unidad de medida *</label>
                     <select class="form-select" name="uom" required>
-                        <option value="bls">bls (Bolsa)</option>
-                        <option value="kg">kg</option>
-                        <option value="tn">tn (Tonelada)</option>
-                        <option value="m3">m3</option>
-                        <option value="m2">m2</option>
-                        <option value="ml">ml (Metro lineal)</option>
-                        <option value="pza">pza (Pieza)</option>
-                        <option value="lt">lt (Litro)</option>
-                        <option value="gl">gl (Galon)</option>
-                        <option value="glb">glb (Global)</option>
-                        <option value="rollo">rollo</option>
-                        <option value="varilla">varilla</option>
+                        ${UOM_LIST.length ? UOM_LIST.map(u => `<option value="${esc(u.key)}">${esc(u.key)} - ${esc(u.label)}</option>`).join('') :
+                        `<option value="bls">bls (Bolsa)</option><option value="kg">kg</option><option value="tn">tn (Tonelada)</option>
+                        <option value="m3">m3</option><option value="m2">m2</option><option value="ml">ml (Metro lineal)</option>
+                        <option value="pza">pza (Pieza)</option><option value="lt">lt (Litro)</option><option value="gl">gl (Galon)</option>
+                        <option value="glb">glb (Global)</option><option value="rollo">rollo</option><option value="varilla">varilla</option>`}
                     </select>
                 </div>
                 <div class="form-group"><label class="form-label">Codigo</label><input class="form-input" name="code" placeholder="CEM-001"></div>
@@ -1191,6 +1210,310 @@ async function handleAdminProduct(e, editId) {
             closeModal();
             toast(editId ? 'Producto actualizado' : 'Producto creado', 'success');
             loadAdminProducts();
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Admin: Categories ─────────────────────────────────────────
+async function renderAdminCategories() {
+    if (!isAdmin()) { toast('Sin permisos', 'error'); return; }
+    const c = document.getElementById('admin-content');
+    c.innerHTML = `
+        <div class="search-bar">
+            <span style="font-size:14px;color:var(--gray-500)">Gestionar categorias de materiales y proveedores</span>
+            <button class="btn btn-primary" onclick="showCategoryForm()">
+                ${icon('plus',16)} Nueva Categoria
+            </button>
+        </div>
+        <div id="admin-categories-list"></div>
+    `;
+    loadAdminCategories();
+}
+
+async function loadAdminCategories() {
+    try {
+        const resp = await API.adminCategories();
+        const container = document.getElementById('admin-categories-list');
+        if (!container) return;
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = '<div class="empty-state"><p>No hay categorias</p></div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="table-wrap"><table>
+                <thead><tr>
+                    <th>Orden</th><th>Key</th><th>Nombre</th><th>Icono</th><th>Activa</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>${resp.data.map(c => `
+                    <tr>
+                        <td>${c.sort_order}</td>
+                        <td><code>${esc(c.key)}</code></td>
+                        <td><strong>${esc(c.label)}</strong>${c.description ? `<br><small style="color:var(--gray-500)">${esc(c.description)}</small>` : ''}</td>
+                        <td style="font-size:20px">${c.icon || '-'}</td>
+                        <td>${c.is_active ? '<span style="color:var(--success)">Si</span>' : '<span style="color:var(--danger)">No</span>'}</td>
+                        <td style="white-space:nowrap">
+                            <button class="btn btn-sm btn-secondary" onclick="showCategoryForm(${c.id})" title="Editar">${icon('edit',14)}</button>
+                            <button class="btn btn-sm btn-secondary" onclick="deleteCategory(${c.id}, '${esc(c.label)}')" title="Eliminar" style="color:var(--danger)">${icon('trash',14)}</button>
+                        </td>
+                    </tr>
+                `).join('')}</tbody>
+            </table></div>
+            <p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${resp.data.length} categorias</p>
+        `;
+    } catch { document.getElementById('admin-categories-list').innerHTML = '<div class="empty-state"><p>Error cargando</p></div>'; }
+}
+
+function showCategoryForm(editId) {
+    const title = editId ? 'Editar Categoria' : 'Nueva Categoria';
+    showModal(title, `
+        <form id="admin-category-form" onsubmit="handleCategory(event, ${editId || 'null'})">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Key (identificador unico) *</label>
+                    <input class="form-input" name="key" required placeholder="ej: ferreteria" pattern="[a-z0-9_]+" title="Solo minusculas, numeros y guion bajo">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nombre visible *</label>
+                    <input class="form-input" name="label" required placeholder="Ferreteria">
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Icono (HTML entity o emoji)</label>
+                    <input class="form-input" name="icon" placeholder="&#128295; o pegar emoji">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Orden</label>
+                    <input class="form-input" type="number" name="sort_order" value="0" min="0">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Descripcion</label>
+                <input class="form-input" name="description" placeholder="Descripcion opcional de la categoria">
+            </div>
+            ${editId ? `
+            <div class="form-group">
+                <label class="form-label">Estado</label>
+                <select class="form-select" name="is_active">
+                    <option value="true">Activa</option>
+                    <option value="false">Inactiva</option>
+                </select>
+            </div>` : ''}
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
+                ${editId ? 'Guardar Cambios' : 'Crear Categoria'}
+            </button>
+        </form>
+    `);
+
+    if (editId) loadCategoryIntoForm(editId);
+}
+
+async function loadCategoryIntoForm(id) {
+    try {
+        const resp = await API.adminCategories();
+        if (!resp.ok) return;
+        const cat = resp.data.find(c => c.id === id);
+        if (!cat) return;
+        const f = document.getElementById('admin-category-form');
+        if (!f) return;
+        f.key.value = cat.key;
+        f.label.value = cat.label;
+        if (cat.icon) f.icon.value = cat.icon;
+        f.sort_order.value = cat.sort_order;
+        if (cat.description) f.description.value = cat.description;
+        if (f.is_active) f.is_active.value = cat.is_active ? 'true' : 'false';
+    } catch {}
+}
+
+async function handleCategory(e, editId) {
+    e.preventDefault();
+    const f = e.target;
+    const data = {
+        key: f.key.value.trim(),
+        label: f.label.value.trim(),
+        icon: f.icon.value.trim() || null,
+        sort_order: parseInt(f.sort_order.value) || 0,
+        description: f.description.value.trim() || null,
+    };
+    if (editId && f.is_active) {
+        data.is_active = f.is_active.value === 'true';
+    }
+
+    try {
+        const resp = editId
+            ? await API.adminUpdateCategory(editId, data)
+            : await API.adminCreateCategory(data);
+        if (resp.ok) {
+            closeModal();
+            toast(editId ? 'Categoria actualizada' : 'Categoria creada', 'success');
+            loadAdminCategories();
+            loadCatalogData();
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function deleteCategory(id, name) {
+    if (!confirm(`Eliminar la categoria "${name}"? Esta accion no se puede deshacer.`)) return;
+    try {
+        const resp = await API.adminDeleteCategory(id);
+        if (resp.ok) {
+            toast('Categoria eliminada', 'success');
+            loadAdminCategories();
+            loadCatalogData();
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Admin: Units of Measure ───────────────────────────────────
+async function renderAdminUoms() {
+    if (!isAdmin()) { toast('Sin permisos', 'error'); return; }
+    const c = document.getElementById('admin-content');
+    c.innerHTML = `
+        <div class="search-bar">
+            <span style="font-size:14px;color:var(--gray-500)">Gestionar unidades de medida y sus aliases para el matching</span>
+            <button class="btn btn-primary" onclick="showUomForm()">
+                ${icon('plus',16)} Nueva Unidad
+            </button>
+        </div>
+        <div id="admin-uoms-list"></div>
+    `;
+    loadAdminUoms();
+}
+
+async function loadAdminUoms() {
+    try {
+        const resp = await API.adminUoms();
+        const container = document.getElementById('admin-uoms-list');
+        if (!container) return;
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = '<div class="empty-state"><p>No hay unidades</p></div>';
+            return;
+        }
+        container.innerHTML = `
+            <div class="table-wrap"><table>
+                <thead><tr>
+                    <th>Orden</th><th>Key</th><th>Nombre</th><th>Aliases</th><th>Activa</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>${resp.data.map(u => `
+                    <tr>
+                        <td>${u.sort_order}</td>
+                        <td><code>${esc(u.key)}</code></td>
+                        <td><strong>${esc(u.label)}</strong></td>
+                        <td>${(u.aliases || []).map(a => `<span class="supplier-cat">${esc(a)}</span>`).join(' ') || '-'}</td>
+                        <td>${u.is_active ? '<span style="color:var(--success)">Si</span>' : '<span style="color:var(--danger)">No</span>'}</td>
+                        <td style="white-space:nowrap">
+                            <button class="btn btn-sm btn-secondary" onclick="showUomForm(${u.id})" title="Editar">${icon('edit',14)}</button>
+                            <button class="btn btn-sm btn-secondary" onclick="deleteUom(${u.id}, '${esc(u.label)}')" title="Eliminar" style="color:var(--danger)">${icon('trash',14)}</button>
+                        </td>
+                    </tr>
+                `).join('')}</tbody>
+            </table></div>
+            <p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${resp.data.length} unidades de medida</p>
+        `;
+    } catch { document.getElementById('admin-uoms-list').innerHTML = '<div class="empty-state"><p>Error cargando</p></div>'; }
+}
+
+function showUomForm(editId) {
+    const title = editId ? 'Editar Unidad de Medida' : 'Nueva Unidad de Medida';
+    showModal(title, `
+        <form id="admin-uom-form" onsubmit="handleUom(event, ${editId || 'null'})">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Key (abreviatura) *</label>
+                    <input class="form-input" name="key" required placeholder="ej: m3, kg, pza">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nombre descriptivo *</label>
+                    <input class="form-input" name="label" required placeholder="Metro cubico (m3)">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Aliases (separados por coma)</label>
+                <input class="form-input" name="aliases" placeholder="metro cubico, metros cubicos, m&#179;">
+                <small style="color:var(--gray-500)">Nombres alternativos que el sistema reconoce como esta unidad</small>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Orden</label>
+                <input class="form-input" type="number" name="sort_order" value="0" min="0">
+            </div>
+            ${editId ? `
+            <div class="form-group">
+                <label class="form-label">Estado</label>
+                <select class="form-select" name="is_active">
+                    <option value="true">Activa</option>
+                    <option value="false">Inactiva</option>
+                </select>
+            </div>` : ''}
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
+                ${editId ? 'Guardar Cambios' : 'Crear Unidad'}
+            </button>
+        </form>
+    `);
+
+    if (editId) loadUomIntoForm(editId);
+}
+
+async function loadUomIntoForm(id) {
+    try {
+        const resp = await API.adminUoms();
+        if (!resp.ok) return;
+        const uom = resp.data.find(u => u.id === id);
+        if (!uom) return;
+        const f = document.getElementById('admin-uom-form');
+        if (!f) return;
+        f.key.value = uom.key;
+        f.label.value = uom.label;
+        f.aliases.value = (uom.aliases || []).join(', ');
+        f.sort_order.value = uom.sort_order;
+        if (f.is_active) f.is_active.value = uom.is_active ? 'true' : 'false';
+    } catch {}
+}
+
+async function handleUom(e, editId) {
+    e.preventDefault();
+    const f = e.target;
+    const aliasStr = f.aliases.value.trim();
+    const aliases = aliasStr ? aliasStr.split(',').map(a => a.trim()).filter(a => a) : null;
+
+    const data = {
+        key: f.key.value.trim(),
+        label: f.label.value.trim(),
+        aliases: aliases,
+        sort_order: parseInt(f.sort_order.value) || 0,
+    };
+    if (editId && f.is_active) {
+        data.is_active = f.is_active.value === 'true';
+    }
+
+    try {
+        const resp = editId
+            ? await API.adminUpdateUom(editId, data)
+            : await API.adminCreateUom(data);
+        if (resp.ok) {
+            closeModal();
+            toast(editId ? 'Unidad actualizada' : 'Unidad creada', 'success');
+            loadAdminUoms();
+            loadCatalogData();
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function deleteUom(id, name) {
+    if (!confirm(`Eliminar la unidad "${name}"? Esta accion no se puede deshacer.`)) return;
+    try {
+        const resp = await API.adminDeleteUom(id);
+        if (resp.ok) {
+            toast('Unidad eliminada', 'success');
+            loadAdminUoms();
+            loadCatalogData();
         } else {
             toast(resp.detail || 'Error', 'error');
         }
@@ -1912,11 +2235,14 @@ function esc(str) {
 }
 
 // ── Init ───────────────────────────────────────────────────────
-function init() {
+async function init() {
     // Restore session (optional — app works without it)
     state.token = localStorage.getItem('_mkt_token');
     state.refreshToken = localStorage.getItem('_mkt_refresh');
     try { state.user = JSON.parse(localStorage.getItem('_mkt_user')); } catch {}
+
+    // Load catalog data (categories & UOMs) from API
+    await loadCatalogData();
 
     // Hide loading screen
     const loading = document.getElementById('loading-screen');

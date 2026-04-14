@@ -11,6 +11,7 @@ from app.models.quotation import Quotation
 from app.models.supplier import Supplier
 from app.models.user import User
 from app.models.api_key import ApiKey
+from app.models.catalog import Category, UnitOfMeasure
 
 router = APIRouter()
 
@@ -336,7 +337,243 @@ def _apikey_to_dict(k: ApiKey) -> dict:
     }
 
 
+# ── Category management ────────────────────────────────────────
+class CategoryCreate(BaseModel):
+    key: str
+    label: str
+    icon: str | None = None
+    sort_order: int = 0
+    description: str | None = None
+
+
+class CategoryUpdate(BaseModel):
+    key: str | None = None
+    label: str | None = None
+    icon: str | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
+    description: str | None = None
+
+
+@router.get("/categories")
+async def list_admin_categories(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    result = await db.execute(
+        select(Category).order_by(Category.sort_order, Category.label)
+    )
+    return {"ok": True, "data": [_cat_to_dict(c) for c in result.scalars().all()]}
+
+
+@router.post("/categories", status_code=201)
+async def create_category(
+    body: CategoryCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    import re
+    key = re.sub(r"[^a-z0-9_]", "", body.key.lower().strip().replace(" ", "_"))
+    if not key:
+        raise HTTPException(status_code=400, detail="Key invalido")
+
+    existing = await db.execute(select(Category).where(Category.key == key))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"La categoria '{key}' ya existe")
+
+    cat = Category(
+        key=key,
+        label=body.label,
+        icon=body.icon,
+        sort_order=body.sort_order,
+        description=body.description,
+    )
+    db.add(cat)
+    await db.flush()
+    return {"ok": True, "data": _cat_to_dict(cat)}
+
+
+@router.put("/categories/{cat_id}")
+async def update_category(
+    cat_id: int,
+    body: CategoryUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    cat = await db.get(Category, cat_id)
+    if not cat:
+        raise HTTPException(status_code=404, detail="Categoria no encontrada")
+
+    update_data = body.model_dump(exclude_unset=True)
+    if "key" in update_data:
+        import re
+        update_data["key"] = re.sub(r"[^a-z0-9_]", "", update_data["key"].lower().strip().replace(" ", "_"))
+
+    for field, value in update_data.items():
+        setattr(cat, field, value)
+    await db.flush()
+    return {"ok": True, "data": _cat_to_dict(cat)}
+
+
+@router.delete("/categories/{cat_id}")
+async def delete_category(
+    cat_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    cat = await db.get(Category, cat_id)
+    if not cat:
+        raise HTTPException(status_code=404, detail="Categoria no encontrada")
+    await db.delete(cat)
+    await db.flush()
+    return {"ok": True}
+
+
+# ── Unit of measure management ─────────────────────────────────
+class UomCreate(BaseModel):
+    key: str
+    label: str
+    aliases: list[str] | None = None
+    sort_order: int = 0
+
+
+class UomUpdate(BaseModel):
+    key: str | None = None
+    label: str | None = None
+    aliases: list[str] | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
+
+
+@router.get("/uoms")
+async def list_admin_uoms(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    result = await db.execute(
+        select(UnitOfMeasure).order_by(UnitOfMeasure.sort_order, UnitOfMeasure.label)
+    )
+    return {"ok": True, "data": [_uom_to_dict(u) for u in result.scalars().all()]}
+
+
+@router.post("/uoms", status_code=201)
+async def create_uom(
+    body: UomCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    import re
+    key = re.sub(r"[^a-z0-9_]", "", body.key.lower().strip())
+    if not key:
+        raise HTTPException(status_code=400, detail="Key invalido")
+
+    existing = await db.execute(select(UnitOfMeasure).where(UnitOfMeasure.key == key))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail=f"La unidad '{key}' ya existe")
+
+    uom = UnitOfMeasure(
+        key=key,
+        label=body.label,
+        aliases=body.aliases,
+        sort_order=body.sort_order,
+    )
+    db.add(uom)
+    await db.flush()
+    await _refresh_uom_cache(db)
+    return {"ok": True, "data": _uom_to_dict(uom)}
+
+
+@router.put("/uoms/{uom_id}")
+async def update_uom(
+    uom_id: int,
+    body: UomUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    uom = await db.get(UnitOfMeasure, uom_id)
+    if not uom:
+        raise HTTPException(status_code=404, detail="Unidad no encontrada")
+
+    update_data = body.model_dump(exclude_unset=True)
+    if "key" in update_data:
+        import re
+        update_data["key"] = re.sub(r"[^a-z0-9_]", "", update_data["key"].lower().strip())
+
+    for field, value in update_data.items():
+        setattr(uom, field, value)
+    await db.flush()
+    await _refresh_uom_cache(db)
+    return {"ok": True, "data": _uom_to_dict(uom)}
+
+
+@router.delete("/uoms/{uom_id}")
+async def delete_uom(
+    uom_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    uom = await db.get(UnitOfMeasure, uom_id)
+    if not uom:
+        raise HTTPException(status_code=404, detail="Unidad no encontrada")
+    await db.delete(uom)
+    await db.flush()
+    await _refresh_uom_cache(db)
+    return {"ok": True}
+
+
+async def _refresh_uom_cache(db: AsyncSession):
+    """Rebuild matching engine UOM cache after admin changes."""
+    from app.services.matching import build_uom_map_from_db
+    await build_uom_map_from_db(db)
+
+
+# ── Public catalog endpoints (no auth) ─────────────────────────
+@router.get("/catalog/categories")
+async def public_categories(db: AsyncSession = Depends(get_db)):
+    """List active categories — public, no auth required."""
+    result = await db.execute(
+        select(Category)
+        .where(Category.is_active == True)
+        .order_by(Category.sort_order, Category.label)
+    )
+    return {"ok": True, "data": [_cat_to_dict(c) for c in result.scalars().all()]}
+
+
+@router.get("/catalog/uoms")
+async def public_uoms(db: AsyncSession = Depends(get_db)):
+    """List active units of measure — public, no auth required."""
+    result = await db.execute(
+        select(UnitOfMeasure)
+        .where(UnitOfMeasure.is_active == True)
+        .order_by(UnitOfMeasure.sort_order, UnitOfMeasure.label)
+    )
+    return {"ok": True, "data": [_uom_to_dict(u) for u in result.scalars().all()]}
+
+
 # ── Helpers ────────────────────────────────────────────────────
+def _cat_to_dict(c: Category) -> dict:
+    return {
+        "id": c.id,
+        "key": c.key,
+        "label": c.label,
+        "icon": c.icon,
+        "sort_order": c.sort_order,
+        "is_active": c.is_active,
+        "description": c.description,
+    }
+
+
+def _uom_to_dict(u: UnitOfMeasure) -> dict:
+    return {
+        "id": u.id,
+        "key": u.key,
+        "label": u.label,
+        "aliases": u.aliases or [],
+        "sort_order": u.sort_order,
+        "is_active": u.is_active,
+    }
+
+
 def _user_to_dict(u: User) -> dict:
     return {
         "id": u.id,

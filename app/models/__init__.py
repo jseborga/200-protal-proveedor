@@ -6,9 +6,11 @@ from .rfq import RFQ, RFQItem
 from .match import ProductMatch
 from .user import User
 from .api_key import ApiKey
+from .catalog import Category, UnitOfMeasure
 
 __all__ = [
     "Base", "Supplier", "Insumo", "InsumoRegionalPrice",
     "Quotation", "QuotationLine", "RFQ", "RFQItem",
     "ProductMatch", "User", "ApiKey",
+    "Category", "UnitOfMeasure",
 ]
