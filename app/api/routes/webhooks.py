@@ -1,0 +1,44 @@
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.core.database import get_db
+
+router = APIRouter()
+
+
+@router.post("/whatsapp")
+async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """Receive WhatsApp messages from Evolution API."""
+    body = await request.json()
+    event = body.get("event")
+
+    if event == "messages.upsert":
+        messages = body.get("data", [])
+        for msg in messages if isinstance(messages, list) else [messages]:
+            if msg.get("key", {}).get("fromMe"):
+                continue  # Skip own messages
+
+            from app.services.messaging import handle_whatsapp_message
+            await handle_whatsapp_message(db, msg)
+
+    return {"ok": True}
+
+
+@router.post("/telegram")
+async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    """Receive Telegram updates."""
+    # Verify webhook secret via query param
+    secret = request.query_params.get("secret")
+    if settings.telegram_webhook_secret and secret != settings.telegram_webhook_secret:
+        raise HTTPException(status_code=403, detail="Invalid secret")
+
+    body = await request.json()
+
+    if "message" in body:
+        from app.services.messaging import handle_telegram_message
+        await handle_telegram_message(db, body["message"])
+
+    return {"ok": True}

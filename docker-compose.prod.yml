@@ -1,0 +1,88 @@
+version: "3.8"
+
+# ═══════════════════════════════════════════════════════════════
+# Docker Compose para EasyPanel / Produccion
+# Configurar variables de entorno en EasyPanel UI
+# ═══════════════════════════════════════════════════════════════
+
+services:
+  # ── App FastAPI ──────────────────────────────────────
+  app:
+    build: .
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    environment:
+      - APP_NAME=${APP_NAME:-APU Marketplace}
+      - APP_ENV=${APP_ENV:-production}
+      - APP_DEBUG=false
+      - APP_PORT=8000
+      - APP_SECRET_KEY=${APP_SECRET_KEY}
+      - APP_URL=${APP_URL}
+      - CORS_ORIGINS=${CORS_ORIGINS:-["*"]}
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-apu_mkt}:${DB_PASSWORD}@db:5432/${DB_NAME:-apu_marketplace}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=HS256
+      - JWT_ACCESS_TOKEN_EXPIRE_MINUTES=${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      - JWT_REFRESH_TOKEN_EXPIRE_DAYS=${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      - ADMIN_API_KEY=${ADMIN_API_KEY}
+      - AI_PROVIDER=${AI_PROVIDER:-openrouter}
+      - AI_API_KEY=${AI_API_KEY}
+      - AI_MODEL=${AI_MODEL}
+      - EVOLUTION_API_URL=http://evolution-api:8080
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+      - EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME:-apu-marketplace}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_WEBHOOK_SECRET=${TELEGRAM_WEBHOOK_SECRET}
+      - SMTP_HOST=${SMTP_HOST:-smtp.gmail.com}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_FROM=${SMTP_FROM}
+      - SMTP_TLS=${SMTP_TLS:-true}
+      - WORKERS=${WORKERS:-2}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+  # ── PostgreSQL ───────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER:-apu_mkt}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-apu_marketplace}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./scripts/init_db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-apu_mkt} -d ${DB_NAME:-apu_marketplace}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - internal
+
+  # ── Evolution API (WhatsApp) ─────────────────────────
+  evolution-api:
+    image: atendai/evolution-api:latest
+    environment:
+      - AUTHENTICATION_API_KEY=${EVOLUTION_API_KEY}
+      - DATABASE_PROVIDER=postgresql
+      - DATABASE_CONNECTION_URI=postgresql://${DB_USER:-apu_mkt}:${DB_PASSWORD}@db:5432/${DB_NAME:-apu_marketplace}
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - internal
+
+volumes:
+  pgdata:
+
+networks:
+  internal:
+    driver: bridge

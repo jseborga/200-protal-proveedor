@@ -1,0 +1,20 @@
+name: Deploy to EasyPanel
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy to EasyPanel
+        uses: easypanel-io/deploy@v1
+        with:
+          easypanel-url: ${{ secrets.EASYPANEL_URL }}
+          easypanel-token: ${{ secrets.EASYPANEL_TOKEN }}
+          project-name: ${{ secrets.EASYPANEL_PROJECT }}
+          service-name: app
