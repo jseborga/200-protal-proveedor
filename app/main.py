@@ -1,20 +1,37 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.core.config import settings
 from app.core.database import engine
 from app.models.base import Base
 
 
+async def _init_db():
+    """Inicializa la base de datos: extensiones + tablas.
+
+    - Siempre crea extensiones pg_trgm y unaccent (idempotente)
+    - Crea tablas faltantes (no destruye datos existentes)
+    - Cuando el proyecto crezca, Alembic maneja migraciones incrementales
+      y este bloque solo actua como safety net para el primer deploy
+    """
+    async with engine.begin() as conn:
+        # Extensiones PostgreSQL necesarias para matching semantico
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
+
+        # Crear tablas que no existan (checkfirst=True es el default de create_all)
+        await conn.run_sync(Base.metadata.create_all)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: create tables if dev mode (migrations handle prod)
-    if settings.is_dev:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    # Startup
+    await _init_db()
     yield
     # Shutdown
     await engine.dispose()
@@ -23,8 +40,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    docs_url="/api/docs" if settings.is_dev else None,
-    redoc_url="/api/redoc" if settings.is_dev else None,
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
     lifespan=lifespan,
 )
 
@@ -57,8 +74,6 @@ async def health():
 
 # ── Static / SPA ────────────────────────────────────────────────
 # Mount frontend (after API routes so /api/* takes priority)
-import os
-
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "public")
 if os.path.isdir(frontend_dir):
     app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
