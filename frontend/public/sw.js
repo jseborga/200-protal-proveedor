@@ -1,8 +1,8 @@
 const CACHE_NAME = 'apu-mkt-v1';
 const PRECACHE = [
     '/',
-    '/src/assets/app.js',
-    '/src/assets/app.css',
+    '/assets/app.js',
+    '/assets/app.css',
     '/icon.svg',
 ];
 
