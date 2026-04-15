@@ -154,6 +154,10 @@ async def lifespan(app: FastAPI):
     await _init_db()
     await _ensure_superadmin()
     await _seed_catalog()
+    # Load subscription plans into memory cache (seeds defaults if empty)
+    from app.core.plans import load_plans_from_db
+    async with async_session() as db:
+        await load_plans_from_db(db)
     yield
     # Shutdown
     await engine.dispose()

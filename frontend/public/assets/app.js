@@ -173,6 +173,12 @@ const API = {
     adminSubscriptions: (params = '') => API.get(`/admin/subscriptions${params}`),
     adminUpdateSubscription: (id, data) => API.put(`/admin/subscriptions/${id}`, data),
 
+    // Admin — plans
+    adminPlans: () => API.get('/admin/plans'),
+    adminCreatePlan: (data) => API.post('/admin/plans', data),
+    adminUpdatePlan: (id, data) => API.put(`/admin/plans/${id}`, data),
+    adminDeletePlan: (id) => API.del(`/admin/plans/${id}`),
+
     // Public catalog
     catalogCategories: () => API.get('/admin/catalog/categories'),
     catalogUoms: () => API.get('/admin/catalog/uoms'),
@@ -1183,6 +1189,7 @@ async function renderAdmin() {
     if (isAdmin()) tabs.push({ key: 'uoms', label: 'Unidades', icon: 'settings' });
     if (isManager()) tabs.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
     if (isAdmin()) tabs.push({ key: 'apikeys', label: 'API Keys', icon: 'key' });
+    if (isAdmin()) tabs.push({ key: 'plans', label: 'Planes', icon: 'star' });
     if (isAdmin()) tabs.push({ key: 'companies', label: 'Empresas', icon: 'building' });
     if (isAdmin()) tabs.push({ key: 'subscriptions', label: 'Suscripciones', icon: 'crown' });
 
@@ -1221,6 +1228,7 @@ function renderAdminTab() {
         case 'uoms': renderAdminUoms(); break;
         case 'users': renderAdminUsers(); break;
         case 'apikeys': renderAdminApiKeys(); break;
+        case 'plans': renderAdminPlans(); break;
         case 'companies': renderAdminCompanies(); break;
         case 'subscriptions': renderAdminSubscriptions(); break;
     }
@@ -3996,6 +4004,141 @@ async function revokeApiKey(keyId, name) {
     } catch { toast('Error de conexion', 'error'); }
 }
 
+// ── Admin: Plans ─────────────────────────────────────────────
+async function renderAdminPlans() {
+    if (!isAdmin()) { toast('Sin permisos', 'error'); return; }
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="empty-state"><p>Cargando planes...</p></div>';
+
+    try {
+        const resp = await API.adminPlans();
+        if (!resp.ok) { c.innerHTML = '<p>Error cargando datos</p>'; return; }
+
+        c.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <p style="font-size:13px;color:var(--gray-500)">${resp.data.length} planes configurados</p>
+                <button class="btn btn-primary btn-sm" onclick="showPlanFormModal()">+ Nuevo Plan</button>
+            </div>
+            <div class="plans-admin-grid">
+                ${resp.data.map(p => `
+                    <div class="plan-card ${!p.is_active ? 'plan-inactive' : ''}">
+                        <div class="plan-name">${esc(p.label)} <span style="font-size:11px;color:var(--gray-400)">(${esc(p.key)})</span></div>
+                        <div class="plan-price">${p.price_bob > 0 ? p.price_bob.toFixed(0) + ' <span>BOB/mes</span>' : 'Gratis'}</div>
+                        <div style="font-size:13px;color:var(--gray-600);margin-bottom:8px">
+                            ${p.max_users} usuario${p.max_users > 1 ? 's' : ''} &middot;
+                            ${p.max_pedidos_month >= 999 ? 'Pedidos ilimitados' : p.max_pedidos_month + ' pedidos/mes'}
+                        </div>
+                        <ul class="plan-features">
+                            ${(p.features || []).map(f => `<li>${esc(f)}</li>`).join('')}
+                        </ul>
+                        ${!p.is_active ? '<p style="color:#dc2626;font-size:12px;margin-top:6px;font-weight:600">INACTIVO</p>' : ''}
+                        <div style="display:flex;gap:6px;margin-top:10px">
+                            <button class="btn btn-sm btn-secondary" onclick="showPlanFormModal(${p.id})">Editar</button>
+                            <button class="btn btn-sm btn-danger" onclick="deletePlan(${p.id},'${esc(p.key).replace(/'/g,"\\'")}')">Eliminar</button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    } catch { c.innerHTML = '<p>Error de conexion</p>'; }
+}
+
+async function showPlanFormModal(planId) {
+    let plan = null;
+    if (planId) {
+        const resp = await API.adminPlans();
+        if (resp.ok) plan = resp.data.find(p => p.id === planId);
+    }
+    const isEdit = !!plan;
+    const title = isEdit ? 'Editar Plan' : 'Nuevo Plan';
+
+    showModal(title, `
+        <form onsubmit="handlePlanForm(event, ${planId || 'null'})">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Key (slug) *</label>
+                    <input class="form-input" name="key" required value="${plan ? esc(plan.key) : ''}" ${isEdit ? 'readonly style="background:var(--gray-100)"' : ''} placeholder="ej: premium">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nombre *</label>
+                    <input class="form-input" name="label" required value="${plan ? esc(plan.label) : ''}" placeholder="ej: Premium">
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Max usuarios</label>
+                    <input class="form-input" name="max_users" type="number" min="1" value="${plan ? plan.max_users : 1}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Max pedidos/mes</label>
+                    <input class="form-input" name="max_pedidos_month" type="number" min="1" value="${plan ? plan.max_pedidos_month : 5}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Precio BOB</label>
+                    <input class="form-input" name="price_bob" type="number" step="0.01" min="0" value="${plan ? plan.price_bob : 0}">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Orden</label>
+                <input class="form-input" name="sort_order" type="number" min="0" value="${plan ? plan.sort_order : 0}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Features (una por linea)</label>
+                <textarea class="form-input" name="features" rows="4" placeholder="Feature 1&#10;Feature 2&#10;...">${plan ? (plan.features || []).join('\n') : ''}</textarea>
+            </div>
+            ${isEdit ? `
+                <div class="form-group">
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+                        <input type="checkbox" name="is_active" ${plan.is_active ? 'checked' : ''}>
+                        Plan activo
+                    </label>
+                </div>
+            ` : ''}
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">${isEdit ? 'Guardar' : 'Crear Plan'}</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handlePlanForm(e, planId) {
+    e.preventDefault();
+    const f = e.target;
+    const features = f.features.value.split('\n').map(s => s.trim()).filter(Boolean);
+    const data = {
+        label: f.label.value,
+        max_users: parseInt(f.max_users.value) || 1,
+        max_pedidos_month: parseInt(f.max_pedidos_month.value) || 5,
+        price_bob: parseFloat(f.price_bob.value) || 0,
+        sort_order: parseInt(f.sort_order.value) || 0,
+        features,
+    };
+
+    let resp;
+    if (planId) {
+        data.is_active = f.is_active?.checked ?? true;
+        resp = await API.adminUpdatePlan(planId, data);
+    } else {
+        data.key = f.key.value;
+        resp = await API.adminCreatePlan(data);
+    }
+    if (resp.ok) {
+        closeModal();
+        toast(planId ? 'Plan actualizado' : 'Plan creado', 'success');
+        renderAdminPlans();
+    } else toast(resp.detail || 'Error', 'error');
+}
+
+async function deletePlan(planId, key) {
+    if (!confirm(`Eliminar el plan "${key}"? Solo es posible si ninguna suscripcion lo usa.`)) return;
+    const resp = await API.adminDeletePlan(planId);
+    if (resp.ok) {
+        toast('Plan eliminado', 'success');
+        renderAdminPlans();
+    } else toast(resp.detail || 'Error', 'error');
+}
+
 // ── Admin: Companies ──────────────────────────────────────────
 async function renderAdminCompanies() {
     if (!isAdmin()) { toast('Sin permisos', 'error'); return; }
@@ -4065,8 +4208,14 @@ async function renderAdminSubscriptions() {
     } catch { c.innerHTML = '<p>Error de conexion</p>'; }
 }
 
-function showEditSubscriptionModal(subId, currentPlan, currentState, maxUsers, maxPedidos) {
-    const planOpts = ['free', 'professional', 'enterprise'].map(p =>
+async function showEditSubscriptionModal(subId, currentPlan, currentState, maxUsers, maxPedidos) {
+    // Load plan keys dynamically from DB
+    let planKeys = ['free', 'professional', 'enterprise'];
+    try {
+        const pr = await API.adminPlans();
+        if (pr.ok && pr.data.length) planKeys = pr.data.map(p => p.key);
+    } catch {}
+    const planOpts = planKeys.map(p =>
         `<option value="${p}" ${p === currentPlan ? 'selected' : ''}>${p}</option>`
     ).join('');
     const stateOpts = ['active', 'expired', 'cancelled', 'suspended'].map(s =>

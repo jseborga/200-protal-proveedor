@@ -916,8 +916,8 @@ def _user_to_dict(u: User) -> dict:
 
 
 # ── Company admin ─────────────────────────────────────────────
-from app.models.company import Company, Subscription
-from app.core.plans import PLANS, get_plan_limits
+from app.models.company import Company, Subscription, Plan
+from app.core.plans import PLANS, get_plan_limits, refresh_plans_cache
 
 
 @router.get("/companies")
@@ -1083,3 +1083,107 @@ async def admin_update_subscription(
             "notes": sub.notes,
         },
     }
+
+
+# ── Plan management ───────────────────────────────────────────
+class PlanCreate(BaseModel):
+    key: str
+    label: str
+    max_users: int = 1
+    max_pedidos_month: int = 5
+    price_bob: float = 0
+    features: list[str] | None = None
+    sort_order: int = 0
+
+
+class PlanUpdate(BaseModel):
+    label: str | None = None
+    max_users: int | None = None
+    max_pedidos_month: int | None = None
+    price_bob: float | None = None
+    features: list[str] | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None
+
+
+@router.get("/plans")
+async def admin_list_plans(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Listar todos los planes (incluye inactivos)."""
+    result = await db.execute(select(Plan).order_by(Plan.sort_order))
+    plans = result.scalars().all()
+    return {"ok": True, "data": [p.to_dict() for p in plans]}
+
+
+@router.post("/plans", status_code=201)
+async def admin_create_plan(
+    body: PlanCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    import re
+    key = re.sub(r"[^a-z0-9_]", "", body.key.lower().strip().replace(" ", "_"))
+    if not key:
+        raise HTTPException(400, "Key invalido")
+
+    existing = await db.execute(select(Plan).where(Plan.key == key))
+    if existing.scalar_one_or_none():
+        raise HTTPException(409, f"El plan '{key}' ya existe")
+
+    plan = Plan(
+        key=key,
+        label=body.label,
+        max_users=body.max_users,
+        max_pedidos_month=body.max_pedidos_month,
+        price_bob=body.price_bob,
+        features=body.features,
+        sort_order=body.sort_order,
+    )
+    db.add(plan)
+    await db.commit()
+    await refresh_plans_cache(db)
+    return {"ok": True, "data": plan.to_dict()}
+
+
+@router.put("/plans/{plan_id}")
+async def admin_update_plan(
+    plan_id: int,
+    body: PlanUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    plan = await db.get(Plan, plan_id)
+    if not plan:
+        raise HTTPException(404, "Plan no encontrado")
+
+    data = body.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(plan, k, v)
+    await db.commit()
+    await refresh_plans_cache(db)
+    return {"ok": True, "data": plan.to_dict()}
+
+
+@router.delete("/plans/{plan_id}")
+async def admin_delete_plan(
+    plan_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    plan = await db.get(Plan, plan_id)
+    if not plan:
+        raise HTTPException(404, "Plan no encontrado")
+
+    # Check if any subscription uses this plan
+    in_use = (await db.execute(
+        select(func.count()).where(Subscription.plan == plan.key)
+    )).scalar() or 0
+    if in_use:
+        raise HTTPException(400, f"No se puede eliminar: {in_use} suscripcion(es) usan este plan. Desactivalo en su lugar.")
+
+    await db.delete(plan)
+    await db.commit()
+    await refresh_plans_cache(db)
+    return {"ok": True}
