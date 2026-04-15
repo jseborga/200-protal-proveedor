@@ -107,6 +107,8 @@ async def me(user: User = Depends(get_current_user)):
             "role": user.role,
             "company_name": user.company_name,
             "phone": user.phone,
+            "company_id": user.company_id,
+            "company_role": user.company_role,
         },
     }
 
@@ -114,6 +116,9 @@ async def me(user: User = Depends(get_current_user)):
 # ── Helpers ─────────────────────────────────────────────────────
 def _build_tokens(user: User) -> dict:
     data = {"sub": str(user.id), "role": user.role}
+    if user.company_id:
+        data["company_id"] = user.company_id
+        data["company_role"] = user.company_role
     return {
         "access_token": create_access_token(data),
         "refresh_token": create_refresh_token(data),
@@ -124,5 +129,7 @@ def _build_tokens(user: User) -> dict:
             "full_name": user.full_name,
             "role": user.role,
             "company_name": user.company_name,
+            "company_id": user.company_id,
+            "company_role": user.company_role,
         },
     }

@@ -56,7 +56,8 @@
       "Bash(python -m py_compile app/models/__init__.py)",
       "Bash(python -m py_compile app/services/pedido.py)",
       "Bash(python -m py_compile app/api/routes/pedidos.py)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(python -c \"import ast; [ast.parse\\(open\\(f\\).read\\(\\)\\) for f in ['app/models/company.py','app/models/user.py','app/core/plans.py','app/api/routes/companies.py','app/api/routes/subscriptions.py','app/api/routes/admin.py','app/api/routes/auth.py','app/api/routes/pedidos.py','app/services/pedido.py','app/main.py']]; print\\('All OK'\\)\")"
     ]
   },
   "enableAllProjectMcpServers": true,

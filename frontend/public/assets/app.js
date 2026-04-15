@@ -152,6 +152,27 @@ const API = {
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
 
+    // Companies
+    myCompany: () => API.get('/companies/mine'),
+    createCompany: (data) => API.post('/companies', data),
+    updateCompany: (id, data) => API.put(`/companies/${id}`, data),
+    companyMembers: (id) => API.get(`/companies/${id}/members`),
+    addMember: (id, data) => API.post(`/companies/${id}/members`, data),
+    updateMember: (cid, uid, data) => API.put(`/companies/${cid}/members/${uid}`, data),
+    removeMember: (cid, uid) => API.del(`/companies/${cid}/members/${uid}`),
+    companyPedidos: (id, params = '') => API.get(`/companies/${id}/pedidos${params}`),
+    assignPedido: (cid, pid, uid) => API.post(`/companies/${cid}/pedidos/${pid}/assign?assignee_id=${uid}`),
+
+    // Subscriptions
+    plans: () => API.get('/subscriptions/plans'),
+    mySubscription: () => API.get('/subscriptions/mine'),
+    requestUpgrade: (data) => API.post('/subscriptions/upgrade', data),
+
+    // Admin — companies & subscriptions
+    adminCompanies: (params = '') => API.get(`/admin/companies${params}`),
+    adminSubscriptions: (params = '') => API.get(`/admin/subscriptions${params}`),
+    adminUpdateSubscription: (id, data) => API.put(`/admin/subscriptions/${id}`, data),
+
     // Public catalog
     catalogCategories: () => API.get('/admin/catalog/categories'),
     catalogUoms: () => API.get('/admin/catalog/uoms'),
@@ -218,6 +239,10 @@ const ICONS = {
     'chevron-up': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18,15 12,9 6,15"/></svg>',
     'shopping-cart': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>',
     clipboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>',
+    building: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><path d="M9 22v-4h6v4"/><line x1="8" y1="6" x2="8" y2="6.01"/><line x1="16" y1="6" x2="16" y2="6.01"/><line x1="12" y1="6" x2="12" y2="6.01"/><line x1="8" y1="10" x2="8" y2="10.01"/><line x1="16" y1="10" x2="16" y2="10.01"/><line x1="12" y1="10" x2="12" y2="10.01"/><line x1="8" y1="14" x2="8" y2="14.01"/><line x1="16" y1="14" x2="16" y2="14.01"/><line x1="12" y1="14" x2="12" y2="14.01"/></svg>',
+    star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>',
+    'user-plus': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>',
+    crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20h20l-2-12-5 5-3-7-3 7-5-5z"/><line x1="2" y1="20" x2="22" y2="20"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -243,6 +268,7 @@ function renderApp() {
 
     const authPages = {
         pedidos:    { title: 'Mis Pedidos',  icon: 'clipboard',  render: renderPedidos },
+        company:    { title: 'Mi Empresa',   icon: 'building',   render: renderCompany },
         quotations: { title: 'Cotizaciones', icon: 'file-text', render: renderQuotations },
         rfq:        { title: 'RFQ',          icon: 'send',      render: renderRFQ },
     };
@@ -1157,6 +1183,8 @@ async function renderAdmin() {
     if (isAdmin()) tabs.push({ key: 'uoms', label: 'Unidades', icon: 'settings' });
     if (isManager()) tabs.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
     if (isAdmin()) tabs.push({ key: 'apikeys', label: 'API Keys', icon: 'key' });
+    if (isAdmin()) tabs.push({ key: 'companies', label: 'Empresas', icon: 'building' });
+    if (isAdmin()) tabs.push({ key: 'subscriptions', label: 'Suscripciones', icon: 'crown' });
 
     page.innerHTML = `
         <div class="page-header">
@@ -1193,6 +1221,8 @@ function renderAdminTab() {
         case 'uoms': renderAdminUoms(); break;
         case 'users': renderAdminUsers(); break;
         case 'apikeys': renderAdminApiKeys(); break;
+        case 'companies': renderAdminCompanies(); break;
+        case 'subscriptions': renderAdminSubscriptions(); break;
     }
 }
 
@@ -3966,6 +3996,157 @@ async function revokeApiKey(keyId, name) {
     } catch { toast('Error de conexion', 'error'); }
 }
 
+// ── Admin: Companies ──────────────────────────────────────────
+async function renderAdminCompanies() {
+    if (!isAdmin()) { toast('Sin permisos', 'error'); return; }
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="empty-state"><p>Cargando empresas...</p></div>';
+
+    try {
+        const resp = await API.adminCompanies();
+        if (!resp.ok) { c.innerHTML = '<p>Error cargando datos</p>'; return; }
+        if (!resp.data.length) { c.innerHTML = '<div class="empty-state"><p>No hay empresas registradas</p></div>'; return; }
+
+        const planColors = { free: '#6b7280', professional: '#2563eb', enterprise: '#d97706' };
+        c.innerHTML = `
+            <p style="margin-bottom:12px;font-size:13px;color:var(--gray-500)">${resp.total} empresas registradas</p>
+            <div class="table-wrapper"><table class="table">
+                <thead><tr>
+                    <th>Empresa</th><th>NIT</th><th>Ciudad</th><th>Plan</th><th>Miembros</th><th>Creado</th>
+                </tr></thead>
+                <tbody>
+                    ${resp.data.map(co => `<tr>
+                        <td><strong>${esc(co.name)}</strong></td>
+                        <td>${esc(co.nit || '-')}</td>
+                        <td>${co.city ? esc(co.city) : '-'}</td>
+                        <td>${co.plan ? `<span class="pedido-state" style="background:${planColors[co.plan]||'#6b7280'}">${esc(co.plan)}</span>` : '-'}</td>
+                        <td>${co.member_count || 0}</td>
+                        <td>${new Date(co.created_at).toLocaleDateString()}</td>
+                    </tr>`).join('')}
+                </tbody>
+            </table></div>
+        `;
+    } catch { c.innerHTML = '<p>Error de conexion</p>'; }
+}
+
+// ── Admin: Subscriptions ─────────────────────────────────────
+async function renderAdminSubscriptions() {
+    if (!isAdmin()) { toast('Sin permisos', 'error'); return; }
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="empty-state"><p>Cargando suscripciones...</p></div>';
+
+    try {
+        const resp = await API.adminSubscriptions();
+        if (!resp.ok) { c.innerHTML = '<p>Error cargando datos</p>'; return; }
+        if (!resp.data.length) { c.innerHTML = '<div class="empty-state"><p>No hay suscripciones</p></div>'; return; }
+
+        const stateColors = { active: '#16a34a', expired: '#dc2626', cancelled: '#6b7280', suspended: '#d97706' };
+        c.innerHTML = `
+            <p style="margin-bottom:12px;font-size:13px;color:var(--gray-500)">${resp.total} suscripciones</p>
+            <div class="table-wrapper"><table class="table">
+                <thead><tr>
+                    <th>Empresa</th><th>Plan</th><th>Estado</th><th>Usuarios</th><th>Pedidos/mes</th><th>Vence</th><th>Ultimo pago</th><th></th>
+                </tr></thead>
+                <tbody>
+                    ${resp.data.map(s => `<tr>
+                        <td><strong>${esc(s.company_name || '#' + s.company_id)}</strong></td>
+                        <td>${esc(s.plan)}</td>
+                        <td><span style="color:${stateColors[s.state]||'#6b7280'};font-weight:600">${esc(s.state)}</span></td>
+                        <td>${s.max_users}</td>
+                        <td>${s.max_pedidos_month === 999 ? '∞' : s.max_pedidos_month}</td>
+                        <td>${s.expires_at ? new Date(s.expires_at).toLocaleDateString() : 'Sin limite'}</td>
+                        <td>${s.last_payment_date ? new Date(s.last_payment_date).toLocaleDateString() + (s.last_payment_amount ? ' - ' + s.last_payment_amount.toFixed(2) + ' BOB' : '') : '-'}</td>
+                        <td><button class="btn btn-sm btn-secondary" onclick="showEditSubscriptionModal(${s.id},'${esc(s.plan)}','${esc(s.state)}',${s.max_users},${s.max_pedidos_month})">Editar</button></td>
+                    </tr>`).join('')}
+                </tbody>
+            </table></div>
+            ${resp.data.some(s => s.notes && s.notes.includes('UPGRADE')) ? '<p style="margin-top:12px;padding:10px;background:#fef3c7;border-radius:8px;font-size:13px">⚠ Hay solicitudes de upgrade pendientes (ver campo Notas)</p>' : ''}
+        `;
+    } catch { c.innerHTML = '<p>Error de conexion</p>'; }
+}
+
+function showEditSubscriptionModal(subId, currentPlan, currentState, maxUsers, maxPedidos) {
+    const planOpts = ['free', 'professional', 'enterprise'].map(p =>
+        `<option value="${p}" ${p === currentPlan ? 'selected' : ''}>${p}</option>`
+    ).join('');
+    const stateOpts = ['active', 'expired', 'cancelled', 'suspended'].map(s =>
+        `<option value="${s}" ${s === currentState ? 'selected' : ''}>${s}</option>`
+    ).join('');
+
+    showModal('Editar Suscripcion #' + subId, `
+        <form onsubmit="handleEditSubscription(event, ${subId})">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Plan</label>
+                    <select class="form-input" name="plan">${planOpts}</select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Estado</label>
+                    <select class="form-input" name="state">${stateOpts}</select>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Max usuarios</label>
+                    <input class="form-input" name="max_users" type="number" min="1" value="${maxUsers}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Max pedidos/mes</label>
+                    <input class="form-input" name="max_pedidos_month" type="number" min="1" value="${maxPedidos}">
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Metodo pago</label>
+                    <select class="form-input" name="payment_method">
+                        <option value="">N/A</option>
+                        <option value="transfer">Transferencia</option>
+                        <option value="qr_bo">QR Bolivia</option>
+                        <option value="manual">Manual</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Monto pago (BOB)</label>
+                    <input class="form-input" name="last_payment_amount" type="number" step="0.01" min="0">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Fecha expiracion (ISO)</label>
+                <input class="form-input" name="expires_at" type="datetime-local">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notas</label>
+                <textarea class="form-input" name="notes" rows="2"></textarea>
+            </div>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Guardar</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleEditSubscription(e, subId) {
+    e.preventDefault();
+    const f = e.target;
+    const data = {};
+    if (f.plan.value) data.plan = f.plan.value;
+    if (f.state.value) data.state = f.state.value;
+    if (f.max_users.value) data.max_users = parseInt(f.max_users.value);
+    if (f.max_pedidos_month.value) data.max_pedidos_month = parseInt(f.max_pedidos_month.value);
+    if (f.payment_method.value) data.payment_method = f.payment_method.value;
+    if (f.last_payment_amount.value) data.last_payment_amount = parseFloat(f.last_payment_amount.value);
+    if (f.expires_at.value) data.expires_at = new Date(f.expires_at.value).toISOString();
+    if (f.notes.value) data.notes = f.notes.value;
+
+    const resp = await API.adminUpdateSubscription(subId, data);
+    if (resp.ok) {
+        closeModal();
+        toast('Suscripcion actualizada', 'success');
+        renderAdminSubscriptions();
+    } else toast(resp.detail || 'Error', 'error');
+}
+
 // ── Render: Quotations (auth) ──────────────────────────────────
 async function renderQuotations() {
     if (!state.user) { showLoginModal(); navigate('home'); return; }
@@ -4362,6 +4543,392 @@ async function handleCreatePedido(e) {
     } else {
         toast(resp.detail || 'Error creando pedido', 'error');
     }
+}
+
+// ── Company page ─────────────────────────────────────────────
+async function renderCompany() {
+    const page = document.getElementById('page-content');
+    page.innerHTML = '<div class="empty-state"><p>Cargando...</p></div>';
+
+    const resp = await API.myCompany();
+    if (!resp.ok) { page.innerHTML = '<div class="empty-state"><p>Error cargando datos</p></div>'; return; }
+
+    if (!resp.data) {
+        // No company yet — show create CTA
+        renderCreateCompanyCTA(page);
+        return;
+    }
+
+    const c = resp.data;
+    const sub = c.subscription;
+    const isAdmin = c.my_role === 'company_admin';
+    const planColors = { free: '#6b7280', professional: '#2563eb', enterprise: '#d97706' };
+
+    page.innerHTML = `
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+            <div>
+                <h1 class="page-title">${esc(c.name)}</h1>
+                <p class="page-subtitle">${c.nit ? 'NIT: ' + esc(c.nit) + ' &middot; ' : ''}${c.city ? esc(c.city) : ''}${c.department ? ', ' + esc(c.department) : ''}</p>
+            </div>
+            ${isAdmin ? `<button class="btn btn-secondary" onclick="showEditCompanyModal(${c.id})">${icon('settings',16)} Editar</button>` : ''}
+        </div>
+
+        <div class="company-grid">
+            <!-- Subscription card -->
+            <div class="company-card">
+                <div class="company-card-header">
+                    <span>${icon('crown',18)} Suscripcion</span>
+                    <span class="pedido-state" style="background:${planColors[sub?.plan] || '#6b7280'}">${sub ? esc(sub.plan_label) : 'Sin plan'}</span>
+                </div>
+                <div class="company-card-body">
+                    ${sub ? `
+                        <div class="sub-info-row"><span>Estado</span><span class="sub-state-${sub.state}">${sub.state === 'active' ? 'Activo' : sub.state}</span></div>
+                        <div class="sub-info-row"><span>Usuarios</span><span>${c.member_count} / ${sub.max_users}</span></div>
+                        <div class="sub-info-row"><span>Pedidos/mes</span><span>${sub.max_pedidos_month === 999 ? 'Ilimitados' : sub.max_pedidos_month}</span></div>
+                        ${sub.expires_at ? `<div class="sub-info-row"><span>Vence</span><span>${new Date(sub.expires_at).toLocaleDateString()}</span></div>` : ''}
+                        ${sub.last_payment_date ? `<div class="sub-info-row"><span>Ultimo pago</span><span>${new Date(sub.last_payment_date).toLocaleDateString()} - ${sub.last_payment_amount?.toFixed(2) || ''} BOB</span></div>` : ''}
+                    ` : '<p style="color:var(--gray-500)">Sin suscripcion activa</p>'}
+                    ${isAdmin && sub?.plan !== 'enterprise' ? `<button class="btn btn-primary btn-sm" style="margin-top:12px" onclick="showUpgradeModal()">Mejorar Plan</button>` : ''}
+                </div>
+            </div>
+
+            <!-- Company info card -->
+            <div class="company-card">
+                <div class="company-card-header">
+                    <span>${icon('building',18)} Datos de la Empresa</span>
+                </div>
+                <div class="company-card-body">
+                    ${c.industry ? `<div class="sub-info-row"><span>Rubro</span><span>${esc(c.industry)}</span></div>` : ''}
+                    ${c.phone ? `<div class="sub-info-row"><span>Telefono</span><span>${esc(c.phone)}</span></div>` : ''}
+                    ${c.email ? `<div class="sub-info-row"><span>Email</span><span>${esc(c.email)}</span></div>` : ''}
+                    ${c.website ? `<div class="sub-info-row"><span>Web</span><span>${esc(c.website)}</span></div>` : ''}
+                    ${c.address ? `<div class="sub-info-row"><span>Direccion</span><span>${esc(c.address)}</span></div>` : ''}
+                    <div class="sub-info-row"><span>Tu rol</span><span class="member-role role-${c.my_role}">${c.my_role === 'company_admin' ? 'Admin' : c.my_role === 'cotizador' ? 'Cotizador' : 'Viewer'}</span></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Team section -->
+        <div class="company-section">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <h3>${icon('users',18)} Equipo (${c.member_count})</h3>
+                ${isAdmin ? `<button class="btn btn-primary btn-sm" onclick="showAddMemberModal(${c.id})">${icon('user-plus',16)} Agregar</button>` : ''}
+            </div>
+            <div id="company-members-list"><div class="empty-state"><p>Cargando...</p></div></div>
+        </div>
+    `;
+
+    loadCompanyMembers(c.id, isAdmin);
+}
+
+function renderCreateCompanyCTA(page) {
+    page.innerHTML = `
+        <div class="page-header">
+            <h1 class="page-title">Mi Empresa</h1>
+            <p class="page-subtitle">Crea tu empresa para trabajar en equipo y gestionar cotizaciones</p>
+        </div>
+        <div class="company-cta">
+            <div class="company-cta-content">
+                <h2>Trabaja en equipo</h2>
+                <p>Registra tu empresa para invitar cotizadores, asignar pedidos y gestionar suscripciones.</p>
+                <div class="company-cta-features">
+                    <div class="cta-feature">${icon('users',20)} <span>Equipo de cotizadores</span></div>
+                    <div class="cta-feature">${icon('clipboard',20)} <span>Asignacion de pedidos</span></div>
+                    <div class="cta-feature">${icon('star',20)} <span>Plan gratuito para empezar</span></div>
+                </div>
+                <button class="btn btn-primary btn-lg" onclick="showCreateCompanyModal()" style="margin-top:20px">Crear Empresa</button>
+            </div>
+            <div class="company-plans" id="plans-container"></div>
+        </div>
+    `;
+    loadPlans();
+}
+
+async function loadPlans() {
+    const container = document.getElementById('plans-container');
+    if (!container) return;
+    try {
+        const resp = await API.plans();
+        if (!resp.ok || !resp.data.length) return;
+        container.innerHTML = resp.data.map(p => `
+            <div class="plan-card ${p.key === 'professional' ? 'plan-featured' : ''}">
+                <div class="plan-name">${esc(p.label)}</div>
+                <div class="plan-price">${p.price_bob > 0 ? p.price_bob + ' <span>BOB/mes</span>' : 'Gratis'}</div>
+                <ul class="plan-features">
+                    ${p.features.map(f => `<li>${esc(f)}</li>`).join('')}
+                </ul>
+            </div>
+        `).join('');
+    } catch {}
+}
+
+function showCreateCompanyModal() {
+    showModal('Crear Empresa', `
+        <form onsubmit="handleCreateCompany(event)">
+            <div class="form-group">
+                <label class="form-label">Nombre de la empresa *</label>
+                <input class="form-input" name="name" required placeholder="Constructora XYZ S.R.L.">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">NIT</label>
+                    <input class="form-input" name="nit" placeholder="1234567890">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Rubro</label>
+                    <input class="form-input" name="industry" placeholder="Construccion">
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Ciudad</label>
+                    <input class="form-input" name="city" placeholder="Santa Cruz">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Departamento</label>
+                    <select class="form-input" name="department">
+                        <option value="">Seleccionar...</option>
+                        ${DEPARTMENTS.map(d => `<option value="${d}">${d}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Telefono</label>
+                <input class="form-input" name="phone" placeholder="+591 ...">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email corporativo</label>
+                <input class="form-input" name="email" type="email" placeholder="info@empresa.com">
+            </div>
+            <p style="font-size:12px;color:var(--gray-500);margin:8px 0">Se creara con el plan Gratuito. Podras mejorarlo despues.</p>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Crear Empresa</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleCreateCompany(e) {
+    e.preventDefault();
+    const f = e.target;
+    const resp = await API.createCompany({
+        name: f.name.value,
+        nit: f.nit.value || null,
+        industry: f.industry.value || null,
+        city: f.city.value || null,
+        department: f.department.value || null,
+        phone: f.phone.value || null,
+        email: f.email.value || null,
+    });
+    if (resp.ok) {
+        // Update local user state
+        state.user.company_id = resp.data.id;
+        state.user.company_role = 'company_admin';
+        localStorage.setItem('_mkt_user', JSON.stringify(state.user));
+        closeModal();
+        toast('Empresa creada exitosamente', 'success');
+        renderApp();
+    } else {
+        toast(resp.detail || 'Error creando empresa', 'error');
+    }
+}
+
+async function showEditCompanyModal(companyId) {
+    const resp = await API.myCompany();
+    if (!resp.ok || !resp.data) return;
+    const c = resp.data;
+
+    showModal('Editar Empresa', `
+        <form onsubmit="handleEditCompany(event, ${companyId})">
+            <div class="form-group">
+                <label class="form-label">Nombre *</label>
+                <input class="form-input" name="name" required value="${esc(c.name)}">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">NIT</label>
+                    <input class="form-input" name="nit" value="${esc(c.nit || '')}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Rubro</label>
+                    <input class="form-input" name="industry" value="${esc(c.industry || '')}">
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Ciudad</label>
+                    <input class="form-input" name="city" value="${esc(c.city || '')}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Departamento</label>
+                    <select class="form-input" name="department">
+                        <option value="">Seleccionar...</option>
+                        ${DEPARTMENTS.map(d => `<option value="${d}" ${c.department === d ? 'selected' : ''}>${d}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Telefono</label>
+                <input class="form-input" name="phone" value="${esc(c.phone || '')}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input class="form-input" name="email" type="email" value="${esc(c.email || '')}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Sitio web</label>
+                <input class="form-input" name="website" value="${esc(c.website || '')}">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Direccion</label>
+                <textarea class="form-input" name="address" rows="2">${esc(c.address || '')}</textarea>
+            </div>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Guardar</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleEditCompany(e, companyId) {
+    e.preventDefault();
+    const f = e.target;
+    const resp = await API.updateCompany(companyId, {
+        name: f.name.value,
+        nit: f.nit.value || null,
+        industry: f.industry.value || null,
+        city: f.city.value || null,
+        department: f.department.value || null,
+        phone: f.phone.value || null,
+        email: f.email.value || null,
+        website: f.website.value || null,
+        address: f.address.value || null,
+    });
+    if (resp.ok) {
+        closeModal();
+        toast('Empresa actualizada', 'success');
+        renderCompany();
+    } else toast(resp.detail || 'Error', 'error');
+}
+
+async function loadCompanyMembers(companyId, isAdmin) {
+    const container = document.getElementById('company-members-list');
+    if (!container) return;
+    try {
+        const resp = await API.companyMembers(companyId);
+        if (!resp.ok) { container.innerHTML = '<p style="color:var(--gray-500)">Error cargando equipo</p>'; return; }
+        if (!resp.data.length) { container.innerHTML = '<p style="color:var(--gray-500)">Sin miembros</p>'; return; }
+
+        const roleLabels = { company_admin: 'Admin', cotizador: 'Cotizador', viewer: 'Viewer' };
+        container.innerHTML = `
+            <div class="members-table">
+                ${resp.data.map(m => `
+                    <div class="member-row">
+                        <div class="member-info">
+                            <div class="member-name">${esc(m.full_name)}</div>
+                            <div class="member-email">${esc(m.email)}</div>
+                        </div>
+                        <div class="member-actions">
+                            <span class="member-role role-${m.company_role}">${roleLabels[m.company_role] || m.company_role}</span>
+                            ${isAdmin && m.id !== state.user.id ? `
+                                <select class="form-input member-role-select" onchange="changeMemberRole(${companyId},${m.id},this.value)">
+                                    <option value="company_admin" ${m.company_role === 'company_admin' ? 'selected' : ''}>Admin</option>
+                                    <option value="cotizador" ${m.company_role === 'cotizador' ? 'selected' : ''}>Cotizador</option>
+                                    <option value="viewer" ${m.company_role === 'viewer' ? 'selected' : ''}>Viewer</option>
+                                </select>
+                                <button class="btn btn-sm btn-danger" onclick="removeMemberConfirm(${companyId},${m.id},'${esc(m.full_name).replace(/'/g,"\\'")}')">&times;</button>
+                            ` : ''}
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    } catch { container.innerHTML = '<p style="color:var(--gray-500)">Error de conexion</p>'; }
+}
+
+function showAddMemberModal(companyId) {
+    showModal('Agregar Miembro', `
+        <form onsubmit="handleAddMember(event, ${companyId})">
+            <div class="form-group">
+                <label class="form-label">Email del usuario *</label>
+                <input class="form-input" name="email" type="email" required placeholder="usuario@email.com">
+                <p style="font-size:12px;color:var(--gray-500);margin-top:4px">El usuario debe estar registrado en la plataforma</p>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Rol</label>
+                <select class="form-input" name="company_role">
+                    <option value="cotizador">Cotizador</option>
+                    <option value="viewer">Viewer (solo lectura)</option>
+                    <option value="company_admin">Administrador</option>
+                </select>
+            </div>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Agregar</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleAddMember(e, companyId) {
+    e.preventDefault();
+    const f = e.target;
+    const resp = await API.addMember(companyId, {
+        email: f.email.value,
+        company_role: f.company_role.value,
+    });
+    if (resp.ok) {
+        closeModal();
+        toast('Miembro agregado', 'success');
+        renderCompany();
+    } else toast(resp.detail || 'Error', 'error');
+}
+
+async function changeMemberRole(companyId, userId, newRole) {
+    const resp = await API.updateMember(companyId, userId, { company_role: newRole });
+    if (resp.ok) toast('Rol actualizado', 'success');
+    else toast(resp.detail || 'Error', 'error');
+}
+
+async function removeMemberConfirm(companyId, userId, name) {
+    if (!confirm(`Remover a ${name} de la empresa?`)) return;
+    const resp = await API.removeMember(companyId, userId);
+    if (resp.ok) {
+        toast('Miembro removido', 'success');
+        renderCompany();
+    } else toast(resp.detail || 'Error', 'error');
+}
+
+async function showUpgradeModal() {
+    let plansHtml = '<div class="empty-state"><p>Cargando planes...</p></div>';
+    try {
+        const resp = await API.plans();
+        if (resp.ok) {
+            plansHtml = resp.data.filter(p => p.key !== 'free').map(p => `
+                <div class="plan-card-modal">
+                    <div class="plan-name">${esc(p.label)}</div>
+                    <div class="plan-price">${p.price_bob} <span>BOB/mes</span></div>
+                    <ul class="plan-features">${p.features.map(f => `<li>${esc(f)}</li>`).join('')}</ul>
+                    <button class="btn btn-primary btn-sm" style="width:100%;margin-top:8px" onclick="requestUpgrade('${p.key}')">Solicitar ${esc(p.label)}</button>
+                </div>
+            `).join('');
+        }
+    } catch {}
+
+    showModal('Mejorar Plan', `
+        <p style="color:var(--gray-500);margin-bottom:16px">Selecciona un plan. Un administrador se pondra en contacto para el proceso de pago.</p>
+        <div class="plans-modal-grid">${plansHtml}</div>
+    `);
+}
+
+async function requestUpgrade(planKey) {
+    const resp = await API.requestUpgrade({ plan: planKey });
+    if (resp.ok) {
+        closeModal();
+        toast(resp.message || 'Solicitud enviada', 'success');
+    } else toast(resp.detail || 'Error', 'error');
 }
 
 // ── Pedidos page ─────────────────────────────────────────────

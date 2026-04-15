@@ -29,8 +29,9 @@ class Pedido(TimestampMixin, Base):
     assigned_to: Mapped[int | None] = mapped_column(
         ForeignKey("mkt_user.id", ondelete="SET NULL"), nullable=True
     )
-    # FK added in Phase 2 when mkt_company table exists
-    company_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mkt_company.id", ondelete="SET NULL"), nullable=True, index=True,
+    )
 
     region: Mapped[str | None] = mapped_column(String(100), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), default="BOB", nullable=False)

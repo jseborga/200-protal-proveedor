@@ -117,13 +117,17 @@ def _precio_to_dict(p: PedidoPrecio) -> dict:
 
 
 async def _get_user_pedido(db: AsyncSession, pedido_id: int, user: User) -> Pedido:
-    """Get pedido and verify ownership."""
+    """Get pedido and verify ownership or company membership."""
     pedido = await get_pedido_detail(db, pedido_id)
     if not pedido:
         raise HTTPException(404, "Pedido no encontrado")
-    if pedido.created_by != user.id and pedido.assigned_to != user.id:
-        raise HTTPException(403, "No tienes acceso a este pedido")
-    return pedido
+    # Direct ownership
+    if pedido.created_by == user.id or pedido.assigned_to == user.id:
+        return pedido
+    # Company membership — any member can access company pedidos
+    if user.company_id and pedido.company_id == user.company_id:
+        return pedido
+    raise HTTPException(403, "No tienes acceso a este pedido")
 
 
 # ── CRUD Pedidos ───────────────────────────────────────────────
@@ -135,11 +139,17 @@ async def list_pedidos(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Listar mis pedidos."""
-    query = (
-        select(Pedido)
-        .where((Pedido.created_by == user.id) | (Pedido.assigned_to == user.id))
-    )
+    """Listar mis pedidos (incluye pedidos de mi empresa)."""
+    if user.company_id:
+        query = select(Pedido).where(
+            (Pedido.created_by == user.id)
+            | (Pedido.assigned_to == user.id)
+            | (Pedido.company_id == user.company_id)
+        )
+    else:
+        query = select(Pedido).where(
+            (Pedido.created_by == user.id) | (Pedido.assigned_to == user.id)
+        )
     if state:
         query = query.where(Pedido.state == state)
 
@@ -185,6 +195,7 @@ async def create(
         currency=body.currency,
         description=body.description,
         deadline=body.deadline,
+        company_id=user.company_id,
     )
     return {"ok": True, "data": _pedido_to_dict(pedido)}
 

@@ -908,6 +908,178 @@ def _user_to_dict(u: User) -> dict:
         "is_active": u.is_active,
         "phone": u.phone,
         "company_name": u.company_name,
+        "company_id": getattr(u, 'company_id', None),
+        "company_role": getattr(u, 'company_role', None),
         "last_login": u.last_login.isoformat() if u.last_login else None,
         "created_at": u.created_at.isoformat() if u.created_at else None,
+    }
+
+
+# ── Company admin ─────────────────────────────────────────────
+from app.models.company import Company, Subscription
+from app.core.plans import PLANS, get_plan_limits
+
+
+@router.get("/companies")
+async def admin_list_companies(
+    q: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    query = select(Company)
+    if q:
+        query = query.where(
+            Company.name.ilike(f"%{q}%") | Company.nit.ilike(f"%{q}%")
+        )
+    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
+    result = await db.execute(query.order_by(Company.created_at.desc()).offset(offset).limit(limit))
+    companies = result.scalars().all()
+
+    data = []
+    for c in companies:
+        d = {
+            "id": c.id,
+            "name": c.name,
+            "nit": c.nit,
+            "city": c.city,
+            "department": c.department,
+            "industry": c.industry,
+            "is_active": c.is_active,
+            "created_at": c.created_at.isoformat(),
+        }
+        # Get subscription
+        sub = (await db.execute(
+            select(Subscription).where(Subscription.company_id == c.id)
+        )).scalar_one_or_none()
+        if sub:
+            d["plan"] = sub.plan
+            d["sub_state"] = sub.state
+            d["max_users"] = sub.max_users
+            d["expires_at"] = sub.expires_at.isoformat() if sub.expires_at else None
+        # Member count
+        d["member_count"] = (await db.execute(
+            select(func.count(User.id)).where(User.company_id == c.id)
+        )).scalar() or 0
+        data.append(d)
+
+    return {"ok": True, "data": data, "total": total}
+
+
+@router.get("/subscriptions")
+async def admin_list_subscriptions(
+    plan: str | None = Query(None),
+    state: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    query = select(Subscription)
+    if plan:
+        query = query.where(Subscription.plan == plan)
+    if state:
+        query = query.where(Subscription.state == state)
+
+    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
+    result = await db.execute(
+        query.order_by(Subscription.created_at.desc()).offset(offset).limit(limit)
+    )
+    subs = result.scalars().all()
+
+    data = []
+    for s in subs:
+        company = await db.get(Company, s.company_id)
+        data.append({
+            "id": s.id,
+            "company_id": s.company_id,
+            "company_name": company.name if company else None,
+            "plan": s.plan,
+            "state": s.state,
+            "max_users": s.max_users,
+            "max_pedidos_month": s.max_pedidos_month,
+            "started_at": s.started_at.isoformat(),
+            "expires_at": s.expires_at.isoformat() if s.expires_at else None,
+            "payment_method": s.payment_method,
+            "last_payment_date": s.last_payment_date.isoformat() if s.last_payment_date else None,
+            "last_payment_amount": s.last_payment_amount,
+            "notes": s.notes,
+        })
+    return {"ok": True, "data": data, "total": total}
+
+
+class SubscriptionAdminUpdate(BaseModel):
+    plan: str | None = None
+    state: str | None = None
+    max_users: int | None = None
+    max_pedidos_month: int | None = None
+    payment_method: str | None = None
+    last_payment_amount: float | None = None
+    last_payment_ref: str | None = None
+    expires_at: str | None = None  # ISO format
+    notes: str | None = None
+
+
+@router.put("/subscriptions/{sub_id}")
+async def admin_update_subscription(
+    sub_id: int,
+    body: SubscriptionAdminUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Activar/modificar suscripcion (billing manual)."""
+    sub = await db.get(Subscription, sub_id)
+    if not sub:
+        raise HTTPException(404, "Suscripcion no encontrada")
+
+    data = body.model_dump(exclude_unset=True)
+
+    if "plan" in data and data["plan"]:
+        if data["plan"] not in PLANS:
+            raise HTTPException(400, f"Plan invalido: {', '.join(PLANS.keys())}")
+        max_u, max_p = get_plan_limits(data["plan"])
+        sub.plan = data.pop("plan")
+        if "max_users" not in data:
+            sub.max_users = max_u
+        if "max_pedidos_month" not in data:
+            sub.max_pedidos_month = max_p
+
+    if "expires_at" in data:
+        from datetime import datetime
+        if data["expires_at"]:
+            sub.expires_at = datetime.fromisoformat(data.pop("expires_at"))
+        else:
+            sub.expires_at = None
+            data.pop("expires_at")
+
+    if "last_payment_amount" in data and data["last_payment_amount"]:
+        from datetime import date
+        sub.last_payment_date = date.today()
+
+    for k, v in data.items():
+        if hasattr(sub, k):
+            setattr(sub, k, v)
+
+    await db.commit()
+    await db.refresh(sub)
+
+    plan_info = PLANS.get(sub.plan, {})
+    return {
+        "ok": True,
+        "data": {
+            "id": sub.id,
+            "company_id": sub.company_id,
+            "plan": sub.plan,
+            "plan_label": plan_info.get("label", sub.plan),
+            "state": sub.state,
+            "max_users": sub.max_users,
+            "max_pedidos_month": sub.max_pedidos_month,
+            "started_at": sub.started_at.isoformat(),
+            "expires_at": sub.expires_at.isoformat() if sub.expires_at else None,
+            "payment_method": sub.payment_method,
+            "last_payment_date": sub.last_payment_date.isoformat() if sub.last_payment_date else None,
+            "last_payment_amount": sub.last_payment_amount,
+            "notes": sub.notes,
+        },
     }

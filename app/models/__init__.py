@@ -1,4 +1,5 @@
 from .base import Base
+from .company import Company, Subscription
 from .supplier import Supplier, SupplierBranch, SupplierBranchContact
 from .insumo_group import InsumoGroup
 from .insumo import Insumo, InsumoRegionalPrice
@@ -12,7 +13,8 @@ from .price_history import PriceHistory
 from .pedido import Pedido, PedidoItem, PedidoPrecio
 
 __all__ = [
-    "Base", "Supplier", "SupplierBranch", "SupplierBranchContact",
+    "Base", "Company", "Subscription",
+    "Supplier", "SupplierBranch", "SupplierBranchContact",
     "InsumoGroup", "Insumo", "InsumoRegionalPrice",
     "Quotation", "QuotationLine", "RFQ", "RFQItem",
     "ProductMatch", "User", "ApiKey",

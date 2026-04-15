@@ -35,6 +35,23 @@ async def _init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_group_id ON mkt_insumo(group_id)"
         ))
+        # Phase 2: company membership on mkt_user
+        await conn.execute(text(
+            "ALTER TABLE mkt_user ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES mkt_company(id) ON DELETE SET NULL"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE mkt_user ADD COLUMN IF NOT EXISTS company_role VARCHAR(30)"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_mkt_user_company_id ON mkt_user(company_id)"
+        ))
+        # Phase 2: company_id FK on mkt_pedido
+        await conn.execute(text(
+            "ALTER TABLE mkt_pedido ADD COLUMN IF NOT EXISTS company_id INTEGER REFERENCES mkt_company(id) ON DELETE SET NULL"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_mkt_pedido_company_id ON mkt_pedido(company_id)"
+        ))
 
 
 async def _ensure_superadmin():
@@ -160,7 +177,7 @@ app.add_middleware(
 )
 
 # ── API Routes ──────────────────────────────────────────────────
-from app.api.routes import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos  # noqa: E402
+from app.api.routes import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos, companies, subscriptions  # noqa: E402
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(suppliers.router, prefix="/api/v1/suppliers", tags=["Suppliers"])
@@ -172,6 +189,8 @@ app.include_router(admin.router, prefix="/api/v1/admin", tags=["Admin"])
 app.include_router(integration.router, prefix="/api/v1/integration", tags=["Integration"])
 app.include_router(groups.router, prefix="/api/v1/groups", tags=["Groups"])
 app.include_router(pedidos.router, prefix="/api/v1/pedidos", tags=["Pedidos"])
+app.include_router(companies.router, prefix="/api/v1/companies", tags=["Companies"])
+app.include_router(subscriptions.router, prefix="/api/v1/subscriptions", tags=["Subscriptions"])
 
 
 # ── Health ──────────────────────────────────────────────────────

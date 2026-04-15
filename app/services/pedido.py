@@ -26,6 +26,7 @@ async def create_pedido(
     currency: str = "BOB",
     description: str | None = None,
     deadline: datetime | None = None,
+    company_id: int | None = None,
 ) -> Pedido:
     """Crea un pedido con sus items desde el carrito del usuario."""
     pedido = Pedido(
@@ -35,6 +36,7 @@ async def create_pedido(
         state="draft",
         created_by=user.id,
         assigned_to=user.id,
+        company_id=company_id,
         region=region,
         currency=currency,
         deadline=deadline,
