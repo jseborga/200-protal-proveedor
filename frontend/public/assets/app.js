@@ -124,6 +124,20 @@ const API = {
     adminUpdateUom: (id, data) => API.put(`/admin/uoms/${id}`, data),
     adminDeleteUom: (id) => API.del(`/admin/uoms/${id}`),
 
+    // Admin — groups
+    adminGroups: (params = '') => API.get(`/groups${params}`),
+    adminGroup: (id) => API.get(`/groups/${id}`),
+    createGroup: (data) => API.post('/groups', data),
+    updateGroup: (id, data) => API.put(`/groups/${id}`, data),
+    deleteGroup: (id) => API.del(`/groups/${id}`),
+    addGroupMembers: (id, ids) => API.post(`/groups/${id}/members`, { insumo_ids: ids }),
+    removeGroupMember: (gid, iid) => API.del(`/groups/${gid}/members/${iid}`),
+    groupSuggestions: (params = '') => API.get(`/groups/suggestions${params}`),
+    acceptGroupSuggestion: (data) => API.post('/groups/suggestions/accept', data),
+
+    // Public — grouped prices
+    publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
+
     // Public catalog
     catalogCategories: () => API.get('/admin/catalog/categories'),
     catalogUoms: () => API.get('/admin/catalog/uoms'),
@@ -185,6 +199,9 @@ const ICONS = {
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
     globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
     mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>',
+    layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 2,7 12,12 22,7"/><polyline points="2,17 12,22 22,17"/><polyline points="2,12 12,17 22,12"/></svg>',
+    'chevron-down': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,9 12,15 18,9"/></svg>',
+    'chevron-up': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18,15 12,9 6,15"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -461,6 +478,7 @@ function renderSupplierCard(s) {
 
 // ── Render: Price card (reusable) ──────────────────────────────
 function renderPriceCard(p) {
+    if (p.type === 'group') return renderGroupCard(p);
     return `
         <div class="price-card">
             <div class="price-info">
@@ -473,6 +491,54 @@ function renderPriceCard(p) {
             </div>
         </div>
     `;
+}
+
+function renderGroupCard(g) {
+    const priceText = g.price_range.min != null
+        ? (g.price_range.min === g.price_range.max
+            ? g.price_range.min.toFixed(2)
+            : `${g.price_range.min.toFixed(2)} - ${g.price_range.max.toFixed(2)}`)
+        : '--.--';
+    const cardId = `group-card-${g.id}`;
+    return `
+        <div class="price-card price-card-group" id="${cardId}">
+            <div style="width:100%">
+                <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer"
+                     onclick="toggleGroupVariants(${g.id})">
+                    <div class="price-info">
+                        <div class="price-name">${esc(g.name)}</div>
+                        <div class="price-detail">
+                            ${g.category ? esc(g.category) + ' &middot; ' : ''}${g.member_count} variantes${g.variant_label ? ' &middot; ' + esc(g.variant_label) : ''}
+                        </div>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <div class="price-value">
+                            ${priceText}
+                            <span class="price-currency">${esc(g.ref_currency || 'BOB')}</span>
+                        </div>
+                        <span class="group-toggle-icon" id="group-icon-${g.id}">${icon('chevron-down', 16)}</span>
+                    </div>
+                </div>
+                <div class="group-variants" id="group-variants-${g.id}" style="display:none">
+                    ${(g.insumos || []).map(i => `
+                        <div class="variant-row">
+                            <span class="variant-name">${esc(i.name)}</span>
+                            <span class="variant-price">${i.ref_price ? i.ref_price.toFixed(2) : '--.--'} <span class="price-currency">${esc(i.ref_currency || 'BOB')}</span></span>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function toggleGroupVariants(groupId) {
+    const variants = document.getElementById(`group-variants-${groupId}`);
+    const iconEl = document.getElementById(`group-icon-${groupId}`);
+    if (!variants) return;
+    const showing = variants.style.display !== 'none';
+    variants.style.display = showing ? 'none' : 'block';
+    if (iconEl) iconEl.innerHTML = showing ? icon('chevron-down', 16) : icon('chevron-up', 16);
 }
 
 // ── Render: Public Prices page ─────────────────────────────────
@@ -545,7 +611,7 @@ async function loadPublicPrices(offset = 0) {
     if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
 
     try {
-        const resp = await API.publicPrices(params);
+        const resp = await API.publicGroupedPrices(params);
         const container = document.getElementById('prices-list');
         if (!resp.ok) { container.innerHTML = '<div class="empty-state"><p>Error cargando precios</p></div>'; return; }
         if (!resp.data.length) { container.innerHTML = '<div class="empty-state"><p>No se encontraron materiales</p></div>'; return; }
@@ -1046,6 +1112,7 @@ async function renderAdmin() {
         { key: 'dashboard', label: 'Dashboard', icon: 'bar-chart' },
         { key: 'suppliers', label: 'Proveedores', icon: 'users' },
         { key: 'products', label: 'Productos', icon: 'tag' },
+        { key: 'groups', label: 'Grupos', icon: 'layers' },
     ];
     if (isAdmin()) tabs.push({ key: 'review', label: 'Revision', icon: 'check-circle' });
     if (isAdmin()) tabs.push({ key: 'categories', label: 'Categorias', icon: 'tag' });
@@ -1082,6 +1149,7 @@ function renderAdminTab() {
         case 'dashboard': renderAdminDashboard(); break;
         case 'suppliers': renderAdminSuppliers(); break;
         case 'products': renderAdminProducts(); break;
+        case 'groups': renderAdminGroups(); break;
         case 'review': renderAdminReview(); break;
         case 'categories': renderAdminCategories(); break;
         case 'uoms': renderAdminUoms(); break;
@@ -2343,6 +2411,392 @@ async function handleAdminProduct(e, editId) {
         } else {
             toast(resp.detail || 'Error', 'error');
         }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Admin: Groups ─────────────────────────────────────────────
+let _admGrpOffset = 0;
+let _admGrpCategory = '';
+const _admGrpPageSize = 50;
+
+async function renderAdminGroups() {
+    const c = document.getElementById('admin-content');
+
+    let catOptions = '<option value="">Todas las categorias</option>';
+    try {
+        const catsRes = await API.adminCategories();
+        if (catsRes.ok && catsRes.data) {
+            catOptions += catsRes.data.map(cat =>
+                `<option value="${esc(cat.key)}" ${_admGrpCategory === cat.key ? 'selected' : ''}>${esc(cat.label || cat.key)}</option>`
+            ).join('');
+        }
+    } catch {}
+
+    c.innerHTML = `
+        <div class="admin-toolbar">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input class="form-input" id="admin-group-search" placeholder="Buscar grupo..."
+                       oninput="debounceAdminGroups()" style="width:250px">
+                <select id="admin-group-category"
+                        onchange="_admGrpCategory=this.value;_admGrpOffset=0;loadAdminGroups()"
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px">
+                    ${catOptions}
+                </select>
+            </div>
+            <div style="display:flex;gap:8px">
+                <button class="btn btn-secondary" onclick="showGroupSuggestions()">
+                    ${icon('trending-up',16)} Sugerencias
+                </button>
+                <button class="btn btn-primary" onclick="showGroupForm()">
+                    ${icon('plus',16)} Nuevo Grupo
+                </button>
+            </div>
+        </div>
+        <div id="admin-groups-list"></div>
+    `;
+    loadAdminGroups();
+}
+
+let _admGrpTimer;
+function debounceAdminGroups() {
+    clearTimeout(_admGrpTimer);
+    _admGrpTimer = setTimeout(() => { _admGrpOffset = 0; loadAdminGroups(); }, 300);
+}
+
+async function loadAdminGroups() {
+    const q = document.getElementById('admin-group-search')?.value?.trim() || '';
+    let params = `?limit=${_admGrpPageSize}&offset=${_admGrpOffset}`;
+    if (q) params += `&q=${encodeURIComponent(q)}`;
+    if (_admGrpCategory) params += `&category=${encodeURIComponent(_admGrpCategory)}`;
+
+    try {
+        const resp = await API.adminGroups(params);
+        const container = document.getElementById('admin-groups-list');
+        if (!container) return;
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = '<div class="empty-state"><p>No hay grupos. Crea uno o usa las sugerencias automaticas.</p></div>';
+            return;
+        }
+        const total = resp.total || 0;
+        container.innerHTML = `
+            <div class="table-wrap"><table>
+                <thead><tr>
+                    <th>Nombre</th><th>Categoria</th><th>Variante</th><th>Miembros</th><th>Rango Precio</th><th>Acciones</th>
+                </tr></thead>
+                <tbody>${resp.data.map(g => `
+                    <tr>
+                        <td><strong style="cursor:pointer;color:var(--primary)" onclick="showGroupDetail(${g.id})">${esc(g.name)}</strong></td>
+                        <td>${g.category ? `<span class="badge">${esc(g.category)}</span>` : '-'}</td>
+                        <td>${g.variant_label ? esc(g.variant_label) : '-'}</td>
+                        <td><span class="badge badge-gray">${g.member_count}</span></td>
+                        <td>${g.price_range.min != null ? `${g.price_range.min.toFixed(2)} - ${g.price_range.max.toFixed(2)}` : '-'}</td>
+                        <td style="white-space:nowrap">
+                            <button class="btn btn-sm btn-secondary" onclick="showGroupDetail(${g.id})" title="Ver detalle">${icon('layers',14)}</button>
+                            <button class="btn btn-sm btn-secondary" onclick="showGroupForm(${g.id})" title="Editar">${icon('edit',14)}</button>
+                            <button class="btn btn-sm" onclick="deleteGroup(${g.id})" title="Eliminar" style="color:#e53e3e">${icon('trash',14)}</button>
+                        </td>
+                    </tr>
+                `).join('')}</tbody>
+            </table></div>
+            ${total > _admGrpPageSize ? `
+                <div style="display:flex;justify-content:center;gap:8px;margin-top:16px;align-items:center">
+                    <button class="btn btn-sm" ${_admGrpOffset === 0 ? 'disabled' : ''}
+                            onclick="_admGrpOffset=Math.max(0,_admGrpOffset-${_admGrpPageSize});loadAdminGroups()">Anterior</button>
+                    <span style="padding:6px;color:#666;font-size:13px">${_admGrpOffset + 1}-${Math.min(_admGrpOffset + _admGrpPageSize, total)} de ${total}</span>
+                    <button class="btn btn-sm" ${_admGrpOffset + _admGrpPageSize >= total ? 'disabled' : ''}
+                            onclick="_admGrpOffset+=${_admGrpPageSize};loadAdminGroups()">Siguiente</button>
+                </div>
+            ` : `<p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${total} grupos</p>`}
+        `;
+    } catch { document.getElementById('admin-groups-list').innerHTML = '<div class="empty-state"><p>Error cargando grupos</p></div>'; }
+}
+
+function showGroupForm(editId) {
+    const title = editId ? 'Editar Grupo' : 'Nuevo Grupo';
+    showModal(title, `
+        <form id="group-form" onsubmit="handleGroupSubmit(event, ${editId || 'null'})">
+            <div class="form-group">
+                <label class="form-label">Nombre del grupo *</label>
+                <input class="form-input" name="name" required placeholder="Ej: Pintura Latex Tradicional">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Categoria</label>
+                    <input class="form-input" name="category" list="grp-cat-list" placeholder="Categoria">
+                    <datalist id="grp-cat-list">
+                        ${Object.entries(CATEGORY_META).map(([k,v]) => `<option value="${esc(k)}">${esc(v.label)}</option>`).join('')}
+                    </datalist>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Etiqueta de variante</label>
+                    <input class="form-input" name="variant_label" placeholder="Ej: Color, Diametro, Medida">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Descripcion</label>
+                <textarea class="form-input" name="description" rows="2" placeholder="Descripcion opcional..."></textarea>
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
+                ${editId ? 'Guardar Cambios' : 'Crear Grupo'}
+            </button>
+        </form>
+    `);
+
+    if (editId) loadGroupIntoForm(editId);
+}
+
+async function loadGroupIntoForm(id) {
+    try {
+        const resp = await API.adminGroup(id);
+        if (!resp.ok) return;
+        const g = resp.data;
+        const f = document.getElementById('group-form');
+        if (!f) return;
+        if (g.name) f.name.value = g.name;
+        if (g.category) f.category.value = g.category;
+        if (g.variant_label) f.variant_label.value = g.variant_label;
+        if (g.description) f.description.value = g.description;
+    } catch {}
+}
+
+async function handleGroupSubmit(e, editId) {
+    e.preventDefault();
+    const f = e.target;
+    const data = {
+        name: f.name.value,
+        category: f.category.value || null,
+        variant_label: f.variant_label.value || null,
+        description: f.description.value || null,
+    };
+    try {
+        const resp = editId
+            ? await API.updateGroup(editId, data)
+            : await API.createGroup(data);
+        if (resp.ok) {
+            closeModal();
+            toast(editId ? 'Grupo actualizado' : 'Grupo creado', 'success');
+            loadAdminGroups();
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function deleteGroup(id) {
+    if (!confirm('Eliminar este grupo? Los productos seran desasociados.')) return;
+    try {
+        const resp = await API.deleteGroup(id);
+        if (resp.ok) { toast('Grupo eliminado', 'success'); loadAdminGroups(); }
+        else toast(resp.detail || 'Error', 'error');
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function showGroupDetail(groupId) {
+    showModal('Detalle del Grupo', '<p style="text-align:center;color:var(--gray-500)">Cargando...</p>');
+
+    try {
+        const resp = await API.adminGroup(groupId);
+        if (!resp.ok) { closeModal(); toast('Error', 'error'); return; }
+        const g = resp.data;
+
+        const modalBody = document.querySelector('.modal-body');
+        if (!modalBody) return;
+
+        modalBody.innerHTML = `
+            <div style="margin-bottom:16px">
+                <h3 style="margin:0 0 4px">${esc(g.name)}</h3>
+                <div style="font-size:13px;color:var(--gray-500)">
+                    ${g.category ? `<span class="badge">${esc(g.category)}</span>` : ''}
+                    ${g.variant_label ? ` &middot; Variante: <strong>${esc(g.variant_label)}</strong>` : ''}
+                    &middot; ${g.member_count} miembros
+                    ${g.price_range.min != null ? ` &middot; ${g.price_range.min.toFixed(2)} - ${g.price_range.max.toFixed(2)} BOB` : ''}
+                </div>
+                ${g.description ? `<p style="margin:8px 0 0;font-size:13px;color:var(--gray-600)">${esc(g.description)}</p>` : ''}
+            </div>
+
+            <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">
+                <strong style="font-size:14px">Productos miembros</strong>
+                <button class="btn btn-sm btn-primary" onclick="showAddMembersModal(${groupId})">
+                    ${icon('plus',14)} Agregar
+                </button>
+            </div>
+
+            <div id="group-members-list">
+                ${g.insumos && g.insumos.length ? `
+                    <div class="table-wrap"><table>
+                        <thead><tr><th>Producto</th><th>UOM</th><th>Precio Ref.</th><th></th></tr></thead>
+                        <tbody>${g.insumos.map(i => `
+                            <tr>
+                                <td>${esc(i.name)}</td>
+                                <td>${esc(i.uom)}</td>
+                                <td>${i.ref_price ? `${i.ref_price.toFixed(2)} ${esc(i.ref_currency || 'BOB')}` : '-'}</td>
+                                <td>
+                                    <button class="btn btn-sm" onclick="removeGroupMember(${groupId}, ${i.id})" style="color:#e53e3e" title="Quitar del grupo">
+                                        ${icon('x',14)}
+                                    </button>
+                                </td>
+                            </tr>
+                        `).join('')}</tbody>
+                    </table></div>
+                ` : '<div class="empty-state"><p>Sin miembros. Agrega productos al grupo.</p></div>'}
+            </div>
+        `;
+    } catch { closeModal(); toast('Error cargando grupo', 'error'); }
+}
+
+async function removeGroupMember(groupId, insumoId) {
+    try {
+        const resp = await API.removeGroupMember(groupId, insumoId);
+        if (resp.ok) {
+            toast('Producto quitado del grupo', 'success');
+            showGroupDetail(groupId);
+        } else toast(resp.detail || 'Error', 'error');
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+function showAddMembersModal(groupId) {
+    showModal('Agregar Productos al Grupo', `
+        <div class="form-group">
+            <label class="form-label">Buscar producto</label>
+            <input class="form-input" id="add-member-search" placeholder="Nombre del producto..."
+                   oninput="debounceSearchMembers(${groupId})">
+        </div>
+        <div id="add-member-results" style="max-height:300px;overflow-y:auto"></div>
+        <div id="add-member-selected" style="margin-top:12px"></div>
+        <button class="btn btn-primary" id="add-member-btn" style="width:100%;justify-content:center;padding:10px;margin-top:12px;display:none"
+                onclick="submitAddMembers(${groupId})">
+            Agregar Seleccionados
+        </button>
+    `);
+    window._selectedMemberIds = new Set();
+}
+
+let _memberSearchTimer;
+function debounceSearchMembers(groupId) {
+    clearTimeout(_memberSearchTimer);
+    _memberSearchTimer = setTimeout(() => searchMembersForGroup(groupId), 300);
+}
+
+async function searchMembersForGroup(groupId) {
+    const q = document.getElementById('add-member-search')?.value?.trim();
+    if (!q || q.length < 2) {
+        document.getElementById('add-member-results').innerHTML = '';
+        return;
+    }
+    try {
+        const resp = await API.insumos(`?q=${encodeURIComponent(q)}&limit=20`);
+        const container = document.getElementById('add-member-results');
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = '<p style="color:var(--gray-500);font-size:13px">Sin resultados</p>';
+            return;
+        }
+        container.innerHTML = resp.data.map(p => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;border-bottom:1px solid var(--gray-200);${window._selectedMemberIds.has(p.id) ? 'background:#f0fdf4;' : ''}">
+                <div>
+                    <strong style="font-size:13px">${esc(p.name)}</strong>
+                    <span style="font-size:12px;color:var(--gray-500)">${esc(p.uom)} ${p.ref_price ? '&middot; ' + p.ref_price.toFixed(2) + ' BOB' : ''}</span>
+                </div>
+                <button class="btn btn-sm ${window._selectedMemberIds.has(p.id) ? 'btn-primary' : 'btn-secondary'}"
+                        onclick="toggleMemberSelection(${p.id}, ${groupId})">
+                    ${window._selectedMemberIds.has(p.id) ? icon('check', 14) : icon('plus', 14)}
+                </button>
+            </div>
+        `).join('');
+    } catch {}
+}
+
+function toggleMemberSelection(insumoId, groupId) {
+    if (window._selectedMemberIds.has(insumoId)) {
+        window._selectedMemberIds.delete(insumoId);
+    } else {
+        window._selectedMemberIds.add(insumoId);
+    }
+    const btn = document.getElementById('add-member-btn');
+    if (btn) btn.style.display = window._selectedMemberIds.size > 0 ? 'flex' : 'none';
+    searchMembersForGroup(groupId);
+}
+
+async function submitAddMembers(groupId) {
+    const ids = Array.from(window._selectedMemberIds);
+    if (!ids.length) return;
+    try {
+        const resp = await API.addGroupMembers(groupId, ids);
+        if (resp.ok) {
+            toast(`${resp.assigned || 0} asignados, ${resp.moved || 0} movidos`, 'success');
+            showGroupDetail(groupId);
+        } else toast(resp.detail || 'Error', 'error');
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Group Suggestions ─────────────────────────────────────────
+async function showGroupSuggestions() {
+    showModal('Sugerencias de Agrupacion', '<p style="text-align:center;color:var(--gray-500)">Analizando productos...</p>');
+
+    try {
+        let params = '?limit=30';
+        if (_admGrpCategory) params += `&category=${encodeURIComponent(_admGrpCategory)}`;
+        const resp = await API.groupSuggestions(params);
+        const modalBody = document.querySelector('.modal-body');
+        if (!modalBody) return;
+
+        if (!resp.ok || !resp.data.length) {
+            modalBody.innerHTML = '<div class="empty-state"><p>No se encontraron sugerencias. Todos los productos similares ya estan agrupados o no hay suficientes productos sin grupo.</p></div>';
+            return;
+        }
+
+        modalBody.innerHTML = `
+            <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">
+                Se encontraron <strong>${resp.data.length}</strong> posibles agrupaciones basadas en similitud de nombre.
+            </p>
+            <div style="max-height:500px;overflow-y:auto">
+                ${resp.data.map((s, idx) => `
+                    <div class="card" style="margin-bottom:12px;padding:12px">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start">
+                            <div>
+                                <strong>${esc(s.suggested_name)}</strong>
+                                ${s.category ? `<span class="badge" style="margin-left:6px">${esc(s.category)}</span>` : ''}
+                                <div style="font-size:13px;color:var(--gray-500);margin-top:2px">
+                                    ${s.member_count} productos
+                                    ${s.price_range.min != null ? ` &middot; ${s.price_range.min.toFixed(2)} - ${s.price_range.max.toFixed(2)} BOB` : ''}
+                                </div>
+                                <div style="font-size:12px;color:var(--gray-400);margin-top:4px">
+                                    ${s.insumos.slice(0, 5).map(i => esc(i.name)).join(', ')}${s.insumos.length > 5 ? '...' : ''}
+                                </div>
+                            </div>
+                            <button class="btn btn-sm btn-primary" onclick="acceptSuggestion(${idx})">
+                                ${icon('check',14)} Crear
+                            </button>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+
+        window._groupSuggestions = resp.data;
+    } catch { document.querySelector('.modal-body').innerHTML = '<div class="empty-state"><p>Error cargando sugerencias</p></div>'; }
+}
+
+async function acceptSuggestion(idx) {
+    const s = window._groupSuggestions?.[idx];
+    if (!s) return;
+
+    try {
+        const resp = await API.acceptGroupSuggestion({
+            name: s.suggested_name,
+            category: s.category,
+            variant_label: null,
+            insumo_ids: s.insumos.map(i => i.id),
+        });
+        if (resp.ok) {
+            toast(`Grupo "${s.suggested_name}" creado con ${resp.data.member_count} miembros`, 'success');
+            window._groupSuggestions.splice(idx, 1);
+            if (window._groupSuggestions.length) {
+                showGroupSuggestions();
+            } else {
+                closeModal();
+                loadAdminGroups();
+            }
+        } else toast(resp.detail || 'Error', 'error');
     } catch { toast('Error de conexion', 'error'); }
 }
 

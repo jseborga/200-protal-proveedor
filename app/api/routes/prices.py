@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user, get_current_user_optional
 from app.models.insumo import Insumo, InsumoRegionalPrice
+from app.models.insumo_group import InsumoGroup
 from app.models.price_history import PriceHistory
 from app.models.user import User
 
@@ -84,6 +85,95 @@ async def public_prices(
         data.append(d)
 
     return {"ok": True, "data": data, "total": total}
+
+
+@router.get("/public/grouped")
+async def public_grouped_prices(
+    q: str | None = Query(None),
+    category: str | None = Query(None),
+    region: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """Public grouped price list: groups with variants + standalone insumos."""
+    from sqlalchemy.orm import selectinload
+
+    items: list[dict] = []
+
+    # 1. Fetch active groups with their active insumos
+    grp_query = (
+        select(InsumoGroup)
+        .options(selectinload(InsumoGroup.insumos))
+        .where(InsumoGroup.is_active == True)
+    )
+    if category:
+        grp_query = grp_query.where(InsumoGroup.category == category)
+    if q:
+        grp_query = grp_query.where(InsumoGroup.name.ilike(f"%{q}%"))
+    grp_query = grp_query.order_by(InsumoGroup.sort_order, InsumoGroup.name)
+
+    grp_result = await db.execute(grp_query)
+    groups = grp_result.scalars().unique().all()
+
+    grouped_insumo_ids: set[int] = set()
+    for g in groups:
+        active = [i for i in g.insumos if i.is_active]
+        if not active:
+            continue
+        grouped_insumo_ids.update(i.id for i in active)
+        prices = [i.ref_price for i in active if i.ref_price is not None]
+        items.append({
+            "type": "group",
+            "id": g.id,
+            "name": g.name,
+            "category": g.category,
+            "variant_label": g.variant_label,
+            "member_count": len(active),
+            "price_range": {
+                "min": min(prices) if prices else None,
+                "max": max(prices) if prices else None,
+            },
+            "ref_currency": active[0].ref_currency if active else "BOB",
+            "insumos": [
+                {
+                    "id": i.id,
+                    "name": i.name,
+                    "uom": i.uom,
+                    "ref_price": i.ref_price,
+                    "ref_currency": i.ref_currency,
+                }
+                for i in sorted(active, key=lambda x: (x.ref_price or 0, x.name))
+            ],
+        })
+
+    # 2. Fetch standalone insumos (no group)
+    solo_query = select(Insumo).where(
+        Insumo.is_active == True,
+        Insumo.group_id.is_(None),
+    )
+    if category:
+        solo_query = solo_query.where(Insumo.category == category)
+    if q:
+        solo_query = solo_query.where(Insumo.name.ilike(f"%{q}%"))
+    solo_query = solo_query.order_by(Insumo.name)
+
+    solo_result = await db.execute(solo_query)
+    standalone = solo_result.scalars().all()
+    for ins in standalone:
+        items.append({
+            "type": "standalone",
+            "id": ins.id,
+            "name": ins.name,
+            "category": ins.category,
+            "uom": ins.uom,
+            "ref_price": ins.ref_price,
+            "ref_currency": ins.ref_currency,
+        })
+
+    total = len(items)
+    page = items[offset:offset + limit]
+    return {"ok": True, "data": page, "total": total}
 
 
 @router.get("/public/search")

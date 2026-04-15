@@ -30,7 +30,15 @@ class Insumo(TimestampMixin, Base):
     # Matching helpers
     tokens: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # pre-computed tokens
 
+    # Product grouping (family/variants)
+    group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mkt_insumo_group.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+
     # Relationships
+    group: Mapped["InsumoGroup | None"] = relationship(
+        "InsumoGroup", back_populates="insumos"
+    )
     regional_prices: Mapped[list["InsumoRegionalPrice"]] = relationship(
         "InsumoRegionalPrice", back_populates="insumo", cascade="all, delete-orphan"
     )
