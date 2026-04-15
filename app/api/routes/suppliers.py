@@ -439,7 +439,7 @@ async def create_branch(
     supplier_id: int,
     body: BranchCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_staff(get_current_user)),
+    user: User = Depends(require_staff),
 ):
     supplier = await db.get(Supplier, supplier_id)
     if not supplier:
@@ -457,7 +457,7 @@ async def update_branch(
     branch_id: int,
     body: BranchUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_staff(get_current_user)),
+    user: User = Depends(require_staff),
 ):
     branch = await db.get(SupplierBranch, branch_id)
     if not branch or branch.supplier_id != supplier_id:
@@ -474,7 +474,7 @@ async def delete_branch(
     supplier_id: int,
     branch_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_staff(get_current_user)),
+    user: User = Depends(require_staff),
 ):
     branch = await db.get(SupplierBranch, branch_id)
     if not branch or branch.supplier_id != supplier_id:
