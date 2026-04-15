@@ -28,6 +28,13 @@ async def _init_db():
             await conn.execute(text(
                 f"ALTER TABLE mkt_supplier ADD COLUMN IF NOT EXISTS {col} {coltype}"
             ))
+        # group_id FK on mkt_insumo for product grouping
+        await conn.execute(text(
+            "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS group_id INTEGER REFERENCES mkt_insumo_group(id) ON DELETE SET NULL"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_group_id ON mkt_insumo(group_id)"
+        ))
 
 
 async def _ensure_superadmin():
