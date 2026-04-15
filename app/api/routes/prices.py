@@ -412,6 +412,90 @@ async def refresh_ref_price(
     return {"ok": True, "ref_price": insumo.ref_price, "sample_count": 0, "period": "sin datos"}
 
 
+# ── Manual price entry ─────────────────────────────────────────
+class ManualPriceInput(BaseModel):
+    unit_price: float
+    currency: str = "BOB"
+    observed_date: date
+    quantity: float | None = None
+    source: str = "manual"
+    source_ref: str | None = None
+
+
+@router.post("/{insumo_id}/add-price")
+async def add_manual_price(
+    insumo_id: int,
+    body: ManualPriceInput,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Add a manual price observation for an insumo."""
+    insumo = await db.get(Insumo, insumo_id)
+    if not insumo:
+        raise HTTPException(status_code=404, detail="Insumo no encontrado")
+
+    ph = PriceHistory(
+        insumo_id=insumo_id,
+        unit_price=body.unit_price,
+        currency=body.currency,
+        observed_date=body.observed_date,
+        quantity=body.quantity,
+        source=body.source,
+        source_ref=body.source_ref,
+        notes=f"Agregado por {user.email}",
+    )
+    db.add(ph)
+    await db.flush()
+    return {"ok": True, "id": ph.id}
+
+
+# ── Supplier-Product relationship ──────────────────────────────
+@router.get("/{insumo_id}/suppliers")
+async def get_product_suppliers(
+    insumo_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get all suppliers that sell a product, with their latest price and stats."""
+    from app.models.supplier import Supplier
+
+    result = await db.execute(
+        text("""
+            SELECT
+                ph.supplier_id,
+                s.name AS supplier_name,
+                s.city,
+                s.department,
+                s.whatsapp,
+                COUNT(*) AS order_count,
+                ROUND(AVG(ph.unit_price)::numeric, 2) AS avg_price,
+                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ph.unit_price)::numeric, 2) AS median_price,
+                ROUND(MIN(ph.unit_price)::numeric, 2) AS min_price,
+                ROUND(MAX(ph.unit_price)::numeric, 2) AS max_price,
+                MIN(ph.observed_date) AS first_order,
+                MAX(ph.observed_date) AS last_order
+            FROM mkt_price_history ph
+            JOIN mkt_supplier s ON s.id = ph.supplier_id
+            WHERE ph.insumo_id = :insumo_id AND ph.supplier_id IS NOT NULL
+            GROUP BY ph.supplier_id, s.name, s.city, s.department, s.whatsapp
+            ORDER BY order_count DESC
+        """),
+        {"insumo_id": insumo_id},
+    )
+    rows = result.mappings().all()
+    return {
+        "ok": True,
+        "data": [
+            {
+                **dict(r),
+                "first_order": r["first_order"].isoformat() if r["first_order"] else None,
+                "last_order": r["last_order"].isoformat() if r["last_order"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
 # ── Helpers ─────────────────────────────────────────────────────
 def _insumo_to_dict(i: Insumo) -> dict:
     return {

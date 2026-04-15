@@ -166,6 +166,85 @@ UOM_RULES = [
     (["CAJA"], "caja"),
 ]
 
+# ── Rangos de precios unitarios esperados por producto/categoria ──
+# Precios de referencia Bolivia 2024-2026 en Bs
+# Se usan para filtrar outliers (totales de linea confundidos con unitarios)
+PRICE_ANCHORS = {
+    # Producto especifico -> (min, max, uom)
+    "CEMENTO": (35, 100, "bls"),
+    "HORMIGON": (500, 1000, "m3"),
+    "ARENA": (50, 300, "m3"),
+    "GRAVA": (50, 300, "m3"),
+    "AGREGADO": (50, 300, "m3"),
+    "PIEDRA": (30, 300, "m3"),
+    "BARRA": (10, 200, "varilla"),
+    "FIERRO": (10, 200, "varilla/pza"),
+    "ALAMBRE": (5, 800, "rollo/kg"),
+    "MALLA": (20, 500, "m2/pza"),
+    "CLAVO": (5, 25, "kg"),
+    "TORNILLO": (0.05, 5, "pza"),
+    "LADRILLO": (0.3, 5, "pza"),
+    "BLOQUE": (0.5, 10, "pza"),
+    "MADERA": (5, 250, "pza"),
+    "PINTURA": (15, 800, "gl/lt"),
+    "LATEX": (15, 800, "gl"),
+    "ESMALTE": (15, 600, "gl"),
+    "CALAMINA": (30, 200, "pza"),
+    "TUBO PVC": (5, 300, "tubo"),
+    "CABLE": (1, 50, "ml"),
+    "SIKA": (10, 300, "pza/lt"),
+    "VIDRIO": (20, 500, "m2/pza"),
+    "CERAMICA": (5, 200, "m2/pza"),
+    "CASCO": (15, 80, "pza"),
+    "GUANTE": (5, 200, "par/pza"),
+    "DISCO": (10, 100, "pza"),
+}
+
+# Rangos amplios por categoria (fallback si no hay ancla especifica)
+CATEGORY_PRICE_RANGE = {
+    "cemento": (20, 1200),        # desde aditivos hasta hormigon/m3
+    "acero": (5, 2000),           # desde clavos hasta planchas
+    "agregados": (30, 400),       # arenas, gravas por m3
+    "ferreteria": (0.05, 500),    # desde tornillos hasta cerraduras
+    "pintura": (10, 1000),        # desde lijas hasta baldes de pintura
+    "madera": (3, 500),           # desde listones hasta tablones
+    "electrico": (0.5, 2000),     # desde conectores hasta tableros
+    "sanitario": (3, 5000),       # desde codos hasta inodoros
+    "plomeria": (2, 500),         # desde niples hasta valvulas
+    "ceramica": (3, 500),         # desde piso hasta porcelanato
+    "herramientas": (5, 5000),    # desde destornilladores hasta vibradoras
+    "techos": (5, 500),           # desde tornillos hasta calaminas
+    "impermeabilizantes": (5, 2000),
+    "prefabricados": (0.3, 200),  # ladrillos, bloques, viguetas
+    "seguridad": (2, 1000),       # desde guantes hasta arneses
+    "vidrios": (10, 2000),
+    "aislantes": (5, 500),
+    "maquinaria": (50, 50000),    # alquileres y equipos
+}
+
+
+def is_price_outlier(unit_price, name, category):
+    """Check if price is an outlier based on product anchors and category ranges."""
+    name_upper = name.upper()
+
+    # Try specific product anchors first
+    for keyword, (lo, hi, _) in PRICE_ANCHORS.items():
+        if keyword in name_upper:
+            # Use 0.3x and 5x of range to allow some flexibility
+            if unit_price < lo * 0.3 or unit_price > hi * 5:
+                return True
+            return False
+
+    # Fallback to category range
+    if category and category in CATEGORY_PRICE_RANGE:
+        lo, hi = CATEGORY_PRICE_RANGE[category]
+        if unit_price < lo * 0.2 or unit_price > hi * 10:
+            return True
+        return False
+
+    # No anchor: use generic sanity check (reject if > 50000 Bs for a single unit)
+    return unit_price > 50000
+
 
 # ── Helpers ──────────────────────────────────────────────────
 def normalize(text):
@@ -384,7 +463,7 @@ def main():
     active_suppliers = {}  # supplier_name -> supplier info from pedidos
 
     excluded_count = 0
-    service_excluded = 0
+    outlier_count = 0
 
     for line in product_lines:
         pid = line["product_id_doli"]
@@ -419,6 +498,14 @@ def main():
         if not order_date:
             continue
 
+        # Infer category early to use in outlier detection
+        category = infer_category(label, ref)
+
+        # Filter outlier prices (totals confused with unit prices)
+        if is_price_outlier(unit_price, label, category):
+            outlier_count += 1
+            continue
+
         pd = product_data[pid]
         if ref:
             pd["refs"].add(ref)
@@ -451,6 +538,7 @@ def main():
 
     print(f"  {len(product_data)} productos unicos con compras reales")
     print(f"  {excluded_count} lineas excluidas (no construccion)")
+    print(f"  {outlier_count} lineas excluidas (precio outlier)")
     print(f"  {len(active_suppliers)} proveedores con ventas")
 
     # ── Step 5: Curate products ──────────────────────────────

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -216,6 +216,53 @@ async def delete_supplier(
     supplier.is_active = False
     await db.flush()
     return {"ok": True}
+
+
+# ── Supplier Products (from price history) ─────────────────────
+@router.get("/{supplier_id}/products")
+async def get_supplier_products(
+    supplier_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Get all products a supplier sells, with price stats from order history."""
+    result = await db.execute(
+        text("""
+            SELECT
+                ph.insumo_id,
+                i.name AS product_name,
+                i.uom,
+                i.category,
+                i.ref_price,
+                COUNT(*) AS order_count,
+                SUM(ph.quantity) AS total_qty,
+                ROUND(AVG(ph.unit_price)::numeric, 2) AS avg_price,
+                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ph.unit_price)::numeric, 2) AS median_price,
+                ROUND(MIN(ph.unit_price)::numeric, 2) AS min_price,
+                ROUND(MAX(ph.unit_price)::numeric, 2) AS max_price,
+                MIN(ph.observed_date) AS first_order,
+                MAX(ph.observed_date) AS last_order
+            FROM mkt_price_history ph
+            JOIN mkt_insumo i ON i.id = ph.insumo_id
+            WHERE ph.supplier_id = :supplier_id
+            GROUP BY ph.insumo_id, i.name, i.uom, i.category, i.ref_price
+            ORDER BY order_count DESC
+        """),
+        {"supplier_id": supplier_id},
+    )
+    rows = result.mappings().all()
+    return {
+        "ok": True,
+        "data": [
+            {
+                **dict(r),
+                "total_qty": float(r["total_qty"]) if r["total_qty"] else 0,
+                "first_order": r["first_order"].isoformat() if r["first_order"] else None,
+                "last_order": r["last_order"].isoformat() if r["last_order"] else None,
+            }
+            for r in rows
+        ],
+    }
 
 
 # ── Helpers ─────────────────────────────────────────────────────

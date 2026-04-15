@@ -922,6 +922,7 @@ async function loadAdminSuppliers() {
                         <td>${(s.categories || []).map(c => `<span class="supplier-cat">${esc(c)}</span>`).join(' ') || '-'}</td>
                         <td><span class="badge badge-${s.verification_state === 'verified' ? 'success' : s.verification_state === 'rejected' ? 'danger' : 'warning'}">${esc(s.verification_state)}</span></td>
                         <td style="white-space:nowrap">
+                            <button class="btn btn-sm btn-secondary" onclick="showSupplierProducts(${s.id}, '${esc(s.name)}')" title="Ver productos">${icon('tag',14)}</button>
                             <button class="btn btn-sm btn-secondary" onclick="showAdminSupplierForm(${s.id})" title="Editar">${icon('edit',14)}</button>
                             ${isManager() ? `<button class="btn btn-sm btn-secondary" onclick="verifySupplier(${s.id},'verified')" title="Verificar" style="color:var(--success)">&#10003;</button>` : ''}
                         </td>
@@ -939,6 +940,44 @@ async function verifySupplier(id, newState) {
         if (resp.ok) { toast('Proveedor actualizado', 'success'); loadAdminSuppliers(); }
         else toast(resp.detail || 'Error', 'error');
     } catch { toast('Error de conexion', 'error'); }
+}
+
+async function showSupplierProducts(supplierId, name) {
+    showModal(`Productos de: ${name}`, `
+        <div id="sp-content"><p style="text-align:center;color:var(--gray-500)">Cargando...</p></div>
+    `);
+    try {
+        const resp = await API.get(`/suppliers/${supplierId}/products`);
+        const c = document.getElementById('sp-content');
+        if (!resp.ok || !resp.data || !resp.data.length) {
+            c.innerHTML = '<div class="empty-state"><p>Sin historial de compras registrado</p></div>';
+            return;
+        }
+        c.innerHTML = `
+            <p style="font-size:13px;color:var(--gray-500);margin-bottom:8px">${resp.data.length} productos vendidos</p>
+            <div class="table-wrap"><table>
+                <thead><tr>
+                    <th>Producto</th><th>Categoria</th><th>UOM</th>
+                    <th>Pedidos</th><th>Precio Med.</th><th>Min</th><th>Max</th>
+                    <th>Ultimo Ped.</th>
+                </tr></thead>
+                <tbody>${resp.data.map(r => `
+                    <tr>
+                        <td><strong>${esc(r.product_name)}</strong></td>
+                        <td>${r.category ? `<span class="badge badge-gray">${esc(r.category)}</span>` : '-'}</td>
+                        <td>${esc(r.uom)}</td>
+                        <td>${r.order_count}</td>
+                        <td><strong>${Number(r.median_price).toFixed(2)}</strong></td>
+                        <td>${Number(r.min_price).toFixed(2)}</td>
+                        <td>${Number(r.max_price).toFixed(2)}</td>
+                        <td>${r.last_order || '-'}</td>
+                    </tr>
+                `).join('')}</tbody>
+            </table></div>
+        `;
+    } catch (e) {
+        document.getElementById('sp-content').innerHTML = `<p style="color:var(--danger)">Error: ${e.message}</p>`;
+    }
 }
 
 function showAdminSupplierForm(editId) {
@@ -1230,9 +1269,10 @@ async function showPriceHistory(insumoId, name) {
 
     const container = document.getElementById('ph-content');
     try {
-        const [evoResp, histResp] = await Promise.all([
+        const [evoResp, histResp, supResp] = await Promise.all([
             API.get(`/prices/${insumoId}/evolution`),
             API.get(`/prices/${insumoId}/history?limit=30`),
+            API.get(`/prices/${insumoId}/suppliers`),
         ]);
 
         let html = '';
@@ -1259,9 +1299,12 @@ async function showPriceHistory(insumoId, name) {
                     </table></div>
                 </div>
 
-                <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+                <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
                     <button class="btn btn-primary btn-sm" onclick="refreshPrice(${insumoId})">
                         ${icon('trending-up', 14)} Actualizar precio ref. (mediana 12 meses)
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="showAddPriceForm(${insumoId}, '${esc(name)}')">
+                        ${icon('plus', 14)} Agregar precio manual
                     </button>
                     <span id="refresh-result" style="font-size:13px;color:var(--gray-500)"></span>
                 </div>
@@ -1285,7 +1328,40 @@ async function showPriceHistory(insumoId, name) {
                 </div>
             `;
         } else {
-            html += '<div class="empty-state"><p>Sin historial de precios</p></div>';
+            html += `
+                <div class="empty-state" style="margin-bottom:16px">
+                    <p>Sin historial de precios</p>
+                    <button class="btn btn-primary btn-sm" onclick="showAddPriceForm(${insumoId}, '${esc(name)}')">
+                        ${icon('plus', 14)} Agregar primer precio
+                    </button>
+                </div>
+            `;
+        }
+
+        // Suppliers for this product
+        if (supResp.ok && supResp.data && supResp.data.length > 0) {
+            html += `
+                <div style="margin-bottom:16px">
+                    <h4 style="margin:0 0 8px;font-size:14px;color:var(--gray-700)">Proveedores (${supResp.data.length})</h4>
+                    <div class="table-wrap"><table>
+                        <thead><tr>
+                            <th>Proveedor</th><th>Ciudad</th><th>Pedidos</th>
+                            <th>Precio Med.</th><th>Min</th><th>Max</th><th>Ultimo Ped.</th>
+                        </tr></thead>
+                        <tbody>${supResp.data.map(r => `
+                            <tr>
+                                <td><strong>${esc(r.supplier_name)}</strong></td>
+                                <td>${r.city || r.department || '-'}</td>
+                                <td>${r.order_count}</td>
+                                <td><strong>${Number(r.median_price).toFixed(2)}</strong></td>
+                                <td>${Number(r.min_price).toFixed(2)}</td>
+                                <td>${Number(r.max_price).toFixed(2)}</td>
+                                <td>${r.last_order || '-'}</td>
+                            </tr>
+                        `).join('')}</tbody>
+                    </table></div>
+                </div>
+            `;
         }
 
         // Recent records
@@ -1302,7 +1378,7 @@ async function showPriceHistory(insumoId, name) {
                                 <td>${r.observed_date}</td>
                                 <td><strong>${r.unit_price.toFixed(2)} ${esc(r.currency)}</strong></td>
                                 <td>${r.quantity || '-'}</td>
-                                <td><span class="badge badge-gray">${esc(r.source)}</span></td>
+                                <td><span class="badge badge-${r.source === 'manual' ? 'warning' : 'gray'}">${esc(r.source)}</span></td>
                                 <td>${r.source_ref ? esc(r.source_ref) : '-'}</td>
                             </tr>
                         `).join('')}</tbody>
@@ -1315,6 +1391,74 @@ async function showPriceHistory(insumoId, name) {
     } catch (e) {
         container.innerHTML = `<div class="empty-state"><p>Error cargando historial: ${e.message}</p></div>`;
     }
+}
+
+function showAddPriceForm(insumoId, name) {
+    const today = new Date().toISOString().split('T')[0];
+    showModal(`Agregar precio: ${name}`, `
+        <form id="add-price-form" onsubmit="handleAddPrice(event, ${insumoId}, '${esc(name)}')">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Precio unitario *</label>
+                    <input class="form-input" type="number" step="0.01" name="unit_price" required placeholder="0.00">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Moneda</label>
+                    <select class="form-select" name="currency">
+                        <option value="BOB">BOB (Bolivianos)</option>
+                        <option value="USD">USD (Dolares)</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Fecha *</label>
+                    <input class="form-input" type="date" name="observed_date" required value="${today}">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Cantidad</label>
+                    <input class="form-input" type="number" step="0.01" name="quantity" placeholder="1">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Fuente</label>
+                <select class="form-select" name="source">
+                    <option value="manual">Manual</option>
+                    <option value="cotizacion">Cotizacion</option>
+                    <option value="pedido">Pedido</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Referencia / Nota</label>
+                <input class="form-input" name="source_ref" placeholder="Ej: cotizacion proveedor X, precio mercado abril 2026...">
+            </div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
+                Guardar precio
+            </button>
+        </form>
+    `);
+}
+
+async function handleAddPrice(e, insumoId, name) {
+    e.preventDefault();
+    const f = e.target;
+    try {
+        const resp = await API.post(`/prices/${insumoId}/add-price`, {
+            unit_price: parseFloat(f.unit_price.value),
+            currency: f.currency.value,
+            observed_date: f.observed_date.value,
+            quantity: f.quantity.value ? parseFloat(f.quantity.value) : null,
+            source: f.source.value,
+            source_ref: f.source_ref.value || null,
+        });
+        if (resp.ok) {
+            closeModal();
+            toast('Precio agregado', 'success');
+            showPriceHistory(insumoId, name);
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
 }
 
 async function refreshPrice(insumoId) {
