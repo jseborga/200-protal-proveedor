@@ -915,6 +915,128 @@ def _user_to_dict(u: User) -> dict:
     }
 
 
+# ── Supplier suggestions admin ────────────────────────────────
+from app.models.supplier_suggestion import SupplierSuggestion
+
+
+@router.get("/supplier-suggestions")
+async def admin_list_suggestions(
+    state_filter: str | None = Query(None, alias="state"),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Listar sugerencias de proveedores."""
+    query = select(SupplierSuggestion)
+    if state_filter:
+        query = query.where(SupplierSuggestion.state == state_filter)
+    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
+    result = await db.execute(
+        query.order_by(SupplierSuggestion.created_at.desc()).offset(offset).limit(limit)
+    )
+    suggestions = result.scalars().all()
+    return {
+        "ok": True,
+        "data": [_sugg_to_dict(s) for s in suggestions],
+        "total": total,
+    }
+
+
+@router.put("/supplier-suggestions/{sugg_id}/approve")
+async def approve_suggestion(
+    sugg_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Aprobar sugerencia y crear proveedor."""
+    from datetime import datetime, timezone
+
+    sugg = await db.get(SupplierSuggestion, sugg_id)
+    if not sugg:
+        raise HTTPException(404, "Sugerencia no encontrada")
+    if sugg.state != "pending":
+        raise HTTPException(400, f"Esta sugerencia ya fue procesada ({sugg.state})")
+
+    # Create supplier
+    supplier = Supplier(
+        name=sugg.name,
+        trade_name=sugg.trade_name,
+        nit=sugg.nit,
+        email=sugg.email,
+        phone=sugg.phone,
+        whatsapp=sugg.whatsapp,
+        city=sugg.city,
+        department=sugg.department,
+        address=sugg.address,
+        categories=sugg.categories,
+        verification_state="verified",
+    )
+    db.add(supplier)
+    await db.flush()
+
+    sugg.state = "approved"
+    sugg.reviewed_by = user.id
+    sugg.reviewed_at = datetime.now(timezone.utc)
+    sugg.created_supplier_id = supplier.id
+
+    if sugg.suggested_by:
+        from app.services.notifications import notify_suggestion_approved
+        await notify_suggestion_approved(db, sugg.suggested_by, sugg.name)
+
+    await db.commit()
+
+    return {"ok": True, "data": {"suggestion_id": sugg.id, "supplier_id": supplier.id}}
+
+
+@router.put("/supplier-suggestions/{sugg_id}/reject")
+async def reject_suggestion(
+    sugg_id: int,
+    reason: str = Query("", alias="reason"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Rechazar sugerencia."""
+    from datetime import datetime, timezone
+
+    sugg = await db.get(SupplierSuggestion, sugg_id)
+    if not sugg:
+        raise HTTPException(404, "Sugerencia no encontrada")
+    if sugg.state != "pending":
+        raise HTTPException(400, f"Esta sugerencia ya fue procesada ({sugg.state})")
+
+    sugg.state = "rejected"
+    sugg.reviewed_by = user.id
+    sugg.reviewed_at = datetime.now(timezone.utc)
+    sugg.review_notes = reason or None
+    await db.commit()
+
+    return {"ok": True}
+
+
+def _sugg_to_dict(s: SupplierSuggestion) -> dict:
+    return {
+        "id": s.id,
+        "name": s.name,
+        "trade_name": s.trade_name,
+        "nit": s.nit,
+        "email": s.email,
+        "phone": s.phone,
+        "whatsapp": s.whatsapp,
+        "city": s.city,
+        "department": s.department,
+        "categories": s.categories or [],
+        "notes": s.notes,
+        "state": s.state,
+        "suggested_by": s.suggested_by,
+        "suggester_name": s.suggester.full_name if s.suggester else None,
+        "reviewed_at": s.reviewed_at.isoformat() if s.reviewed_at else None,
+        "review_notes": s.review_notes,
+        "created_supplier_id": s.created_supplier_id,
+        "created_at": s.created_at.isoformat(),
+    }
+
+
 # ── Company admin ─────────────────────────────────────────────
 from app.models.company import Company, Subscription, Plan
 from app.core.plans import PLANS, get_plan_limits, refresh_plans_cache
@@ -1060,6 +1182,17 @@ async def admin_update_subscription(
     for k, v in data.items():
         if hasattr(sub, k):
             setattr(sub, k, v)
+
+    # Notify company admin about subscription change
+    from app.services.notifications import notify_subscription_updated
+    company = await db.get(Company, sub.company_id)
+    if company:
+        admin_result = await db.execute(
+            select(User).where(User.company_id == sub.company_id, User.company_role == "company_admin")
+        )
+        for ca in admin_result.scalars().all():
+            plan_label = PLANS.get(sub.plan, {}).get("label", sub.plan)
+            await notify_subscription_updated(db, ca.id, plan_label)
 
     await db.commit()
     await db.refresh(sub)

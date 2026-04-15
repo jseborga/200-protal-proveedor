@@ -308,7 +308,7 @@ async def add_precio(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    await _get_user_pedido(db, pedido_id, user)
+    pedido = await _get_user_pedido(db, pedido_id, user)
     item = await db.get(PedidoItem, item_id)
     if not item or item.pedido_id != pedido_id:
         raise HTTPException(404, "Item no encontrado")
@@ -322,6 +322,13 @@ async def add_precio(
         source=body.source,
         notes=body.notes,
     )
+
+    # Notify pedido creator if someone else added the price
+    if user.id != pedido.created_by:
+        from app.services.notifications import notify_price_found
+        await notify_price_found(db, item, pedido)
+        await db.commit()
+
     return {"ok": True, "data": _precio_to_dict(precio)}
 
 
@@ -376,6 +383,11 @@ async def mark_complete(
     if pedido.state == "completed":
         raise HTTPException(400, "El pedido ya esta completado")
     pedido = await complete_pedido(db, pedido)
+
+    from app.services.notifications import notify_pedido_completed
+    await notify_pedido_completed(db, pedido)
+    await db.commit()
+
     return {"ok": True, "data": _pedido_to_dict(pedido)}
 
 
@@ -422,10 +434,20 @@ async def upload_document(
     # Match extracted lines to pedido items and create precios
     items = pedido.items
     created = 0
+    matched_lines = []
     for line in result["lines"]:
         extracted_name = (line.get("name") or "").lower().strip()
         extracted_price = line.get("price")
+        line_info = {
+            "name": line.get("name", ""),
+            "price": extracted_price,
+            "uom": line.get("uom"),
+            "quantity": line.get("quantity"),
+        }
         if not extracted_name or not extracted_price:
+            line_info["matched_to"] = None
+            line_info["score"] = 0
+            matched_lines.append(line_info)
             continue
 
         # Simple name matching against pedido items
@@ -433,7 +455,6 @@ async def upload_document(
         best_score = 0
         for item in items:
             item_name = item.name.lower()
-            # Check if names share significant words
             words_ext = set(extracted_name.split())
             words_item = set(item_name.split())
             if not words_ext or not words_item:
@@ -455,6 +476,13 @@ async def upload_document(
             )
             db.add(precio)
             created += 1
+            line_info["matched_to"] = {"item_id": best_item.id, "item_name": best_item.name}
+            line_info["score"] = round(best_score, 2)
+        else:
+            line_info["matched_to"] = None
+            line_info["score"] = 0
+
+        matched_lines.append(line_info)
 
     if created:
         await db.commit()
@@ -463,5 +491,5 @@ async def upload_document(
         "ok": True,
         "extracted": len(result["lines"]),
         "matched": created,
-        "lines": result["lines"],
+        "lines": matched_lines,
     }

@@ -11,6 +11,8 @@ from .api_key import ApiKey
 from .catalog import Category, UnitOfMeasure
 from .price_history import PriceHistory
 from .pedido import Pedido, PedidoItem, PedidoPrecio
+from .supplier_suggestion import SupplierSuggestion
+from .notification import Notification
 
 __all__ = [
     "Base", "Plan", "Company", "Subscription",
@@ -20,4 +22,5 @@ __all__ = [
     "ProductMatch", "User", "ApiKey",
     "Category", "UnitOfMeasure", "PriceHistory",
     "Pedido", "PedidoItem", "PedidoPrecio",
+    "SupplierSuggestion", "Notification",
 ]

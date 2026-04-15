@@ -1,1 +1,1 @@
-from . import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos, companies, subscriptions
+from . import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos, companies, subscriptions, notifications

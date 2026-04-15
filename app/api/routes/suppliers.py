@@ -695,3 +695,97 @@ async def delete_contact(
     await db.delete(contact)
     await db.commit()
     return {"ok": True}
+
+
+# ── Supplier suggestions ──────────────────────────────────────
+from app.models.supplier_suggestion import SupplierSuggestion
+from app.api.deps import require_admin
+
+
+class SuggestionCreate(BaseModel):
+    name: str
+    trade_name: str | None = None
+    nit: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+    city: str | None = None
+    department: str | None = None
+    address: str | None = None
+    categories: list[str] | None = None
+    notes: str | None = None
+
+
+def _suggestion_to_dict(s: SupplierSuggestion) -> dict:
+    return {
+        "id": s.id,
+        "name": s.name,
+        "trade_name": s.trade_name,
+        "nit": s.nit,
+        "email": s.email,
+        "phone": s.phone,
+        "whatsapp": s.whatsapp,
+        "city": s.city,
+        "department": s.department,
+        "address": s.address,
+        "categories": s.categories or [],
+        "notes": s.notes,
+        "state": s.state,
+        "suggested_by": s.suggested_by,
+        "suggester_name": s.suggester.full_name if s.suggester else None,
+        "company_id": s.company_id,
+        "reviewed_by": s.reviewed_by,
+        "reviewed_at": s.reviewed_at.isoformat() if s.reviewed_at else None,
+        "review_notes": s.review_notes,
+        "created_supplier_id": s.created_supplier_id,
+        "created_at": s.created_at.isoformat(),
+    }
+
+
+@router.post("/suggest", status_code=201)
+async def suggest_supplier(
+    body: SuggestionCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Sugerir un proveedor nuevo (cualquier usuario logueado)."""
+    suggestion = SupplierSuggestion(
+        suggested_by=user.id,
+        company_id=getattr(user, 'company_id', None),
+        name=body.name,
+        trade_name=body.trade_name,
+        nit=body.nit,
+        email=body.email,
+        phone=body.phone,
+        whatsapp=body.whatsapp,
+        city=body.city,
+        department=body.department,
+        address=body.address,
+        categories=body.categories,
+        notes=body.notes,
+        state="pending",
+    )
+    db.add(suggestion)
+    await db.commit()
+    await db.refresh(suggestion)
+    return {"ok": True, "data": _suggestion_to_dict(suggestion)}
+
+
+@router.get("/suggestions")
+async def my_suggestions(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Mis sugerencias de proveedores."""
+    query = select(SupplierSuggestion).where(SupplierSuggestion.suggested_by == user.id)
+    total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
+    result = await db.execute(
+        query.order_by(SupplierSuggestion.created_at.desc()).offset(offset).limit(limit)
+    )
+    return {
+        "ok": True,
+        "data": [_suggestion_to_dict(s) for s in result.scalars().all()],
+        "total": total,
+    }

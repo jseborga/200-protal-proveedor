@@ -173,11 +173,24 @@ const API = {
     adminSubscriptions: (params = '') => API.get(`/admin/subscriptions${params}`),
     adminUpdateSubscription: (id, data) => API.put(`/admin/subscriptions/${id}`, data),
 
+    // Supplier suggestions
+    suggestSupplier: (data) => API.post('/suppliers/suggest', data),
+    mySuggestions: (params = '') => API.get(`/suppliers/suggestions${params}`),
+    adminSuggestions: (params = '') => API.get(`/admin/supplier-suggestions${params}`),
+    approveSuggestion: (id) => API.put(`/admin/supplier-suggestions/${id}/approve`),
+    rejectSuggestion: (id, reason = '') => API.put(`/admin/supplier-suggestions/${id}/reject?reason=${encodeURIComponent(reason)}`),
+
     // Admin — plans
     adminPlans: () => API.get('/admin/plans'),
     adminCreatePlan: (data) => API.post('/admin/plans', data),
     adminUpdatePlan: (id, data) => API.put(`/admin/plans/${id}`, data),
     adminDeletePlan: (id) => API.del(`/admin/plans/${id}`),
+
+    // Notifications
+    notifications: (skip = 0, limit = 20) => API.get(`/notifications?skip=${skip}&limit=${limit}`),
+    unreadCount: () => API.get('/notifications/unread-count'),
+    markRead: (id) => API.put(`/notifications/${id}/read`),
+    markAllRead: () => API.post('/notifications/mark-all-read'),
 
     // Public catalog
     catalogCategories: () => API.get('/admin/catalog/categories'),
@@ -249,6 +262,8 @@ const ICONS = {
     star: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>',
     'user-plus': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>',
     crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20h20l-2-12-5 5-3-7-3 7-5-5z"/><line x1="2" y1="20" x2="22" y2="20"/></svg>',
+    bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -330,8 +345,15 @@ function renderTopbar(publicPages, authPages) {
            </button>`
         : (state.user ? `<button class="topbar-btn" onclick="showCartModal()" title="Mi carrito">${icon('shopping-cart', 18)}</button>` : '');
 
+    const notifBell = state.user
+        ? `<button class="topbar-btn notif-bell-btn" onclick="toggleNotifDropdown(event)" title="Notificaciones" style="position:relative">
+               ${icon('bell', 18)}
+               <span class="notif-badge" id="notif-badge" style="display:none">0</span>
+           </button>`
+        : '';
+
     const userActions = state.user
-        ? `${cartBadge}
+        ? `${cartBadge}${notifBell}
            <span class="topbar-btn" style="cursor:default;font-size:13px">${esc(state.user.full_name)}</span>
            <button class="topbar-btn" onclick="logout()" title="Cerrar sesion">${icon('logout', 16)}</button>`
         : `<button class="topbar-btn-accent topbar-btn" onclick="showLoginModal()">
@@ -764,9 +786,12 @@ let _supplierMapMode = false;
 async function renderPublicSuppliers() {
     const page = document.getElementById('page-content');
     page.innerHTML = `
-        <div class="page-header">
-            <h1 class="page-title">Directorio de Proveedores</h1>
-            <p class="page-subtitle">Encuentra proveedores de materiales de construccion en Bolivia</p>
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+            <div>
+                <h1 class="page-title">Directorio de Proveedores</h1>
+                <p class="page-subtitle">Encuentra proveedores de materiales de construccion en Bolivia</p>
+            </div>
+            ${state.user ? `<button class="btn btn-primary" onclick="showSuggestSupplierModal()">${icon('user-plus',16)} Sugerir Proveedor</button>` : ''}
         </div>
         <div class="search-bar">
             <input class="form-input" id="supplier-search" placeholder="Buscar proveedor..." oninput="debounceSupplierSearch()">
@@ -1084,6 +1109,7 @@ async function handleLogin(e) {
             closeModal();
             toast('Bienvenido, ' + (state.user.full_name || ''), 'success');
             renderApp();
+            startNotifPolling();
         } else {
             toast(data.detail || 'Credenciales invalidas', 'error');
         }
@@ -1130,6 +1156,7 @@ async function handleRegister(e) {
             closeModal();
             toast('Cuenta creada. Bienvenido!', 'success');
             renderApp();
+            startNotifPolling();
         } else {
             toast(resp.detail || 'Error al registrarse', 'error');
         }
@@ -1137,6 +1164,7 @@ async function handleRegister(e) {
 }
 
 function logout() {
+    stopNotifPolling();
     state.user = null;
     state.token = null;
     state.refreshToken = null;
@@ -1189,6 +1217,7 @@ async function renderAdmin() {
     if (isAdmin()) tabs.push({ key: 'uoms', label: 'Unidades', icon: 'settings' });
     if (isManager()) tabs.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
     if (isAdmin()) tabs.push({ key: 'apikeys', label: 'API Keys', icon: 'key' });
+    if (isManager()) tabs.push({ key: 'suggestions', label: 'Sugerencias', icon: 'user-plus' });
     if (isAdmin()) tabs.push({ key: 'plans', label: 'Planes', icon: 'star' });
     if (isAdmin()) tabs.push({ key: 'companies', label: 'Empresas', icon: 'building' });
     if (isAdmin()) tabs.push({ key: 'subscriptions', label: 'Suscripciones', icon: 'crown' });
@@ -1228,6 +1257,7 @@ function renderAdminTab() {
         case 'uoms': renderAdminUoms(); break;
         case 'users': renderAdminUsers(); break;
         case 'apikeys': renderAdminApiKeys(); break;
+        case 'suggestions': renderAdminSuggestions(); break;
         case 'plans': renderAdminPlans(); break;
         case 'companies': renderAdminCompanies(); break;
         case 'subscriptions': renderAdminSubscriptions(); break;
@@ -4004,6 +4034,196 @@ async function revokeApiKey(keyId, name) {
     } catch { toast('Error de conexion', 'error'); }
 }
 
+// ── Suggest supplier modal ───────────────────────────────────
+function showSuggestSupplierModal() {
+    showModal('Sugerir Proveedor', `
+        <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">Conoces un proveedor que no esta en nuestro directorio? Sugierelo y lo revisaremos.</p>
+        <form onsubmit="handleSuggestSupplier(event)">
+            <div class="form-group">
+                <label class="form-label">Nombre del proveedor *</label>
+                <input class="form-input" name="name" required placeholder="Ferreteria Central">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Nombre comercial</label>
+                    <input class="form-input" name="trade_name" placeholder="FERCENAL">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">NIT</label>
+                    <input class="form-input" name="nit" placeholder="1234567">
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Telefono</label>
+                    <input class="form-input" name="phone" placeholder="+591 ...">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">WhatsApp</label>
+                    <input class="form-input" name="whatsapp" placeholder="+591 ...">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input class="form-input" name="email" type="email" placeholder="ventas@proveedor.com">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Ciudad</label>
+                    <input class="form-input" name="city" placeholder="Santa Cruz">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Departamento</label>
+                    <select class="form-input" name="department">
+                        <option value="">Seleccionar...</option>
+                        ${DEPARTMENTS.map(d => `<option value="${d}">${d}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Categorias que maneja</label>
+                <div class="sugg-categories" style="display:flex;flex-wrap:wrap;gap:6px">
+                    ${Object.entries(CATEGORY_META).map(([k, v]) =>
+                        `<label style="font-size:12px;display:flex;align-items:center;gap:3px"><input type="checkbox" name="cat_${k}" value="${k}"> ${esc(v.label || k)}</label>`
+                    ).join('')}
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notas / Como lo conoces</label>
+                <textarea class="form-input" name="notes" rows="2" placeholder="Observaciones adicionales..."></textarea>
+            </div>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Enviar Sugerencia</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleSuggestSupplier(e) {
+    e.preventDefault();
+    const f = e.target;
+    const categories = [];
+    Object.keys(CATEGORY_META).forEach(k => {
+        if (f[`cat_${k}`]?.checked) categories.push(k);
+    });
+
+    const resp = await API.suggestSupplier({
+        name: f.name.value,
+        trade_name: f.trade_name.value || null,
+        nit: f.nit.value || null,
+        phone: f.phone.value || null,
+        whatsapp: f.whatsapp.value || null,
+        email: f.email.value || null,
+        city: f.city.value || null,
+        department: f.department.value || null,
+        categories: categories.length ? categories : null,
+        notes: f.notes.value || null,
+    });
+    if (resp.ok) {
+        closeModal();
+        toast('Sugerencia enviada. Sera revisada por el equipo.', 'success');
+    } else toast(resp.detail || 'Error', 'error');
+}
+
+// ── Admin: Supplier Suggestions ──────────────────────────────
+async function renderAdminSuggestions() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="empty-state"><p>Cargando sugerencias...</p></div>';
+
+    try {
+        const resp = await API.adminSuggestions();
+        if (!resp.ok) { c.innerHTML = '<p>Error cargando datos</p>'; return; }
+        if (!resp.data.length) {
+            c.innerHTML = '<div class="empty-state"><p>No hay sugerencias de proveedores</p></div>';
+            return;
+        }
+
+        const stateColors = { pending: '#d97706', approved: '#16a34a', rejected: '#dc2626', duplicate: '#6b7280' };
+        const stateLabels = { pending: 'Pendiente', approved: 'Aprobado', rejected: 'Rechazado', duplicate: 'Duplicado' };
+
+        c.innerHTML = `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+                <p style="font-size:13px;color:var(--gray-500)">${resp.total} sugerencias</p>
+                <div style="display:flex;gap:6px">
+                    <button class="chip active" onclick="loadAdminSuggestions(null,this)">Todos</button>
+                    <button class="chip" onclick="loadAdminSuggestions('pending',this)">Pendientes</button>
+                    <button class="chip" onclick="loadAdminSuggestions('approved',this)">Aprobados</button>
+                </div>
+            </div>
+            <div id="sugg-list-content">
+                ${renderSuggestionCards(resp.data, stateColors, stateLabels)}
+            </div>
+        `;
+    } catch { c.innerHTML = '<p>Error de conexion</p>'; }
+}
+
+async function loadAdminSuggestions(stateFilter, chipEl) {
+    if (chipEl) {
+        chipEl.closest('.admin-content, #admin-content').querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        chipEl.classList.add('active');
+    }
+    const params = stateFilter ? `?state=${stateFilter}` : '';
+    const container = document.getElementById('sugg-list-content');
+    if (!container) return;
+    try {
+        const resp = await API.adminSuggestions(params);
+        if (!resp.ok) return;
+        const stateColors = { pending: '#d97706', approved: '#16a34a', rejected: '#dc2626', duplicate: '#6b7280' };
+        const stateLabels = { pending: 'Pendiente', approved: 'Aprobado', rejected: 'Rechazado', duplicate: 'Duplicado' };
+        container.innerHTML = resp.data.length
+            ? renderSuggestionCards(resp.data, stateColors, stateLabels)
+            : '<div class="empty-state"><p>Sin resultados</p></div>';
+    } catch {}
+}
+
+function renderSuggestionCards(data, stateColors, stateLabels) {
+    return `<div class="pedido-grid">${data.map(s => `
+        <div class="pedido-card" style="cursor:default">
+            <div class="pedido-card-header">
+                <span class="pedido-ref">#${s.id}</span>
+                <span class="pedido-state" style="background:${stateColors[s.state]}">${stateLabels[s.state] || s.state}</span>
+            </div>
+            <div class="pedido-card-title">${esc(s.name)}</div>
+            <div class="pedido-card-meta">
+                ${s.trade_name ? esc(s.trade_name) + ' &middot; ' : ''}${s.city ? esc(s.city) : ''}${s.department ? ', ' + esc(s.department) : ''}
+                ${s.phone ? ' &middot; ' + esc(s.phone) : ''}${s.whatsapp ? ' &middot; WA: ' + esc(s.whatsapp) : ''}
+            </div>
+            ${s.categories?.length ? `<div style="margin:6px 0">${s.categories.map(c => `<span class="supplier-cat">${esc(c)}</span>`).join(' ')}</div>` : ''}
+            ${s.notes ? `<div style="font-size:12px;color:var(--gray-500);margin:4px 0">${esc(s.notes)}</div>` : ''}
+            <div class="pedido-card-footer">
+                <span>Por: ${esc(s.suggester_name || '?')} &middot; ${new Date(s.created_at).toLocaleDateString()}</span>
+            </div>
+            ${s.state === 'pending' ? `
+                <div style="display:flex;gap:6px;margin-top:10px">
+                    <button class="btn btn-sm btn-primary" onclick="approveSuggestion(${s.id})">Aprobar</button>
+                    <button class="btn btn-sm btn-danger" onclick="rejectSuggestion(${s.id})">Rechazar</button>
+                </div>
+            ` : ''}
+            ${s.state === 'approved' && s.created_supplier_id ? `<div style="font-size:12px;margin-top:6px;color:#16a34a">Proveedor #${s.created_supplier_id} creado</div>` : ''}
+            ${s.review_notes ? `<div style="font-size:12px;margin-top:4px;color:var(--gray-500)">Nota: ${esc(s.review_notes)}</div>` : ''}
+        </div>
+    `).join('')}</div>`;
+}
+
+async function approveSuggestion(id) {
+    if (!confirm('Aprobar esta sugerencia? Se creara un nuevo proveedor.')) return;
+    const resp = await API.approveSuggestion(id);
+    if (resp.ok) {
+        toast(`Proveedor #${resp.data.supplier_id} creado`, 'success');
+        renderAdminSuggestions();
+    } else toast(resp.detail || 'Error', 'error');
+}
+
+async function rejectSuggestion(id) {
+    const reason = prompt('Motivo del rechazo (opcional):') || '';
+    const resp = await API.rejectSuggestion(id, reason);
+    if (resp.ok) {
+        toast('Sugerencia rechazada', 'success');
+        renderAdminSuggestions();
+    } else toast(resp.detail || 'Error', 'error');
+}
+
 // ── Admin: Plans ─────────────────────────────────────────────
 async function renderAdminPlans() {
     if (!isAdmin()) { toast('Sin permisos', 'error'); return; }
@@ -5355,8 +5575,7 @@ async function handleUploadDoc(e, pedidoId) {
         const resp = await API.uploadPedidoDoc(pedidoId, formData);
         if (resp.ok) {
             closeModal();
-            toast(`Documento procesado: ${resp.extracted || 0} lineas extraidas, ${resp.matched || 0} precios asociados`, 'success');
-            openPedidoDetail(pedidoId);
+            showUploadResultsModal(resp, pedidoId);
         } else {
             toast(resp.detail || 'Error procesando documento', 'error');
             submitBtn.disabled = false;
@@ -5366,6 +5585,172 @@ async function handleUploadDoc(e, pedidoId) {
         toast('Error de conexion', 'error');
         submitBtn.disabled = false;
         submitBtn.textContent = 'Subir y Procesar';
+    }
+}
+
+function showUploadResultsModal(resp, pedidoId) {
+    const lines = resp.lines || [];
+    const matched = resp.matched || 0;
+    const extracted = resp.extracted || 0;
+
+    const linesHtml = lines.length ? lines.map(l => {
+        const hasMatch = l.matched_to && l.matched_to.item_id;
+        const scorePercent = Math.round((l.score || 0) * 100);
+        const scoreClass = scorePercent >= 70 ? 'high' : scorePercent >= 40 ? 'med' : 'low';
+        return `
+            <div class="upload-result-line ${hasMatch ? 'matched' : 'unmatched'}">
+                <div class="upload-result-line-header">
+                    <span class="upload-result-name">${esc(l.name || 'Sin nombre')}</span>
+                    <span class="upload-result-price">${l.price != null ? Number(l.price).toFixed(2) + ' Bs' : '-'}</span>
+                </div>
+                <div class="upload-result-meta">
+                    ${l.uom ? `<span class="upload-result-tag">${esc(l.uom)}</span>` : ''}
+                    ${l.quantity ? `<span class="upload-result-tag">Cant: ${l.quantity}</span>` : ''}
+                    ${hasMatch
+                        ? `<span class="upload-result-match">${icon('check',14)} ${esc(l.matched_to.item_name)}</span>
+                           <span class="upload-result-score score-${scoreClass}">${scorePercent}%</span>`
+                        : `<span class="upload-result-nomatch">${icon('x',14)} Sin coincidencia</span>`
+                    }
+                </div>
+            </div>`;
+    }).join('') : '<p style="color:var(--gray-500);text-align:center;padding:16px">No se extrajeron lineas del documento.</p>';
+
+    showModal('Resultado de Extraccion', `
+        <div class="upload-results-summary">
+            <div class="upload-stat">
+                <span class="upload-stat-num">${extracted}</span>
+                <span class="upload-stat-label">Lineas extraidas</span>
+            </div>
+            <div class="upload-stat">
+                <span class="upload-stat-num">${matched}</span>
+                <span class="upload-stat-label">Precios asociados</span>
+            </div>
+            <div class="upload-stat">
+                <span class="upload-stat-num">${extracted - matched}</span>
+                <span class="upload-stat-label">Sin coincidencia</span>
+            </div>
+        </div>
+        <div class="upload-results-list">${linesHtml}</div>
+        <div style="text-align:right;margin-top:16px">
+            <button class="btn btn-primary" onclick="closeModal();openPedidoDetail(${pedidoId})">Cerrar</button>
+        </div>
+    `);
+}
+
+// ── Notifications ─────────────────────────────────────────────
+let _notifPollInterval = null;
+
+function startNotifPolling() {
+    if (_notifPollInterval) clearInterval(_notifPollInterval);
+    updateNotifBadge();
+    _notifPollInterval = setInterval(updateNotifBadge, 30000);
+}
+
+function stopNotifPolling() {
+    if (_notifPollInterval) { clearInterval(_notifPollInterval); _notifPollInterval = null; }
+}
+
+async function updateNotifBadge() {
+    if (!state.user) return;
+    try {
+        const resp = await API.unreadCount();
+        if (!resp.ok) return;
+        const badge = document.getElementById('notif-badge');
+        if (!badge) return;
+        const count = resp.count || 0;
+        badge.textContent = count > 99 ? '99+' : count;
+        badge.style.display = count > 0 ? 'flex' : 'none';
+    } catch { /* silent */ }
+}
+
+function toggleNotifDropdown(e) {
+    e.stopPropagation();
+    const existing = document.querySelector('.notif-dropdown');
+    if (existing) { existing.remove(); return; }
+    const btn = e.currentTarget;
+    const rect = btn.getBoundingClientRect();
+    const dd = document.createElement('div');
+    dd.className = 'notif-dropdown';
+    dd.style.top = (rect.bottom + 4) + 'px';
+    dd.style.right = (window.innerWidth - rect.right) + 'px';
+    dd.innerHTML = '<div class="notif-loading">Cargando...</div>';
+    document.body.appendChild(dd);
+    document.addEventListener('click', closeNotifDropdown, { once: true });
+    loadNotifications(dd);
+}
+
+function closeNotifDropdown() {
+    const dd = document.querySelector('.notif-dropdown');
+    if (dd) dd.remove();
+}
+
+async function loadNotifications(container) {
+    const resp = await API.notifications(0, 15);
+    if (!resp.ok || !resp.data) {
+        container.innerHTML = '<div class="notif-empty">Error al cargar</div>';
+        return;
+    }
+    const notifs = resp.data;
+    if (notifs.length === 0) {
+        container.innerHTML = '<div class="notif-empty">Sin notificaciones</div>';
+        return;
+    }
+    const header = `<div class="notif-dd-header">
+        <span>Notificaciones</span>
+        <button class="btn-link" onclick="markAllNotifRead()">Marcar todo leido</button>
+    </div>`;
+    const items = notifs.map(n => {
+        const timeAgo = formatTimeAgo(n.created_at);
+        const typeIcon = {
+            pedido_completed: 'check-circle',
+            pedido_assigned: 'clipboard',
+            price_found: 'tag',
+            member_added: 'user-plus',
+            suggestion_approved: 'check',
+            subscription_updated: 'star',
+        }[n.type] || 'bell';
+        return `<div class="notif-item${n.is_read ? '' : ' unread'}" onclick="clickNotif(${n.id}, '${esc(n.link || '')}')">
+            <div class="notif-item-icon">${icon(typeIcon, 16)}</div>
+            <div class="notif-item-body">
+                <div class="notif-item-title">${esc(n.title)}</div>
+                ${n.body ? `<div class="notif-item-text">${esc(n.body)}</div>` : ''}
+                <div class="notif-item-time">${timeAgo}</div>
+            </div>
+        </div>`;
+    }).join('');
+    container.innerHTML = header + '<div class="notif-dd-list">' + items + '</div>';
+}
+
+function formatTimeAgo(isoDate) {
+    if (!isoDate) return '';
+    const diff = (Date.now() - new Date(isoDate).getTime()) / 1000;
+    if (diff < 60) return 'hace un momento';
+    if (diff < 3600) return `hace ${Math.floor(diff / 60)} min`;
+    if (diff < 86400) return `hace ${Math.floor(diff / 3600)}h`;
+    if (diff < 604800) return `hace ${Math.floor(diff / 86400)}d`;
+    return new Date(isoDate).toLocaleDateString();
+}
+
+async function clickNotif(id, link) {
+    closeNotifDropdown();
+    await API.markRead(id);
+    updateNotifBadge();
+    if (link) {
+        if (link.startsWith('pedido/')) {
+            const pedidoId = link.split('/')[1];
+            openPedidoDetail(parseInt(pedidoId));
+        } else {
+            navigate(link);
+        }
+    }
+}
+
+async function markAllNotifRead() {
+    await API.markAllRead();
+    updateNotifBadge();
+    const dd = document.querySelector('.notif-dropdown');
+    if (dd) {
+        dd.querySelectorAll('.notif-item.unread').forEach(el => el.classList.remove('unread'));
     }
 }
 
@@ -5439,6 +5824,9 @@ async function init() {
     }
 
     renderApp();
+
+    // Start notification polling if logged in
+    if (state.user) startNotifPolling();
 }
 
 document.addEventListener('DOMContentLoaded', init);

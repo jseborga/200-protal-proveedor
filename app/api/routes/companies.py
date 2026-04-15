@@ -288,7 +288,12 @@ async def add_member(
 
     target.company_id = company_id
     target.company_role = body.company_role
+    await db.flush()
+
+    from app.services.notifications import notify_member_added
+    await notify_member_added(db, target.id, company.name)
     await db.commit()
+
     return {"ok": True, "data": _member_to_dict(target)}
 
 
@@ -413,5 +418,10 @@ async def assign_pedido(
         raise HTTPException(404, "El usuario no pertenece a esta empresa")
 
     pedido.assigned_to = assignee_id
+    await db.flush()
+
+    from app.services.notifications import notify_pedido_assigned
+    await notify_pedido_assigned(db, pedido, assignee_id)
     await db.commit()
+
     return {"ok": True, "message": f"Pedido asignado a {assignee.full_name}"}
