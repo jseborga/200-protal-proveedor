@@ -349,6 +349,78 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .variant-price { font-weight: 600; color: var(--gray-800); white-space: nowrap; }
 .group-toggle-icon { color: var(--gray-400); display: inline-flex; align-items: center; }
 
+/* ── Cart ──────────────────────────────────────────────── */
+.btn-cart-add {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid var(--primary);
+    background: white; color: var(--primary); cursor: pointer; padding: 0;
+    transition: all .15s;
+}
+.btn-cart-add:hover { background: var(--primary); color: white; }
+.btn-cart-sm { width: 22px; height: 22px; }
+.cart-badge {
+    position: absolute; top: -4px; right: -4px;
+    background: #dc2626; color: white; font-size: 10px; font-weight: 700;
+    min-width: 16px; height: 16px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0 4px; line-height: 1;
+}
+.cart-list { max-height: 400px; overflow-y: auto; }
+.cart-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 0; border-bottom: 1px solid var(--gray-200);
+}
+.cart-item:last-child { border-bottom: none; }
+.cart-item-info { flex: 1; min-width: 0; }
+.cart-item-name { font-weight: 500; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cart-item-detail { font-size: 12px; color: var(--gray-500); }
+.cart-item-actions { display: flex; align-items: center; gap: 8px; margin-left: 12px; }
+.cart-qty { width: 70px; text-align: center; padding: 4px 6px; font-size: 13px; }
+
+/* ── Pedidos ──────────────────────────────────────────── */
+.pedido-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+.pedido-card {
+    background: white; border-radius: 12px; padding: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.08); cursor: pointer;
+    border: 1px solid var(--gray-200); transition: box-shadow .15s, border-color .15s;
+}
+.pedido-card:hover { box-shadow: 0 4px 12px rgba(0,0,0,.12); border-color: var(--primary); }
+.pedido-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.pedido-ref { font-size: 11px; font-weight: 600; color: var(--gray-500); letter-spacing: .5px; }
+.pedido-state {
+    font-size: 11px; font-weight: 600; color: white; padding: 2px 8px; border-radius: 12px;
+    text-transform: uppercase; letter-spacing: .3px;
+}
+.pedido-card-title { font-size: 15px; font-weight: 600; color: var(--gray-800); margin-bottom: 6px; }
+.pedido-card-meta { font-size: 12px; color: var(--gray-500); margin-bottom: 8px; }
+.pedido-card-footer { display: flex; justify-content: space-between; font-size: 12px; color: var(--gray-400); }
+
+/* Pedido detail */
+.pedido-detail-header { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.pedido-items-section { background: white; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.pedido-item-row { border: 1px solid var(--gray-200); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+.pedido-item-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.pedido-item-seq { color: var(--gray-400); font-size: 12px; margin-right: 4px; }
+.pedido-item-uom { font-size: 12px; color: var(--gray-500); margin-left: 6px; background: var(--gray-100); padding: 1px 6px; border-radius: 4px; }
+.pedido-item-qty { font-weight: 600; font-size: 13px; color: var(--primary); }
+.pedido-item-ref { font-size: 12px; color: var(--gray-400); }
+.pedido-item-precios { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--gray-200); }
+.precio-row {
+    display: flex; align-items: center; gap: 10px; padding: 4px 8px;
+    font-size: 13px; border-radius: 4px; margin-bottom: 2px;
+}
+.precio-row:hover { background: var(--gray-50); }
+.precio-selected { background: #f0fdf4; }
+.precio-supplier { flex: 1; color: var(--gray-700); }
+.precio-value { font-weight: 600; color: var(--gray-800); white-space: nowrap; }
+.precio-source { font-size: 11px; color: var(--gray-400); background: var(--gray-100); padding: 1px 6px; border-radius: 4px; }
+.pedido-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+@media (max-width: 600px) {
+    .pedido-grid { grid-template-columns: 1fr; }
+    .pedido-item-header { flex-direction: column; align-items: flex-start; }
+}
+
 /* Map */
 #supplier-map-container { z-index: 1; }
 .leaflet-popup-content { font-size: 13px; line-height: 1.4; }

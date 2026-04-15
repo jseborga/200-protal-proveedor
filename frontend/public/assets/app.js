@@ -12,6 +12,7 @@ const state = {
     searchQuery: '',
     selectedCategory: null,
     selectedDepartment: null,
+    cart: [],
 };
 
 // ── API Client ─────────────────────────────────────────────────
@@ -135,6 +136,19 @@ const API = {
     groupSuggestions: (params = '') => API.get(`/groups/suggestions${params}`),
     acceptGroupSuggestion: (data) => API.post('/groups/suggestions/accept', data),
 
+    // Pedidos (cotizacion requests)
+    pedidos: (params = '') => API.get(`/pedidos${params}`),
+    pedido: (id) => API.get(`/pedidos/${id}`),
+    createPedido: (data) => API.post('/pedidos', data),
+    updatePedido: (id, data) => API.put(`/pedidos/${id}`, data),
+    deletePedido: (id) => API.del(`/pedidos/${id}`),
+    addPedidoItems: (id, items) => API.post(`/pedidos/${id}/items`, items),
+    removePedidoItem: (pid, iid) => API.del(`/pedidos/${pid}/items/${iid}`),
+    addPrecio: (pid, iid, data) => API.post(`/pedidos/${pid}/items/${iid}/precio`, data),
+    selectPrecio: (pid, iid, prid) => API.post(`/pedidos/${pid}/items/${iid}/precio/${prid}/select`),
+    completePedido: (id) => API.post(`/pedidos/${id}/complete`),
+    uploadPedidoDoc: (id, formData) => API.upload(`/pedidos/${id}/upload`, formData),
+
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
 
@@ -202,6 +216,8 @@ const ICONS = {
     layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 2,7 12,12 22,7"/><polyline points="2,17 12,22 22,17"/><polyline points="2,12 12,17 22,12"/></svg>',
     'chevron-down': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,9 12,15 18,9"/></svg>',
     'chevron-up': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18,15 12,9 6,15"/></svg>',
+    'shopping-cart': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>',
+    clipboard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 012 2v14a2 2 0 01-2 2H6a2 2 0 01-2-2V6a2 2 0 012-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -226,6 +242,7 @@ function renderApp() {
     };
 
     const authPages = {
+        pedidos:    { title: 'Mis Pedidos',  icon: 'clipboard',  render: renderPedidos },
         quotations: { title: 'Cotizaciones', icon: 'file-text', render: renderQuotations },
         rfq:        { title: 'RFQ',          icon: 'send',      render: renderRFQ },
     };
@@ -273,8 +290,17 @@ function renderTopbar(publicPages, authPages) {
         `).join('')
         : '';
 
+    const cartCount = state.cart.length;
+    const cartBadge = state.user && cartCount > 0
+        ? `<button class="topbar-btn" onclick="showCartModal()" title="Mi carrito" style="position:relative">
+               ${icon('shopping-cart', 18)}
+               <span class="cart-badge">${cartCount}</span>
+           </button>`
+        : (state.user ? `<button class="topbar-btn" onclick="showCartModal()" title="Mi carrito">${icon('shopping-cart', 18)}</button>` : '');
+
     const userActions = state.user
-        ? `<span class="topbar-btn" style="cursor:default;font-size:13px">${esc(state.user.full_name)}</span>
+        ? `${cartBadge}
+           <span class="topbar-btn" style="cursor:default;font-size:13px">${esc(state.user.full_name)}</span>
            <button class="topbar-btn" onclick="logout()" title="Cerrar sesion">${icon('logout', 16)}</button>`
         : `<button class="topbar-btn-accent topbar-btn" onclick="showLoginModal()">
                ${icon('login', 16)} Ingresar
@@ -479,15 +505,19 @@ function renderSupplierCard(s) {
 // ── Render: Price card (reusable) ──────────────────────────────
 function renderPriceCard(p) {
     if (p.type === 'group') return renderGroupCard(p);
+    const addBtn = state.user ? `<button class="btn-cart-add" onclick="event.stopPropagation();addToCart(${p.id || 'null'},'${esc(p.name).replace(/'/g,"\\'")}','${esc(p.uom||'')}',${p.ref_price||'null'})" title="Agregar al carrito">${icon('plus',14)}</button>` : '';
     return `
         <div class="price-card">
             <div class="price-info">
                 <div class="price-name">${esc(p.name)}</div>
                 <div class="price-detail">${p.category ? esc(p.category) : ''} ${p.uom ? '&middot; ' + esc(p.uom) : ''}</div>
             </div>
-            <div class="price-value">
-                ${p.ref_price ? p.ref_price.toFixed(2) : '--.--'}
-                <span class="price-currency">${esc(p.ref_currency || 'BOB')}</span>
+            <div style="display:flex;align-items:center;gap:8px">
+                <div class="price-value">
+                    ${p.ref_price ? p.ref_price.toFixed(2) : '--.--'}
+                    <span class="price-currency">${esc(p.ref_currency || 'BOB')}</span>
+                </div>
+                ${addBtn}
             </div>
         </div>
     `;
@@ -523,7 +553,10 @@ function renderGroupCard(g) {
                     ${(g.insumos || []).map(i => `
                         <div class="variant-row">
                             <span class="variant-name">${esc(i.name)}</span>
-                            <span class="variant-price">${i.ref_price ? i.ref_price.toFixed(2) : '--.--'} <span class="price-currency">${esc(i.ref_currency || 'BOB')}</span></span>
+                            <span style="display:flex;align-items:center;gap:6px">
+                                <span class="variant-price">${i.ref_price ? i.ref_price.toFixed(2) : '--.--'} <span class="price-currency">${esc(i.ref_currency || 'BOB')}</span></span>
+                                ${state.user ? `<button class="btn-cart-add btn-cart-sm" onclick="event.stopPropagation();addToCart(${i.id || 'null'},'${esc(i.name).replace(/'/g,"\\'")}','${esc(i.uom||'')}',${i.ref_price||'null'})" title="Agregar al carrito">${icon('plus',12)}</button>` : ''}
+                            </span>
                         </div>
                     `).join('')}
                 </div>
@@ -4182,6 +4215,444 @@ async function handleCreateRFQ(e) {
 }
 
 // ── Modal utility ──────────────────────────────────────────────
+// ── Cart (localStorage) ──────────────────────────────────────
+function loadCart() {
+    try { state.cart = JSON.parse(localStorage.getItem('_mkt_cart')) || []; } catch { state.cart = []; }
+}
+function saveCart() {
+    localStorage.setItem('_mkt_cart', JSON.stringify(state.cart));
+    updateCartBadge();
+}
+function addToCart(insumoId, name, uom, refPrice) {
+    const exists = state.cart.find(c => c.insumo_id === insumoId && insumoId != null);
+    if (exists) { toast('Este item ya esta en el carrito', 'info'); return; }
+    state.cart.push({ insumo_id: insumoId, name, uom: uom || null, ref_price: refPrice, quantity: 1 });
+    saveCart();
+    toast('Agregado al carrito', 'success');
+}
+function removeFromCart(idx) {
+    state.cart.splice(idx, 1);
+    saveCart();
+    showCartModal();
+}
+function updateCartQty(idx, qty) {
+    if (qty > 0) state.cart[idx].quantity = qty;
+    saveCart();
+}
+function updateCartBadge() {
+    const badge = document.querySelector('.cart-badge');
+    const count = state.cart.length;
+    if (badge) {
+        badge.textContent = count;
+        badge.style.display = count > 0 ? '' : 'none';
+    }
+}
+
+function showCartModal() {
+    if (!state.cart.length) {
+        showModal('Mi Carrito', `
+            <div class="empty-state" style="padding:24px">
+                <p>El carrito esta vacio</p>
+                <p style="font-size:13px;color:var(--gray-500)">Agrega materiales desde el catalogo de precios usando el boton +</p>
+            </div>
+        `);
+        return;
+    }
+    const rows = state.cart.map((c, i) => `
+        <div class="cart-item">
+            <div class="cart-item-info">
+                <div class="cart-item-name">${esc(c.name)}</div>
+                <div class="cart-item-detail">${c.uom ? esc(c.uom) : ''} ${c.ref_price ? '&middot; Ref: ' + c.ref_price.toFixed(2) + ' BOB' : ''}</div>
+            </div>
+            <div class="cart-item-actions">
+                <input type="number" class="form-input cart-qty" value="${c.quantity}" min="0.01" step="0.01"
+                       onchange="updateCartQty(${i}, parseFloat(this.value))">
+                <button class="btn btn-sm btn-danger" onclick="removeFromCart(${i})">&times;</button>
+            </div>
+        </div>
+    `).join('');
+
+    showModal('Mi Carrito', `
+        <div class="cart-list">${rows}</div>
+        <div style="margin-top:16px;display:flex;justify-content:space-between;align-items:center">
+            <span style="font-size:13px;color:var(--gray-500)">${state.cart.length} item${state.cart.length > 1 ? 's' : ''}</span>
+            <button class="btn btn-primary" onclick="showCreatePedidoModal()">Crear Pedido de Cotizacion</button>
+        </div>
+    `);
+}
+
+function showCreatePedidoModal() {
+    closeModal();
+    const itemsPreview = state.cart.map((c, i) => `
+        <div class="cart-item" style="font-size:13px">
+            <span>${i + 1}. ${esc(c.name)} ${c.uom ? '(' + esc(c.uom) + ')' : ''} x${c.quantity}</span>
+            <span>${c.ref_price ? c.ref_price.toFixed(2) + ' BOB' : ''}</span>
+        </div>
+    `).join('');
+
+    showModal('Nuevo Pedido de Cotizacion', `
+        <form onsubmit="handleCreatePedido(event)">
+            <div class="form-group">
+                <label class="form-label">Titulo del proyecto *</label>
+                <input class="form-input" name="title" required placeholder="Ej: Muro de Contencion Zona Norte">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Descripcion</label>
+                <textarea class="form-input" name="description" rows="2" placeholder="Detalles adicionales..."></textarea>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Region</label>
+                    <select class="form-input" name="region">
+                        <option value="">Seleccionar...</option>
+                        ${DEPARTMENTS.map(d => `<option value="${d}">${d}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Moneda</label>
+                    <select class="form-input" name="currency">
+                        <option value="BOB">BOB - Bolivianos</option>
+                        <option value="USD">USD - Dolares</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Fecha limite</label>
+                <input class="form-input" name="deadline" type="datetime-local">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Items del carrito (${state.cart.length})</label>
+                <div style="max-height:200px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:8px;padding:8px">
+                    ${itemsPreview}
+                </div>
+            </div>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Crear Pedido</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleCreatePedido(e) {
+    e.preventDefault();
+    const f = e.target;
+    const items = state.cart.map(c => ({
+        insumo_id: c.insumo_id,
+        name: c.name,
+        uom: c.uom,
+        quantity: c.quantity,
+        ref_price: c.ref_price,
+    }));
+    const body = {
+        title: f.title.value,
+        description: f.description.value || null,
+        region: f.region.value || null,
+        currency: f.currency.value || 'BOB',
+        deadline: f.deadline.value ? new Date(f.deadline.value).toISOString() : null,
+        items,
+    };
+    const resp = await API.createPedido(body);
+    if (resp.ok) {
+        state.cart = [];
+        saveCart();
+        closeModal();
+        toast('Pedido creado exitosamente', 'success');
+        navigate('pedidos');
+    } else {
+        toast(resp.detail || 'Error creando pedido', 'error');
+    }
+}
+
+// ── Pedidos page ─────────────────────────────────────────────
+async function renderPedidos() {
+    const page = document.getElementById('page-content');
+    page.innerHTML = `
+        <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+            <div>
+                <h1 class="page-title">Mis Pedidos de Cotizacion</h1>
+                <p class="page-subtitle">Gestiona tus solicitudes de precios</p>
+            </div>
+            <div style="display:flex;gap:8px">
+                <button class="btn btn-primary" onclick="showCartModal()">${icon('shopping-cart',16)} Carrito (${state.cart.length})</button>
+            </div>
+        </div>
+        <div class="pedido-filters" style="margin-bottom:16px;display:flex;gap:8px;flex-wrap:wrap">
+            <button class="chip active" onclick="loadPedidos(null, this)">Todos</button>
+            <button class="chip" onclick="loadPedidos('draft', this)">Borrador</button>
+            <button class="chip" onclick="loadPedidos('active', this)">Activo</button>
+            <button class="chip" onclick="loadPedidos('completed', this)">Completado</button>
+        </div>
+        <div id="pedidos-list"><div class="empty-state"><p>Cargando...</p></div></div>
+    `;
+    loadPedidos(null);
+}
+
+async function loadPedidos(stateFilter, chipEl) {
+    if (chipEl) {
+        document.querySelectorAll('.pedido-filters .chip').forEach(c => c.classList.remove('active'));
+        chipEl.classList.add('active');
+    }
+    const params = stateFilter ? `?state=${stateFilter}` : '';
+    try {
+        const resp = await API.pedidos(params);
+        const container = document.getElementById('pedidos-list');
+        if (!resp.ok) { container.innerHTML = '<div class="empty-state"><p>Error cargando pedidos</p></div>'; return; }
+        if (!resp.data.length) {
+            container.innerHTML = `
+                <div class="empty-state" style="padding:40px">
+                    <p>No tienes pedidos${stateFilter ? ' en este estado' : ''}</p>
+                    <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">Agrega materiales al carrito desde Precios y crea tu primer pedido</p>
+                    <button class="btn btn-primary" onclick="navigate('prices')">Ir a Precios</button>
+                </div>
+            `;
+            return;
+        }
+        container.innerHTML = `<div class="pedido-grid">${resp.data.map(renderPedidoCard).join('')}</div>`;
+    } catch { document.getElementById('pedidos-list').innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>'; }
+}
+
+function renderPedidoCard(p) {
+    const stateColors = { draft: '#6b7280', active: '#2563eb', researching: '#d97706', completed: '#16a34a', cancelled: '#dc2626' };
+    const stateLabels = { draft: 'Borrador', active: 'Activo', researching: 'Investigando', completed: 'Completado', cancelled: 'Cancelado' };
+    return `
+        <div class="pedido-card" onclick="openPedidoDetail(${p.id})">
+            <div class="pedido-card-header">
+                <span class="pedido-ref">${esc(p.reference)}</span>
+                <span class="pedido-state" style="background:${stateColors[p.state] || '#6b7280'}">${stateLabels[p.state] || p.state}</span>
+            </div>
+            <div class="pedido-card-title">${esc(p.title)}</div>
+            <div class="pedido-card-meta">
+                ${p.region ? esc(p.region) + ' &middot; ' : ''}${p.item_count} items &middot; ${p.quotes_received || 0} precios
+                ${p.deadline ? ' &middot; Limite: ' + new Date(p.deadline).toLocaleDateString() : ''}
+            </div>
+            <div class="pedido-card-footer">
+                <span>${new Date(p.created_at).toLocaleDateString()}</span>
+                ${p.currency ? '<span>' + esc(p.currency) + '</span>' : ''}
+            </div>
+        </div>
+    `;
+}
+
+// ── Pedido Detail ────────────────────────────────────────────
+async function openPedidoDetail(pedidoId) {
+    const page = document.getElementById('page-content');
+    page.innerHTML = '<div class="empty-state"><p>Cargando pedido...</p></div>';
+
+    try {
+        const resp = await API.pedido(pedidoId);
+        if (!resp.ok) { page.innerHTML = '<div class="empty-state"><p>Error cargando pedido</p></div>'; return; }
+        renderPedidoDetail(resp.data);
+    } catch { page.innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>'; }
+}
+
+function renderPedidoDetail(p) {
+    const page = document.getElementById('page-content');
+    const stateLabels = { draft: 'Borrador', active: 'Activo', researching: 'Investigando', completed: 'Completado', cancelled: 'Cancelado' };
+    const stateColors = { draft: '#6b7280', active: '#2563eb', researching: '#d97706', completed: '#16a34a', cancelled: '#dc2626' };
+    const isEditable = p.state !== 'completed' && p.state !== 'cancelled';
+
+    const itemRows = (p.items || []).map(item => {
+        const precioRows = (item.precios || []).map(pr => `
+            <div class="precio-row ${pr.is_selected ? 'precio-selected' : ''}">
+                <span class="precio-supplier">${esc(pr.supplier_name_text || 'Proveedor #' + (pr.supplier_id || '?'))}</span>
+                <span class="precio-value">${pr.unit_price.toFixed(2)} ${esc(pr.currency)}</span>
+                <span class="precio-source">${esc(pr.source)}</span>
+                ${isEditable ? `<button class="btn-cart-add btn-cart-sm" onclick="selectPrecio(${p.id},${item.id},${pr.id})" title="Seleccionar">${pr.is_selected ? '★' : '☆'}</button>` : (pr.is_selected ? '★' : '')}
+            </div>
+        `).join('');
+
+        return `
+            <div class="pedido-item-row">
+                <div class="pedido-item-header">
+                    <div>
+                        <span class="pedido-item-seq">#${item.sequence + 1}</span>
+                        <strong>${esc(item.name)}</strong>
+                        ${item.uom ? '<span class="pedido-item-uom">' + esc(item.uom) + '</span>' : ''}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                        <span class="pedido-item-qty">x${item.quantity}</span>
+                        ${item.ref_price ? '<span class="pedido-item-ref">Ref: ' + item.ref_price.toFixed(2) + '</span>' : ''}
+                        ${isEditable ? `<button class="btn btn-sm btn-primary" onclick="showAddPrecioModal(${p.id},${item.id},'${esc(item.name).replace(/'/g,"\\'")}')">+ Precio</button>` : ''}
+                    </div>
+                </div>
+                ${precioRows ? '<div class="pedido-item-precios">' + precioRows + '</div>' : '<div class="pedido-item-precios" style="color:var(--gray-400);font-size:12px;padding:4px 0">Sin precios registrados</div>'}
+            </div>
+        `;
+    }).join('');
+
+    const actions = [];
+    if (isEditable) {
+        actions.push(`<button class="btn btn-secondary" onclick="showUploadDocModal(${p.id})">${icon('upload',16)} Subir Documento</button>`);
+        actions.push(`<button class="btn btn-primary" onclick="completePedido(${p.id})">Marcar Completado</button>`);
+    }
+    if (p.state === 'draft') {
+        actions.push(`<button class="btn btn-danger" onclick="deletePedido(${p.id})">Eliminar</button>`);
+    }
+
+    page.innerHTML = `
+        <div style="margin-bottom:16px">
+            <button class="btn btn-secondary btn-sm" onclick="renderPedidos()">&larr; Volver a Pedidos</button>
+        </div>
+        <div class="pedido-detail-header">
+            <div>
+                <span class="pedido-ref">${esc(p.reference)}</span>
+                <span class="pedido-state" style="background:${stateColors[p.state] || '#6b7280'}">${stateLabels[p.state] || p.state}</span>
+            </div>
+            <h2 style="margin:8px 0 4px">${esc(p.title)}</h2>
+            ${p.description ? '<p style="color:var(--gray-500);font-size:14px">' + esc(p.description) + '</p>' : ''}
+            <div style="font-size:13px;color:var(--gray-500);margin-top:4px">
+                ${p.region ? esc(p.region) + ' &middot; ' : ''}${esc(p.currency)} &middot; ${p.item_count} items &middot; ${p.quotes_received || 0} precios
+                ${p.deadline ? ' &middot; Limite: ' + new Date(p.deadline).toLocaleDateString() : ''}
+                &middot; Creado: ${new Date(p.created_at).toLocaleDateString()}
+            </div>
+        </div>
+        <div class="pedido-items-section">
+            <h3 style="margin-bottom:12px">Items del Pedido</h3>
+            ${itemRows || '<div class="empty-state"><p>Sin items</p></div>'}
+        </div>
+        ${actions.length ? '<div class="pedido-actions">' + actions.join(' ') + '</div>' : ''}
+    `;
+}
+
+function showAddPrecioModal(pedidoId, itemId, itemName) {
+    showModal('Agregar Precio — ' + itemName, `
+        <form onsubmit="handleAddPrecio(event, ${pedidoId}, ${itemId})">
+            <div class="form-group">
+                <label class="form-label">Proveedor (nombre)</label>
+                <input class="form-input" name="supplier_name_text" placeholder="Nombre del proveedor">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Precio unitario *</label>
+                    <input class="form-input" name="unit_price" type="number" step="0.01" min="0" required>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Moneda</label>
+                    <select class="form-input" name="currency">
+                        <option value="BOB">BOB</option>
+                        <option value="USD">USD</option>
+                    </select>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Fuente</label>
+                <select class="form-input" name="source">
+                    <option value="manual">Manual (llamada/visita)</option>
+                    <option value="upload">Documento</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notas</label>
+                <textarea class="form-input" name="notes" rows="2" placeholder="Observaciones..."></textarea>
+            </div>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Guardar Precio</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleAddPrecio(e, pedidoId, itemId) {
+    e.preventDefault();
+    const f = e.target;
+    const resp = await API.addPrecio(pedidoId, itemId, {
+        supplier_name_text: f.supplier_name_text.value || null,
+        unit_price: parseFloat(f.unit_price.value),
+        currency: f.currency.value,
+        source: f.source.value,
+        notes: f.notes.value || null,
+    });
+    if (resp.ok) {
+        closeModal();
+        toast('Precio registrado', 'success');
+        openPedidoDetail(pedidoId);
+    } else {
+        toast(resp.detail || 'Error', 'error');
+    }
+}
+
+async function selectPrecio(pedidoId, itemId, precioId) {
+    const resp = await API.selectPrecio(pedidoId, itemId, precioId);
+    if (resp.ok) {
+        toast('Precio seleccionado', 'success');
+        openPedidoDetail(pedidoId);
+    } else toast(resp.detail || 'Error', 'error');
+}
+
+async function completePedido(pedidoId) {
+    if (!confirm('Marcar este pedido como completado?')) return;
+    const resp = await API.completePedido(pedidoId);
+    if (resp.ok) {
+        toast('Pedido completado', 'success');
+        openPedidoDetail(pedidoId);
+    } else toast(resp.detail || 'Error', 'error');
+}
+
+async function deletePedido(pedidoId) {
+    if (!confirm('Eliminar este pedido? Esta accion no se puede deshacer.')) return;
+    const resp = await API.deletePedido(pedidoId);
+    if (resp.ok) {
+        toast('Pedido eliminado', 'success');
+        renderPedidos();
+    } else toast(resp.detail || 'Error', 'error');
+}
+
+function showUploadDocModal(pedidoId) {
+    showModal('Subir Documento de Cotizacion', `
+        <form onsubmit="handleUploadDoc(event, ${pedidoId})">
+            <div class="form-group">
+                <label class="form-label">Archivo (PDF, Excel, imagen)</label>
+                <input class="form-input" name="file" type="file" accept=".pdf,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.webp" required>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Nombre del proveedor</label>
+                <input class="form-input" name="supplier_name" placeholder="Proveedor que envio la cotizacion">
+            </div>
+            <p style="font-size:12px;color:var(--gray-500);margin:8px 0">
+                La IA extraera los precios del documento y los asociara automaticamente con los items de tu pedido.
+            </p>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">${icon('upload',16)} Subir y Procesar</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleUploadDoc(e, pedidoId) {
+    e.preventDefault();
+    const f = e.target;
+    const file = f.file.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('supplier_name', f.supplier_name.value || '');
+
+    const submitBtn = f.querySelector('button[type=submit]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Procesando...';
+
+    try {
+        const resp = await API.uploadPedidoDoc(pedidoId, formData);
+        if (resp.ok) {
+            closeModal();
+            toast(`Documento procesado: ${resp.extracted || 0} lineas extraidas, ${resp.matched || 0} precios asociados`, 'success');
+            openPedidoDetail(pedidoId);
+        } else {
+            toast(resp.detail || 'Error procesando documento', 'error');
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Subir y Procesar';
+        }
+    } catch {
+        toast('Error de conexion', 'error');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Subir y Procesar';
+    }
+}
+
 function showModal(title, bodyHtml) {
     const existing = document.querySelector('.modal-overlay');
     if (existing) existing.remove();
@@ -4235,6 +4706,9 @@ async function init() {
     state.token = localStorage.getItem('_mkt_token');
     state.refreshToken = localStorage.getItem('_mkt_refresh');
     try { state.user = JSON.parse(localStorage.getItem('_mkt_user')); } catch {}
+
+    // Load cart from localStorage
+    loadCart();
 
     // Load catalog data (categories & UOMs) from API
     await loadCatalogData();

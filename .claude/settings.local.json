@@ -51,7 +51,12 @@
       "Bash(python -m py_compile app/api/routes/groups.py)",
       "Bash(python -m py_compile app/api/routes/prices.py)",
       "Bash(python -m py_compile app/main.py)",
-      "Bash(python -m py_compile app/api/routes/__init__.py)"
+      "Bash(python -m py_compile app/api/routes/__init__.py)",
+      "Bash(python -m py_compile app/models/pedido.py)",
+      "Bash(python -m py_compile app/models/__init__.py)",
+      "Bash(python -m py_compile app/services/pedido.py)",
+      "Bash(python -m py_compile app/api/routes/pedidos.py)",
+      "Bash(node *)"
     ]
   },
   "enableAllProjectMcpServers": true,

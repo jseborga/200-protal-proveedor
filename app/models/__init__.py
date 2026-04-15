@@ -9,6 +9,7 @@ from .user import User
 from .api_key import ApiKey
 from .catalog import Category, UnitOfMeasure
 from .price_history import PriceHistory
+from .pedido import Pedido, PedidoItem, PedidoPrecio
 
 __all__ = [
     "Base", "Supplier", "SupplierBranch", "SupplierBranchContact",
@@ -16,4 +17,5 @@ __all__ = [
     "Quotation", "QuotationLine", "RFQ", "RFQItem",
     "ProductMatch", "User", "ApiKey",
     "Category", "UnitOfMeasure", "PriceHistory",
+    "Pedido", "PedidoItem", "PedidoPrecio",
 ]
