@@ -74,6 +74,7 @@ const API = {
     publicSuppliers: (params = '') => API.get(`/suppliers/public${params}`),
     supplierCategories: () => API.get('/suppliers/public/categories'),
     supplierCities: () => API.get('/suppliers/public/cities'),
+    publicSupplierDetail: (id) => API.get(`/suppliers/public/${id}`),
     priceCategories: () => API.get('/prices/categories/list'),
 
     // Authenticated
@@ -81,6 +82,10 @@ const API = {
     supplier: (id) => API.get(`/suppliers/${id}`),
     createSupplier: (data) => API.post('/suppliers', data),
     updateSupplier: (id, data) => API.put(`/suppliers/${id}`, data),
+    branchContacts: (sid, bid) => API.get(`/suppliers/${sid}/branches/${bid}/contacts`),
+    createContact: (sid, bid, data) => API.post(`/suppliers/${sid}/branches/${bid}/contacts`, data),
+    updateContact: (sid, bid, cid, data) => API.put(`/suppliers/${sid}/branches/${bid}/contacts/${cid}`, data),
+    deleteContact: (sid, bid, cid) => API.del(`/suppliers/${sid}/branches/${bid}/contacts/${cid}`),
     quotations: (params = '') => API.get(`/quotations${params}`),
     quotation: (id) => API.get(`/quotations/${id}`),
     createQuotation: (data) => API.post('/quotations', data),
@@ -174,6 +179,8 @@ const ICONS = {
     'check-circle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
+    globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
+    mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -431,7 +438,7 @@ function renderSupplierCard(s) {
         : '';
 
     return `
-        <div class="supplier-card">
+        <div class="supplier-card" onclick="showPublicSupplierDetail(${s.id})" style="cursor:pointer">
             <div class="supplier-card-header">
                 <div>
                     <div class="supplier-name">${esc(s.trade_name || s.name)}</div>
@@ -786,6 +793,120 @@ async function loadPublicSuppliers() {
     }
 }
 
+// ── Public Supplier Detail ────────────────────────────────────
+async function showPublicSupplierDetail(supplierId) {
+    showModal('Detalle de Proveedor', `
+        <div id="pub-supplier-detail"><p style="text-align:center;color:var(--gray-500)">Cargando...</p></div>
+    `);
+    try {
+        const resp = await API.publicSupplierDetail(supplierId);
+        const c = document.getElementById('pub-supplier-detail');
+        if (!resp.ok || !resp.data) {
+            c.innerHTML = '<div class="empty-state"><p>Proveedor no encontrado</p></div>';
+            return;
+        }
+        const s = resp.data;
+        const location = [s.city, s.department].filter(Boolean).join(', ');
+        const cats = (s.categories || []).map(cat => {
+            const meta = CATEGORY_META[cat] || { label: cat };
+            return `<span class="supplier-cat">${esc(meta.label || cat)}</span>`;
+        }).join('');
+
+        const waBtn = s.whatsapp
+            ? `<a href="https://wa.me/${s.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" rel="noopener"
+                  class="btn-whatsapp" onclick="event.stopPropagation()">${icon('whatsapp', 16)} WhatsApp</a>`
+            : '';
+        const callBtn = s.phone
+            ? `<a href="tel:${s.phone}" class="btn-call" onclick="event.stopPropagation()">${icon('phone', 16)} Llamar</a>`
+            : '';
+        const webBtn = s.website
+            ? `<a href="${esc(s.website)}" target="_blank" rel="noopener" class="btn-call">${icon('globe', 16)} Web</a>`
+            : '';
+        const rating = s.rating > 0
+            ? `<span style="color:#f59e0b;font-size:15px">${icon('star', 16)} ${s.rating.toFixed(1)}</span>`
+            : '';
+
+        const hasCoords = s.latitude && s.longitude;
+        const branchesWithCoords = (s.branches || []).filter(b => b.latitude && b.longitude);
+        const showMap = hasCoords || branchesWithCoords.length > 0;
+
+        const branchesHtml = (s.branches || []).map(b => {
+            const bLoc = [b.city, b.department].filter(Boolean).join(', ');
+            const contactsHtml = (b.contacts || []).map(ct =>
+                `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+                    <span style="font-weight:500">${esc(ct.full_name)}</span>
+                    ${ct.position ? `<span style="font-size:12px;color:var(--gray-500)">${esc(ct.position)}</span>` : ''}
+                    ${ct.whatsapp ? `<a href="https://wa.me/${ct.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" style="color:var(--whatsapp);font-size:12px">${icon('whatsapp',12)} ${esc(ct.whatsapp)}</a>` : ''}
+                    ${ct.phone && !ct.whatsapp ? `<a href="tel:${ct.phone}" style="font-size:12px">${icon('phone',12)} ${esc(ct.phone)}</a>` : ''}
+                </div>`
+            ).join('');
+
+            return `
+                <div style="border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-bottom:8px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                        <strong>${esc(b.branch_name)}</strong>
+                        ${b.is_main ? '<span class="badge badge-success" style="font-size:11px">Principal</span>' : ''}
+                    </div>
+                    <div style="font-size:13px;color:var(--gray-500);margin-bottom:4px">${icon('map',12)} ${bLoc || 'Sin ubicacion'}</div>
+                    ${b.address ? `<div style="font-size:13px;color:var(--gray-500);margin-bottom:6px">${esc(b.address)}</div>` : ''}
+                    <div style="display:flex;gap:8px;margin-bottom:6px">
+                        ${b.whatsapp ? `<a href="https://wa.me/${b.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" class="btn-whatsapp" style="font-size:12px;padding:3px 8px">${icon('whatsapp',12)} ${esc(b.whatsapp)}</a>` : ''}
+                        ${b.phone ? `<a href="tel:${b.phone}" class="btn-call" style="font-size:12px;padding:3px 8px">${icon('phone',12)} ${esc(b.phone)}</a>` : ''}
+                    </div>
+                    ${contactsHtml ? `<div style="border-top:1px solid var(--gray-100);padding-top:6px;margin-top:4px">
+                        <div style="font-size:12px;color:var(--gray-400);margin-bottom:2px">Contactos</div>
+                        ${contactsHtml}
+                    </div>` : ''}
+                </div>`;
+        }).join('');
+
+        c.innerHTML = `
+            <div style="margin-bottom:16px">
+                <div style="display:flex;justify-content:space-between;align-items:start">
+                    <div>
+                        <h2 style="margin:0;font-size:20px">${esc(s.trade_name || s.name)}</h2>
+                        ${s.trade_name && s.trade_name !== s.name ? `<div style="color:var(--gray-500);font-size:14px">${esc(s.name)}</div>` : ''}
+                    </div>
+                    ${rating}
+                </div>
+                <div style="color:var(--gray-500);margin-top:4px">${icon('map',14)} ${location || 'Bolivia'}</div>
+                ${s.address ? `<div style="color:var(--gray-500);font-size:13px;margin-top:2px">${esc(s.address)}</div>` : ''}
+                ${s.email ? `<div style="margin-top:4px;font-size:13px">${icon('mail',13)} <a href="mailto:${esc(s.email)}">${esc(s.email)}</a></div>` : ''}
+            </div>
+            <div class="supplier-categories" style="margin-bottom:12px">${cats || ''}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+                ${waBtn}${callBtn}${webBtn}
+            </div>
+            ${showMap ? `<div id="supplier-detail-map" style="height:220px;border-radius:8px;margin-bottom:16px"></div>` : ''}
+            ${(s.branches || []).length > 0 ? `
+                <h3 style="font-size:15px;margin-bottom:8px;border-bottom:1px solid var(--gray-200);padding-bottom:6px">Sucursales (${s.branches.length})</h3>
+                ${branchesHtml}
+            ` : ''}
+        `;
+
+        // Init map
+        if (showMap) {
+            setTimeout(() => {
+                const center = hasCoords ? [s.latitude, s.longitude] : [branchesWithCoords[0].latitude, branchesWithCoords[0].longitude];
+                MapUtils.createMap('supplier-detail-map', center, 13);
+                if (hasCoords) {
+                    MapUtils.addMarker(s.latitude, s.longitude, `<strong>${esc(s.trade_name || s.name)}</strong><br>${location}`);
+                }
+                (s.branches || []).forEach(b => {
+                    if (b.latitude && b.longitude) {
+                        MapUtils.addMarker(b.latitude, b.longitude,
+                            `<strong>${esc(b.branch_name)}</strong><br>${[b.city, b.department].filter(Boolean).join(', ')}`);
+                    }
+                });
+                if (MapUtils._markers.length > 1) MapUtils.fitToMarkers();
+            }, 150);
+        }
+    } catch (e) {
+        const c = document.getElementById('pub-supplier-detail');
+        if (c) c.innerHTML = `<p style="color:var(--danger)">Error: ${e.message}</p>`;
+    }
+}
+
 // ── Login Modal (not a page) ───────────────────────────────────
 function showLoginModal() {
     showModal('Iniciar Sesion', `
@@ -1094,7 +1215,7 @@ async function loadAdminSuppliers() {
                         <td>${(s.categories || []).map(c => `<span class="supplier-cat">${esc(c)}</span>`).join(' ') || '-'}</td>
                         <td><span class="badge badge-${s.verification_state === 'verified' ? 'success' : s.verification_state === 'rejected' ? 'danger' : 'warning'}">${esc(s.verification_state)}</span></td>
                         <td style="white-space:nowrap">
-                            <button class="btn btn-sm btn-secondary" onclick="showSupplierProducts(${s.id}, decodeURIComponent('${encodeURIComponent(s.name)}'))" title="Ver productos">${icon('tag',14)}</button>
+                            <button class="btn btn-sm btn-primary" onclick="showAdminSupplierDetail(${s.id}, decodeURIComponent('${encodeURIComponent(s.name)}'))" title="Ver detalle">${icon('file-text',14)}</button>
                             <button class="btn btn-sm btn-secondary" onclick="showAdminSupplierForm(${s.id})" title="Editar">${icon('edit',14)}</button>
                             ${isManager() ? `<button class="btn btn-sm btn-secondary" onclick="verifySupplier(${s.id},'verified')" title="Verificar" style="color:var(--success)">&#10003;</button>` : ''}
                         </td>
@@ -1158,6 +1279,312 @@ async function showSupplierProducts(supplierId, name) {
     } catch (e) {
         document.getElementById('sp-content').innerHTML = `<p style="color:var(--danger)">Error: ${e.message}</p>`;
     }
+}
+
+// ── Admin: Supplier Detail (tabs) ─────────────────────────────
+let _admDetailTab = 'info';
+let _admDetailSupplierId = null;
+
+async function showAdminSupplierDetail(supplierId, name) {
+    _admDetailSupplierId = supplierId;
+    _admDetailTab = 'info';
+
+    // Use a wider modal
+    showModal(`Proveedor: ${name || ''}`, `
+        <div id="adm-detail-content"><p style="text-align:center;color:var(--gray-500)">Cargando...</p></div>
+    `);
+    // Widen the modal
+    const modal = document.querySelector('.modal');
+    if (modal) modal.style.maxWidth = '820px';
+
+    try {
+        const [supResp, brResp, prodResp] = await Promise.all([
+            API.supplier(supplierId),
+            API.get(`/suppliers/${supplierId}/branches`),
+            API.get(`/suppliers/${supplierId}/products`),
+        ]);
+
+        const c = document.getElementById('adm-detail-content');
+        if (!supResp.ok || !supResp.data) {
+            c.innerHTML = '<div class="empty-state"><p>Proveedor no encontrado</p></div>';
+            return;
+        }
+
+        // Store data globally for tab switching
+        window._admDetailData = {
+            supplier: supResp.data,
+            branches: brResp.ok ? brResp.data : [],
+            products: prodResp.ok ? prodResp.data : [],
+        };
+
+        renderAdminDetailTabs();
+    } catch (e) {
+        const c = document.getElementById('adm-detail-content');
+        if (c) c.innerHTML = `<p style="color:var(--danger)">Error: ${e.message}</p>`;
+    }
+}
+
+function renderAdminDetailTabs() {
+    const c = document.getElementById('adm-detail-content');
+    if (!c || !window._admDetailData) return;
+
+    const tabs = [
+        { key: 'info', label: 'Info General', ico: 'file-text' },
+        { key: 'branches', label: 'Sucursales y Contactos', ico: 'map' },
+        { key: 'products', label: 'Productos', ico: 'tag' },
+    ];
+
+    const tabsHtml = tabs.map(t =>
+        `<button class="btn btn-sm ${_admDetailTab === t.key ? 'btn-primary' : 'btn-secondary'}"
+                onclick="_admDetailTab='${t.key}';renderAdminDetailTabs()"
+                style="font-size:13px">${icon(t.ico, 14)} ${t.label}</button>`
+    ).join('');
+
+    let bodyHtml = '';
+    if (_admDetailTab === 'info') bodyHtml = renderAdminDetailInfo();
+    else if (_admDetailTab === 'branches') bodyHtml = renderAdminDetailBranches();
+    else if (_admDetailTab === 'products') bodyHtml = renderAdminDetailProducts();
+
+    c.innerHTML = `
+        <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">${tabsHtml}</div>
+        <div>${bodyHtml}</div>
+    `;
+
+    // Load contacts for branches tab
+    if (_admDetailTab === 'branches') {
+        (window._admDetailData.branches || []).forEach(b => {
+            loadBranchContacts(_admDetailSupplierId, b.id);
+        });
+    }
+}
+
+function renderAdminDetailInfo() {
+    const s = window._admDetailData.supplier;
+    const location = [s.city, s.department].filter(Boolean).join(', ');
+    const cats = (s.categories || []).map(cat => {
+        const meta = CATEGORY_META[cat] || { label: cat };
+        return `<span class="supplier-cat">${esc(meta.label || cat)}</span>`;
+    }).join('') || '<span style="color:var(--gray-400);font-size:13px">Sin categorias</span>';
+
+    const stateColor = s.verification_state === 'verified' ? 'success' : s.verification_state === 'rejected' ? 'danger' : 'warning';
+
+    return `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:14px;margin-bottom:16px">
+            <div><strong>Razon Social:</strong> ${esc(s.name)}</div>
+            <div><strong>Nombre Comercial:</strong> ${esc(s.trade_name) || '-'}</div>
+            <div><strong>NIT:</strong> ${esc(s.nit) || '-'}</div>
+            <div><strong>Email:</strong> ${s.email ? `<a href="mailto:${esc(s.email)}">${esc(s.email)}</a>` : '-'}</div>
+            <div><strong>Telefono:</strong> ${s.phone ? `<a href="tel:${s.phone}">${esc(s.phone)}</a>` : '-'}</div>
+            <div><strong>WhatsApp:</strong> ${s.whatsapp ? `<a href="https://wa.me/${s.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" style="color:var(--whatsapp)">${esc(s.whatsapp)}</a>` : '-'}</div>
+            <div><strong>Ciudad:</strong> ${esc(s.city) || '-'}</div>
+            <div><strong>Departamento:</strong> ${esc(s.department) || '-'}</div>
+            <div style="grid-column:1/-1"><strong>Direccion:</strong> ${esc(s.address) || '-'}</div>
+            <div><strong>Website:</strong> ${s.website ? `<a href="${esc(s.website)}" target="_blank">${esc(s.website)}</a>` : '-'}</div>
+            <div><strong>Canal preferido:</strong> ${esc(s.preferred_channel) || '-'}</div>
+            <div><strong>Estado:</strong> <span class="badge badge-${stateColor}">${esc(s.verification_state)}</span></div>
+            <div><strong>Rating:</strong> ${s.rating > 0 ? `${icon('star',14)} ${s.rating.toFixed(1)}` : '-'}</div>
+            <div><strong>Cotizaciones:</strong> ${s.quotation_count || 0}</div>
+            <div><strong>Resp. promedio:</strong> ${s.avg_response_days ? s.avg_response_days.toFixed(1) + ' dias' : '-'}</div>
+        </div>
+        <div style="margin-bottom:12px"><strong>Categorias:</strong> <span class="supplier-categories">${cats}</span></div>
+        ${s.latitude && s.longitude ? `<div style="font-size:13px;color:var(--gray-500);margin-bottom:12px">Coords: ${s.latitude}, ${s.longitude}</div>` : ''}
+        <button class="btn btn-secondary" onclick="closeModal();showAdminSupplierForm(${s.id})">${icon('edit',14)} Editar Proveedor</button>
+    `;
+}
+
+function renderAdminDetailBranches() {
+    const branches = window._admDetailData.branches || [];
+    if (!branches.length) {
+        return `<div class="empty-state"><p>Sin sucursales registradas</p></div>
+                <button class="btn btn-primary" onclick="closeModal();showAdminSupplierForm(${_admDetailSupplierId})">${icon('plus',14)} Agregar desde edicion</button>`;
+    }
+
+    return branches.map(b => {
+        const bLoc = [b.city, b.department].filter(Boolean).join(', ');
+        return `
+            <div style="border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-bottom:10px">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                    <div>
+                        <strong style="font-size:15px">${esc(b.branch_name)}</strong>
+                        ${b.is_main ? '<span class="badge badge-success" style="font-size:11px;margin-left:6px">Principal</span>' : ''}
+                    </div>
+                    <span style="font-size:12px;color:var(--gray-400)">${b.is_active ? 'Activa' : 'Inactiva'}</span>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;color:var(--gray-600);margin-bottom:8px">
+                    <div>${icon('map',12)} ${bLoc || 'Sin ubicacion'}</div>
+                    <div>${b.address ? esc(b.address) : ''}</div>
+                    <div>${b.phone ? `${icon('phone',12)} ${esc(b.phone)}` : ''}</div>
+                    <div>${b.whatsapp ? `<a href="https://wa.me/${b.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" style="color:var(--whatsapp)">${icon('whatsapp',12)} ${esc(b.whatsapp)}</a>` : ''}</div>
+                    <div>${b.email ? `${icon('mail',12)} ${esc(b.email)}` : ''}</div>
+                </div>
+                <div style="border-top:1px solid var(--gray-100);padding-top:8px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                        <strong style="font-size:13px">Contactos</strong>
+                        <button class="btn btn-sm btn-primary" onclick="showInlineContactForm(${_admDetailSupplierId}, ${b.id})" style="font-size:12px">${icon('plus',12)} Agregar</button>
+                    </div>
+                    <div id="branch-contacts-${b.id}">
+                        <p style="text-align:center;color:var(--gray-400);font-size:13px">Cargando...</p>
+                    </div>
+                </div>
+            </div>`;
+    }).join('');
+}
+
+function renderAdminDetailProducts() {
+    const products = window._admDetailData.products || [];
+    if (!products.length) {
+        return '<div class="empty-state"><p>Sin historial de compras registrado</p></div>';
+    }
+    return `
+        <p style="font-size:13px;color:var(--gray-500);margin-bottom:8px">${products.length} productos</p>
+        <div class="table-wrap"><table>
+            <thead><tr>
+                <th>Producto</th><th>Categoria</th><th>UOM</th>
+                <th>Pedidos</th><th>Precio Med.</th><th>Min</th><th>Max</th>
+                <th>Ultimo</th>
+            </tr></thead>
+            <tbody>${products.map(r => `
+                <tr>
+                    <td><strong>${esc(r.product_name)}</strong></td>
+                    <td>${r.category ? `<span class="badge badge-gray">${esc(r.category)}</span>` : '-'}</td>
+                    <td>${esc(r.uom)}</td>
+                    <td>${r.order_count}</td>
+                    <td><strong>${Number(r.median_price).toFixed(2)}</strong></td>
+                    <td>${Number(r.min_price).toFixed(2)}</td>
+                    <td>${Number(r.max_price).toFixed(2)}</td>
+                    <td>${r.last_order || '-'}</td>
+                </tr>
+            `).join('')}</tbody>
+        </table></div>
+    `;
+}
+
+// ── Admin: Branch Contacts CRUD ───────────────────────────────
+async function loadBranchContacts(supplierId, branchId) {
+    const container = document.getElementById(`branch-contacts-${branchId}`);
+    if (!container) return;
+    try {
+        const resp = await API.branchContacts(supplierId, branchId);
+        if (!resp.ok || !resp.data || !resp.data.length) {
+            container.innerHTML = '<p style="font-size:13px;color:var(--gray-400)">Sin contactos</p>';
+            return;
+        }
+        container.innerHTML = `<table style="width:100%;font-size:13px">
+            <thead><tr><th>Nombre</th><th>Cargo</th><th>Telefono</th><th>WhatsApp</th><th>Email</th><th></th></tr></thead>
+            <tbody>${resp.data.map(ct => `
+                <tr>
+                    <td><strong>${esc(ct.full_name)}</strong>${ct.is_primary ? ' <span class="badge badge-success" style="font-size:10px">Principal</span>' : ''}</td>
+                    <td>${esc(ct.position) || '-'}</td>
+                    <td>${ct.phone ? `<a href="tel:${ct.phone}">${esc(ct.phone)}</a>` : '-'}</td>
+                    <td>${ct.whatsapp ? `<a href="https://wa.me/${ct.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" style="color:var(--whatsapp)">${esc(ct.whatsapp)}</a>` : '-'}</td>
+                    <td>${ct.email ? `<a href="mailto:${ct.email}">${esc(ct.email)}</a>` : '-'}</td>
+                    <td style="white-space:nowrap">
+                        <button class="btn btn-sm btn-secondary" onclick="showInlineContactForm(${supplierId}, ${branchId}, ${ct.id})" title="Editar" style="padding:2px 6px">${icon('edit',12)}</button>
+                        <button class="btn btn-sm btn-secondary" onclick="deleteContactFromBranch(${supplierId}, ${branchId}, ${ct.id})" title="Eliminar" style="padding:2px 6px;color:var(--danger)">&times;</button>
+                    </td>
+                </tr>
+            `).join('')}</tbody>
+        </table>`;
+    } catch {
+        container.innerHTML = '<p style="font-size:13px;color:var(--danger)">Error cargando contactos</p>';
+    }
+}
+
+async function showInlineContactForm(supplierId, branchId, contactId) {
+    const container = document.getElementById(`branch-contacts-${branchId}`);
+    if (!container) return;
+
+    let existing = null;
+    if (contactId) {
+        try {
+            const resp = await API.branchContacts(supplierId, branchId);
+            if (resp.ok && resp.data) existing = resp.data.find(c => c.id === contactId);
+        } catch {}
+    }
+
+    const formHtml = `
+        <form id="contact-form-${branchId}" onsubmit="handleContactSubmit(event, ${supplierId}, ${branchId}, ${contactId || 'null'})" style="border:1px solid var(--primary);border-radius:6px;padding:10px;margin-top:6px;background:var(--gray-50)">
+            <div style="font-size:13px;font-weight:600;margin-bottom:8px">${contactId ? 'Editar' : 'Nuevo'} Contacto</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+                <div class="form-group" style="margin-bottom:6px">
+                    <label class="form-label" style="font-size:12px">Nombre completo *</label>
+                    <input class="form-input" name="full_name" required value="${existing ? esc(existing.full_name) : ''}" style="font-size:13px;padding:6px 8px">
+                </div>
+                <div class="form-group" style="margin-bottom:6px">
+                    <label class="form-label" style="font-size:12px">Cargo</label>
+                    <input class="form-input" name="position" value="${existing ? esc(existing.position || '') : ''}" placeholder="Agente de ventas" style="font-size:13px;padding:6px 8px">
+                </div>
+                <div class="form-group" style="margin-bottom:6px">
+                    <label class="form-label" style="font-size:12px">Telefono</label>
+                    <input class="form-input" name="phone" value="${existing ? esc(existing.phone || '') : ''}" style="font-size:13px;padding:6px 8px">
+                </div>
+                <div class="form-group" style="margin-bottom:6px">
+                    <label class="form-label" style="font-size:12px">WhatsApp</label>
+                    <input class="form-input" name="whatsapp" value="${existing ? esc(existing.whatsapp || '') : ''}" placeholder="59171234567" style="font-size:13px;padding:6px 8px">
+                </div>
+                <div class="form-group" style="margin-bottom:6px">
+                    <label class="form-label" style="font-size:12px">Email</label>
+                    <input class="form-input" type="email" name="email" value="${existing ? esc(existing.email || '') : ''}" style="font-size:13px;padding:6px 8px">
+                </div>
+                <div class="form-group" style="margin-bottom:6px;display:flex;align-items:end;gap:8px;padding-bottom:4px">
+                    <label style="display:flex;align-items:center;gap:4px;font-size:12px">
+                        <input type="checkbox" name="is_primary" ${existing && existing.is_primary ? 'checked' : ''}> Contacto principal
+                    </label>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:4px">
+                <button type="submit" class="btn btn-sm btn-primary">${contactId ? 'Guardar' : 'Agregar'}</button>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="loadBranchContacts(${supplierId}, ${branchId})">Cancelar</button>
+            </div>
+        </form>
+    `;
+
+    // If adding, append form below existing content. If editing, replace container.
+    if (contactId) {
+        container.innerHTML = formHtml;
+    } else {
+        // Remove any existing form first
+        const existingForm = document.getElementById(`contact-form-${branchId}`);
+        if (existingForm) existingForm.remove();
+        container.insertAdjacentHTML('beforeend', formHtml);
+    }
+}
+
+async function handleContactSubmit(e, supplierId, branchId, contactId) {
+    e.preventDefault();
+    const form = e.target;
+    const data = {
+        full_name: form.full_name.value.trim(),
+        position: form.position.value.trim() || null,
+        phone: form.phone.value.trim() || null,
+        whatsapp: form.whatsapp.value.trim() || null,
+        email: form.email.value.trim() || null,
+        is_primary: form.is_primary.checked,
+    };
+    try {
+        const resp = contactId
+            ? await API.updateContact(supplierId, branchId, contactId, data)
+            : await API.createContact(supplierId, branchId, data);
+        if (resp.ok) {
+            toast(contactId ? 'Contacto actualizado' : 'Contacto creado', 'success');
+            loadBranchContacts(supplierId, branchId);
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function deleteContactFromBranch(supplierId, branchId, contactId) {
+    if (!confirm('Eliminar este contacto?')) return;
+    try {
+        const resp = await API.deleteContact(supplierId, branchId, contactId);
+        if (resp.ok) {
+            toast('Contacto eliminado', 'success');
+            loadBranchContacts(supplierId, branchId);
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
 }
 
 function showAdminSupplierForm(editId) {

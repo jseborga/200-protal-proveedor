@@ -83,6 +83,34 @@ class SupplierBranch(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
     supplier: Mapped["Supplier"] = relationship("Supplier", back_populates="branches")
+    contacts: Mapped[list["SupplierBranchContact"]] = relationship(
+        "SupplierBranchContact", back_populates="branch", cascade="all, delete-orphan"
+    )
 
     def __repr__(self) -> str:
         return f"<SupplierBranch {self.id} {self.branch_name}>"
+
+
+class SupplierBranchContact(TimestampMixin, Base):
+    """Persona de contacto en una sucursal (agente de venta, gerente, etc.)."""
+    __tablename__ = "mkt_supplier_branch_contact"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    branch_id: Mapped[int] = mapped_column(
+        ForeignKey("mkt_supplier_branch.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    position: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    whatsapp: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    branch: Mapped["SupplierBranch"] = relationship(
+        "SupplierBranch", back_populates="contacts"
+    )
+
+    def __repr__(self) -> str:
+        return f"<SupplierBranchContact {self.id} {self.full_name}>"

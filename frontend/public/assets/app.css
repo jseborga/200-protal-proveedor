@@ -130,7 +130,7 @@ input, select, textarea { font: inherit; }
 .supplier-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
 .supplier-card {
     background: white; border-radius: var(--radius); box-shadow: var(--shadow);
-    padding: 20px; transition: box-shadow 0.2s;
+    padding: 20px; transition: box-shadow 0.2s; cursor: pointer;
 }
 .supplier-card:hover { box-shadow: var(--shadow-lg); }
 .supplier-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }

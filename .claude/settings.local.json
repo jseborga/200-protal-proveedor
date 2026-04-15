@@ -40,7 +40,8 @@
       "Bash(python -c \"import ast; ast.parse\\(open\\('scripts/upload_curated.py', encoding='utf-8'\\).read\\(\\)\\); print\\('upload_curated.py: OK'\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('app/models/supplier.py', encoding='utf-8'\\).read\\(\\)\\); print\\('supplier.py: OK'\\)\")",
       "Bash(python -c \"import ast; ast.parse\\(open\\('app/main.py', encoding='utf-8'\\).read\\(\\)\\); print\\('main.py: OK'\\)\")",
-      "Bash(python -c \"import ast; ast.parse\\(open\\('app/api/routes/suppliers.py', encoding='utf-8'\\).read\\(\\)\\); print\\('suppliers_route.py: OK'\\)\")"
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/api/routes/suppliers.py', encoding='utf-8'\\).read\\(\\)\\); print\\('suppliers_route.py: OK'\\)\")",
+      "Bash(python -c \"import py_compile; py_compile.compile\\('app/api/routes/suppliers.py', doraise=True\\); print\\('suppliers.py syntax OK'\\)\")"
     ]
   },
   "enableAllProjectMcpServers": true,
