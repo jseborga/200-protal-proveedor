@@ -625,18 +625,23 @@ async function loadPublicPrices(offset = 0) {
 
 async function searchPublicPrices(q) {
     try {
-        const resp = await API.searchPrices(q);
+        let params = `?q=${encodeURIComponent(q)}&limit=50`;
+        if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
+        const resp = await API.publicGroupedPrices(params);
         const container = document.getElementById('prices-list');
         if (!resp.ok || !resp.data.length) {
             container.innerHTML = `<div class="empty-state"><p>No se encontraron resultados para "${esc(q)}"</p></div>`;
             return;
         }
+        const groups = resp.data.filter(i => i.type === 'group').length;
+        const standalone = resp.data.filter(i => i.type === 'standalone').length;
         container.innerHTML = `
-            <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">${resp.data.length} resultados para "${esc(q)}"</p>
-            <div class="price-grid">${resp.data.map(p => renderPriceCard({
-                ...p, ref_currency: 'BOB',
-            })).join('')}</div>
+            <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">
+                ${resp.total} resultados para "${esc(q)}"${groups ? ` (${groups} grupo${groups > 1 ? 's' : ''} + ${standalone} individual${standalone !== 1 ? 'es' : ''})` : ''}
+            </p>
+            <div class="price-grid">${resp.data.map(renderPriceCard).join('')}</div>
         `;
+        document.getElementById('prices-pagination').innerHTML = '';
     } catch {
         document.getElementById('prices-list').innerHTML = '<div class="empty-state"><p>Error buscando</p></div>';
     }

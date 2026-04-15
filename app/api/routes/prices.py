@@ -102,6 +102,7 @@ async def public_grouped_prices(
     items: list[dict] = []
 
     # 1. Fetch active groups with their active insumos
+    #    When searching, include groups where the group name OR any member name matches
     grp_query = (
         select(InsumoGroup)
         .options(selectinload(InsumoGroup.insumos))
@@ -110,7 +111,17 @@ async def public_grouped_prices(
     if category:
         grp_query = grp_query.where(InsumoGroup.category == category)
     if q:
-        grp_query = grp_query.where(InsumoGroup.name.ilike(f"%{q}%"))
+        # Match groups by group name OR by any member insumo name
+        member_match_ids = (
+            select(Insumo.group_id)
+            .where(Insumo.is_active == True, Insumo.group_id.isnot(None), Insumo.name.ilike(f"%{q}%"))
+            .distinct()
+            .correlate(None)
+            .scalar_subquery()
+        )
+        grp_query = grp_query.where(
+            InsumoGroup.name.ilike(f"%{q}%") | InsumoGroup.id.in_(member_match_ids)
+        )
     grp_query = grp_query.order_by(InsumoGroup.sort_order, InsumoGroup.name)
 
     grp_result = await db.execute(grp_query)
