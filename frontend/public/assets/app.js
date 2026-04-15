@@ -99,6 +99,8 @@ const API = {
     stats: () => API.get('/admin/stats'),
     mergePreview: (keepId, absorbId) => API.get(`/admin/suppliers/merge-preview?keep_id=${keepId}&absorb_id=${absorbId}`),
     mergeSuppliers: (data) => API.post('/admin/suppliers/merge', data),
+    mergeSearchSuppliers: (q) => API.get(`/admin/suppliers/search?q=${encodeURIComponent(q)}`),
+    duplicateSuggestions: () => API.get('/admin/suppliers/duplicate-suggestions'),
 
     // Admin — user management
     adminUsers: (params = '') => API.get(`/admin/users${params}`),
@@ -1595,62 +1597,171 @@ async function deleteContactFromBranch(supplierId, branchId, contactId) {
 }
 
 // ── Supplier Merge ────────────────────────────────────────────
-let _mergeSupplierList = [];
+let _mergeKeep = null;   // {id, name, ...}
+let _mergeAbsorb = null;
+let _mergeSearchTimers = {};
 
 async function showMergeSupplierModal() {
-    showModal('Fusionar Proveedores', `
-        <div id="merge-content">
-            <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">
-                Selecciona dos proveedores para fusionar. El proveedor "A" sobrevivira y el "B" sera absorbido.
-            </p>
-            <p style="text-align:center;color:var(--gray-400)">Cargando proveedores...</p>
-        </div>
-    `);
+    _mergeKeep = null;
+    _mergeAbsorb = null;
+
+    showModal('Fusionar Proveedores', `<div id="merge-content"></div>`);
     const modal = document.querySelector('.modal');
     if (modal) modal.style.maxWidth = '850px';
 
-    try {
-        const resp = await API.suppliers('?limit=500');
-        _mergeSupplierList = resp.ok ? resp.data : [];
-        renderMergeStep1();
-    } catch {
-        document.getElementById('merge-content').innerHTML = '<p style="color:var(--danger)">Error cargando proveedores</p>';
-    }
+    renderMergeStep1();
+    loadDuplicateSuggestions();
 }
 
 function renderMergeStep1() {
     const c = document.getElementById('merge-content');
-    const options = _mergeSupplierList.map(s =>
-        `<option value="${s.id}">${esc(s.name)}${s.trade_name ? ' (' + esc(s.trade_name) + ')' : ''} — ${esc(s.city || '')} [ID:${s.id}]</option>`
-    ).join('');
 
     c.innerHTML = `
         <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">
-            Selecciona dos proveedores para fusionar. "A" sobrevive, "B" se absorbe.
+            Busca y selecciona dos proveedores para fusionar. "A" sobrevive, "B" se absorbe.
         </p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
             <div>
                 <label class="form-label" style="color:var(--success);font-weight:600">A — Proveedor que sobrevive</label>
-                <select class="form-select" id="merge-keep-id" style="width:100%">
-                    <option value="">-- Seleccionar --</option>
-                    ${options}
-                </select>
+                <div style="position:relative">
+                    <input class="form-input" id="merge-search-a" placeholder="Buscar por nombre o NIT..."
+                           oninput="mergeSearchSupplier('a')" autocomplete="off">
+                    <div id="merge-selected-a" style="display:none;margin-top:6px;padding:8px;border-radius:6px;background:var(--gray-50);border:2px solid var(--success)"></div>
+                    <div id="merge-results-a" style="position:absolute;top:100%;left:0;right:0;z-index:100;background:white;border:1px solid var(--gray-200);border-radius:6px;max-height:200px;overflow-y:auto;display:none;box-shadow:var(--shadow-lg)"></div>
+                </div>
             </div>
             <div>
                 <label class="form-label" style="color:var(--danger);font-weight:600">B — Proveedor que se absorbe</label>
-                <select class="form-select" id="merge-absorb-id" style="width:100%">
-                    <option value="">-- Seleccionar --</option>
-                    ${options}
-                </select>
+                <div style="position:relative">
+                    <input class="form-input" id="merge-search-b" placeholder="Buscar por nombre o NIT..."
+                           oninput="mergeSearchSupplier('b')" autocomplete="off">
+                    <div id="merge-selected-b" style="display:none;margin-top:6px;padding:8px;border-radius:6px;background:var(--gray-50);border:2px solid var(--danger)"></div>
+                    <div id="merge-results-b" style="position:absolute;top:100%;left:0;right:0;z-index:100;background:white;border:1px solid var(--gray-200);border-radius:6px;max-height:200px;overflow-y:auto;display:none;box-shadow:var(--shadow-lg)"></div>
+                </div>
             </div>
         </div>
-        <button class="btn btn-primary" onclick="loadMergePreview()">Comparar</button>
+        <button class="btn btn-primary" onclick="loadMergePreview()" id="merge-compare-btn" disabled>Comparar</button>
+        <div style="margin-top:20px;border-top:1px solid var(--gray-200);padding-top:16px">
+            <h4 style="font-size:14px;margin-bottom:8px">Sugerencias de posibles duplicados</h4>
+            <div id="merge-suggestions"><p style="text-align:center;color:var(--gray-400);font-size:13px">Analizando...</p></div>
+        </div>
     `;
 }
 
+function mergeSearchSupplier(side) {
+    clearTimeout(_mergeSearchTimers[side]);
+    _mergeSearchTimers[side] = setTimeout(async () => {
+        const input = document.getElementById(`merge-search-${side}`);
+        const resultsDiv = document.getElementById(`merge-results-${side}`);
+        const q = (input?.value || '').trim();
+        if (q.length < 2) { resultsDiv.style.display = 'none'; return; }
+
+        try {
+            const resp = await API.mergeSearchSuppliers(q);
+            if (!resp.ok || !resp.data?.length) {
+                resultsDiv.innerHTML = '<div style="padding:10px;font-size:13px;color:var(--gray-400)">Sin resultados</div>';
+                resultsDiv.style.display = 'block';
+                return;
+            }
+            resultsDiv.innerHTML = resp.data.map(s => `
+                <div onclick="selectMergeSupplier('${side}', ${JSON.stringify(s).replace(/"/g, '&quot;')})"
+                     style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--gray-100);font-size:13px;transition:background 0.1s"
+                     onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='white'">
+                    <strong>${esc(s.name)}</strong>
+                    ${s.trade_name ? `<span style="color:var(--gray-500)"> (${esc(s.trade_name)})</span>` : ''}
+                    <div style="font-size:12px;color:var(--gray-400)">
+                        ${s.city ? esc(s.city) : ''} ${s.nit ? '&middot; NIT: ' + esc(s.nit) : ''} &middot; ID:${s.id}
+                        <span class="badge badge-${s.verification_state === 'verified' ? 'success' : 'warning'}" style="font-size:10px">${esc(s.verification_state)}</span>
+                    </div>
+                </div>
+            `).join('');
+            resultsDiv.style.display = 'block';
+        } catch { resultsDiv.style.display = 'none'; }
+    }, 250);
+}
+
+function selectMergeSupplier(side, supplier) {
+    if (side === 'a') _mergeKeep = supplier;
+    else _mergeAbsorb = supplier;
+
+    const input = document.getElementById(`merge-search-${side}`);
+    const resultsDiv = document.getElementById(`merge-results-${side}`);
+    const selectedDiv = document.getElementById(`merge-selected-${side}`);
+
+    input.style.display = 'none';
+    resultsDiv.style.display = 'none';
+    selectedDiv.style.display = 'block';
+    selectedDiv.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center">
+            <div>
+                <strong>${esc(supplier.name)}</strong>
+                ${supplier.trade_name ? `<span style="color:var(--gray-500)"> (${esc(supplier.trade_name)})</span>` : ''}
+                <div style="font-size:12px;color:var(--gray-400)">${esc(supplier.city || '')} ${supplier.nit ? '&middot; NIT: ' + esc(supplier.nit) : ''} &middot; ID:${supplier.id}</div>
+            </div>
+            <button class="btn btn-sm btn-secondary" onclick="clearMergeSupplier('${side}')" style="font-size:11px">&times; Cambiar</button>
+        </div>
+    `;
+
+    // Enable compare button if both selected
+    const btn = document.getElementById('merge-compare-btn');
+    if (btn) btn.disabled = !(_mergeKeep && _mergeAbsorb && _mergeKeep.id !== _mergeAbsorb.id);
+}
+
+function clearMergeSupplier(side) {
+    if (side === 'a') _mergeKeep = null;
+    else _mergeAbsorb = null;
+
+    const input = document.getElementById(`merge-search-${side}`);
+    const selectedDiv = document.getElementById(`merge-selected-${side}`);
+    input.value = '';
+    input.style.display = '';
+    selectedDiv.style.display = 'none';
+
+    const btn = document.getElementById('merge-compare-btn');
+    if (btn) btn.disabled = true;
+}
+
+async function loadDuplicateSuggestions() {
+    const c = document.getElementById('merge-suggestions');
+    if (!c) return;
+    try {
+        const resp = await API.duplicateSuggestions();
+        if (!resp.ok || !resp.data?.length) {
+            c.innerHTML = '<p style="font-size:13px;color:var(--gray-400)">No se encontraron posibles duplicados</p>';
+            return;
+        }
+        c.innerHTML = `
+            <div class="table-wrap"><table style="font-size:13px;width:100%">
+                <thead><tr><th>Proveedor A</th><th>Proveedor B</th><th>Similitud</th><th></th></tr></thead>
+                <tbody>${resp.data.map(d => {
+                    const a = d.supplier_a, b = d.supplier_b;
+                    const pct = Math.round(d.similarity * 100);
+                    const color = pct >= 70 ? 'var(--danger)' : pct >= 50 ? 'var(--warning)' : 'var(--gray-500)';
+                    return `<tr>
+                        <td><strong>${esc(a.name)}</strong>${a.trade_name ? `<br><small style="color:var(--gray-500)">${esc(a.trade_name)}</small>` : ''}
+                            <br><small>${esc(a.city || '')} ${a.nit ? '&middot; NIT:' + esc(a.nit) : ''}</small></td>
+                        <td><strong>${esc(b.name)}</strong>${b.trade_name ? `<br><small style="color:var(--gray-500)">${esc(b.trade_name)}</small>` : ''}
+                            <br><small>${esc(b.city || '')} ${b.nit ? '&middot; NIT:' + esc(b.nit) : ''}</small></td>
+                        <td><span style="color:${color};font-weight:600">${pct}%</span></td>
+                        <td><button class="btn btn-sm btn-primary" onclick="quickSelectMergePair(${a.id}, '${esc(a.name).replace(/'/g,"\\'")}', ${b.id}, '${esc(b.name).replace(/'/g,"\\'")}')">Fusionar</button></td>
+                    </tr>`;
+                }).join('')}</tbody>
+            </table></div>
+        `;
+    } catch {
+        c.innerHTML = '<p style="font-size:13px;color:var(--gray-400)">No se pudo analizar duplicados</p>';
+    }
+}
+
+function quickSelectMergePair(idA, nameA, idB, nameB) {
+    _mergeKeep = { id: idA, name: nameA };
+    _mergeAbsorb = { id: idB, name: nameB };
+    loadMergePreview();
+}
+
 async function loadMergePreview() {
-    const keepId = parseInt(document.getElementById('merge-keep-id')?.value);
-    const absorbId = parseInt(document.getElementById('merge-absorb-id')?.value);
+    const keepId = _mergeKeep?.id;
+    const absorbId = _mergeAbsorb?.id;
     if (!keepId || !absorbId) { toast('Selecciona ambos proveedores', 'error'); return; }
     if (keepId === absorbId) { toast('Deben ser proveedores diferentes', 'error'); return; }
 
@@ -1715,7 +1826,7 @@ function renderMergeComparison(data) {
 
     c.innerHTML = `
         <div style="margin-bottom:12px">
-            <button class="btn btn-sm btn-secondary" onclick="renderMergeStep1()" style="font-size:12px">&larr; Volver a seleccion</button>
+            <button class="btn btn-sm btn-secondary" onclick="renderMergeStep1();loadDuplicateSuggestions()" style="font-size:12px">&larr; Volver a seleccion</button>
         </div>
         <div class="table-wrap"><table style="font-size:13px;width:100%">
             <thead><tr>

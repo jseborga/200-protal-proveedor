@@ -553,6 +553,100 @@ async def public_uoms(db: AsyncSession = Depends(get_db)):
     return {"ok": True, "data": [_uom_to_dict(u) for u in result.scalars().all()]}
 
 
+# ── Supplier search (for merge UI) ─────────────────────────────
+@router.get("/suppliers/search")
+async def admin_search_suppliers(
+    q: str = Query("", min_length=0),
+    limit: int = Query(15, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Busqueda rapida de proveedores por nombre/NIT para el modal de fusion."""
+    query = select(Supplier).where(Supplier.is_active == True)
+    if q.strip():
+        pattern = f"%{q.strip()}%"
+        query = query.where(
+            Supplier.name.ilike(pattern)
+            | Supplier.trade_name.ilike(pattern)
+            | Supplier.nit.ilike(pattern)
+        )
+    query = query.order_by(Supplier.name).limit(limit)
+    result = await db.execute(query)
+    return {
+        "ok": True,
+        "data": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "trade_name": s.trade_name,
+                "nit": s.nit,
+                "city": s.city,
+                "department": s.department,
+                "whatsapp": s.whatsapp,
+                "verification_state": s.verification_state,
+            }
+            for s in result.scalars().all()
+        ],
+    }
+
+
+@router.get("/suppliers/duplicate-suggestions")
+async def duplicate_suggestions(
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Sugiere pares de proveedores que podrian ser duplicados (nombre similar)."""
+    # Use pg_trgm similarity if available, fallback to simple substring match
+    try:
+        pairs = await db.execute(text("""
+            SELECT a.id as id_a, a.name as name_a, a.trade_name as trade_a,
+                   a.city as city_a, a.nit as nit_a,
+                   b.id as id_b, b.name as name_b, b.trade_name as trade_b,
+                   b.city as city_b, b.nit as nit_b,
+                   similarity(lower(a.name), lower(b.name)) as sim
+            FROM mkt_supplier a
+            JOIN mkt_supplier b ON a.id < b.id
+            WHERE a.is_active = true AND b.is_active = true
+              AND similarity(lower(a.name), lower(b.name)) > 0.3
+            ORDER BY sim DESC
+            LIMIT :lim
+        """), {"lim": limit})
+        rows = pairs.all()
+    except Exception:
+        # pg_trgm not available — fallback: match by same NIT or exact trade_name
+        pairs = await db.execute(text("""
+            SELECT a.id as id_a, a.name as name_a, a.trade_name as trade_a,
+                   a.city as city_a, a.nit as nit_a,
+                   b.id as id_b, b.name as name_b, b.trade_name as trade_b,
+                   b.city as city_b, b.nit as nit_b,
+                   0.5 as sim
+            FROM mkt_supplier a
+            JOIN mkt_supplier b ON a.id < b.id
+            WHERE a.is_active = true AND b.is_active = true
+              AND (
+                (a.nit IS NOT NULL AND a.nit != '' AND a.nit = b.nit)
+                OR lower(a.name) = lower(b.name)
+                OR (a.trade_name IS NOT NULL AND lower(a.trade_name) = lower(b.trade_name))
+              )
+            ORDER BY a.name
+            LIMIT :lim
+        """), {"lim": limit})
+        rows = pairs.all()
+
+    return {
+        "ok": True,
+        "data": [
+            {
+                "supplier_a": {"id": r.id_a, "name": r.name_a, "trade_name": r.trade_a, "city": r.city_a, "nit": r.nit_a},
+                "supplier_b": {"id": r.id_b, "name": r.name_b, "trade_name": r.trade_b, "city": r.city_b, "nit": r.nit_b},
+                "similarity": round(float(r.sim), 2),
+            }
+            for r in rows
+        ],
+    }
+
+
 # ── Supplier merge ─────────────────────────────────────────────
 MERGE_FIELDS = [
     "name", "trade_name", "nit", "email", "phone", "whatsapp",
