@@ -158,8 +158,12 @@ async def lifespan(app: FastAPI):
     from app.core.plans import load_plans_from_db
     async with async_session() as db:
         await load_plans_from_db(db)
+    # Start scheduled tasks (cron jobs)
+    from app.core.scheduler import start_scheduler, stop_scheduler
+    start_scheduler()
     yield
     # Shutdown
+    stop_scheduler()
     await engine.dispose()
 
 

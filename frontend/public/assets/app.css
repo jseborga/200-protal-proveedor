@@ -596,3 +596,22 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 @media (max-width: 480px) {
     .notif-dropdown { width: calc(100vw - 16px); right: 8px !important; }
 }
+
+/* ── Admin Tasks ────────────────────────────────────────────── */
+.task-cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-bottom: 8px; }
+.task-card {
+    background: #fff; border-radius: 10px; padding: 16px;
+    border: 1px solid var(--gray-200, #e2e8f0);
+}
+.task-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; }
+.task-card-title { font-size: 15px; font-weight: 600; margin: 0; display: flex; align-items: center; gap: 6px; }
+.task-card-cron { font-size: 12px; color: var(--gray-400, #94a3b8); font-family: monospace; }
+.task-card-desc { font-size: 13px; color: var(--gray-500, #64748b); margin-bottom: 8px; }
+.task-card-next { font-size: 12px; color: var(--primary); font-weight: 500; }
+.task-state-badge {
+    padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600;
+}
+.task-state-badge.state-success { background: #dcfce7; color: #166534; }
+.task-state-badge.state-error { background: #fee2e2; color: #991b1b; }
+.task-state-badge.state-running { background: #dbeafe; color: #1e40af; }
+.task-log-result { font-size: 12px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

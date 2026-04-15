@@ -186,6 +186,11 @@ const API = {
     adminUpdatePlan: (id, data) => API.put(`/admin/plans/${id}`, data),
     adminDeletePlan: (id) => API.del(`/admin/plans/${id}`),
 
+    // Admin — tasks
+    adminJobs: () => API.get('/admin/tasks/jobs'),
+    adminTaskLogs: (jobName = '', skip = 0, limit = 20) => API.get(`/admin/tasks/logs?job_name=${jobName}&skip=${skip}&limit=${limit}`),
+    adminRunJob: (name) => API.post(`/admin/tasks/${name}/run`),
+
     // Notifications
     notifications: (skip = 0, limit = 20) => API.get(`/notifications?skip=${skip}&limit=${limit}`),
     unreadCount: () => API.get('/notifications/unread-count'),
@@ -1221,6 +1226,7 @@ async function renderAdmin() {
     if (isAdmin()) tabs.push({ key: 'plans', label: 'Planes', icon: 'star' });
     if (isAdmin()) tabs.push({ key: 'companies', label: 'Empresas', icon: 'building' });
     if (isAdmin()) tabs.push({ key: 'subscriptions', label: 'Suscripciones', icon: 'crown' });
+    if (isAdmin()) tabs.push({ key: 'tasks', label: 'Tareas', icon: 'clock' });
 
     page.innerHTML = `
         <div class="page-header">
@@ -1261,6 +1267,7 @@ function renderAdminTab() {
         case 'plans': renderAdminPlans(); break;
         case 'companies': renderAdminCompanies(); break;
         case 'subscriptions': renderAdminSubscriptions(); break;
+        case 'tasks': renderAdminTasks(); break;
     }
 }
 
@@ -4764,7 +4771,81 @@ async function handleCreateRFQ(e) {
     else toast(resp.detail || 'Error', 'error');
 }
 
-// ── Modal utility ──────────────────────────────────────────────
+// ── Admin: Tasks (Cron Jobs) ──────────────────────────────────
+async function renderAdminTasks() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="loading">Cargando tareas...</div>';
+
+    const [jobsResp, logsResp] = await Promise.all([
+        API.adminJobs(),
+        API.adminTaskLogs('', 0, 30),
+    ]);
+    const jobs = jobsResp.ok ? jobsResp.data : [];
+    const logs = logsResp.ok ? logsResp.data : [];
+
+    const jobCards = jobs.map(j => `
+        <div class="task-card">
+            <div class="task-card-header">
+                <div>
+                    <h3 class="task-card-title">${icon('clock', 16)} ${esc(j.label)}</h3>
+                    <span class="task-card-cron">${esc(j.cron)}</span>
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="runJobNow('${esc(j.name)}')" id="run-btn-${j.name}">
+                    ${icon('trending-up', 14)} Ejecutar Ahora
+                </button>
+            </div>
+            <p class="task-card-desc">${esc(j.description)}</p>
+            ${j.next_run ? `<div class="task-card-next">Proxima ejecucion: ${new Date(j.next_run).toLocaleString()}</div>` : ''}
+        </div>
+    `).join('');
+
+    const logRows = logs.length ? logs.map(l => {
+        const stateClass = l.state === 'success' ? 'state-success' : l.state === 'error' ? 'state-error' : 'state-running';
+        const stateLabel = l.state === 'success' ? 'OK' : l.state === 'error' ? 'Error' : 'Ejecutando...';
+        return `
+            <tr class="${stateClass}">
+                <td>${esc(l.job_name)}</td>
+                <td><span class="task-state-badge ${stateClass}">${stateLabel}</span></td>
+                <td>${l.started_at ? new Date(l.started_at).toLocaleString() : '-'}</td>
+                <td>${l.duration_s != null ? l.duration_s.toFixed(1) + 's' : '-'}</td>
+                <td class="task-log-result">${l.error ? `<span style="color:#ef4444" title="${esc(l.error)}">${esc(l.error.substring(0, 80))}...</span>` : esc(l.result_summary || '-')}</td>
+            </tr>`;
+    }).join('') : '<tr><td colspan="5" style="text-align:center;color:var(--gray-400)">Sin ejecuciones registradas</td></tr>';
+
+    c.innerHTML = `
+        <h2 style="margin-bottom:16px">${icon('clock', 20)} Tareas Programadas</h2>
+        <div class="task-cards-grid">${jobCards}</div>
+        <h3 style="margin:24px 0 12px">${icon('file-text', 18)} Historial de Ejecuciones</h3>
+        <div style="overflow-x:auto">
+            <table class="admin-table">
+                <thead><tr>
+                    <th>Tarea</th><th>Estado</th><th>Inicio</th><th>Duracion</th><th>Resultado</th>
+                </tr></thead>
+                <tbody>${logRows}</tbody>
+            </table>
+        </div>
+    `;
+}
+
+async function runJobNow(jobName) {
+    const btn = document.getElementById('run-btn-' + jobName);
+    if (btn) { btn.disabled = true; btn.textContent = 'Ejecutando...'; }
+
+    const resp = await API.adminRunJob(jobName);
+    if (resp.ok && resp.data) {
+        const d = resp.data;
+        if (d.state === 'success') {
+            toast(`Tarea completada en ${d.duration_s}s`, 'success');
+        } else {
+            toast(`Tarea fallo: ${d.error || 'Error desconocido'}`, 'error');
+        }
+    } else {
+        toast(resp.detail || 'Error ejecutando tarea', 'error');
+    }
+
+    renderAdminTasks();
+}
+
 // ── Cart (localStorage) ──────────────────────────────────────
 function loadCart() {
     try { state.cart = JSON.parse(localStorage.getItem('_mkt_cart')) || []; } catch { state.cart = []; }

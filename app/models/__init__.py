@@ -13,6 +13,7 @@ from .price_history import PriceHistory
 from .pedido import Pedido, PedidoItem, PedidoPrecio
 from .supplier_suggestion import SupplierSuggestion
 from .notification import Notification
+from .task_log import TaskLog
 
 __all__ = [
     "Base", "Plan", "Company", "Subscription",
@@ -22,5 +23,5 @@ __all__ = [
     "ProductMatch", "User", "ApiKey",
     "Category", "UnitOfMeasure", "PriceHistory",
     "Pedido", "PedidoItem", "PedidoPrecio",
-    "SupplierSuggestion", "Notification",
+    "SupplierSuggestion", "Notification", "TaskLog",
 ]

@@ -1320,3 +1320,78 @@ async def admin_delete_plan(
     await db.commit()
     await refresh_plans_cache(db)
     return {"ok": True}
+
+
+# ── Scheduled Tasks (Cron Jobs) ─────────────────────────────────
+from app.models.task_log import TaskLog
+
+
+@router.get("/tasks/jobs")
+async def list_jobs(user: User = Depends(require_admin)):
+    """Listar jobs programados con su estado."""
+    from app.core.scheduler import JOB_REGISTRY, scheduler
+
+    jobs = []
+    for name, info in JOB_REGISTRY.items():
+        ap_job = scheduler.get_job(name)
+        next_run = None
+        if ap_job and ap_job.next_run_time:
+            next_run = ap_job.next_run_time.isoformat()
+        jobs.append({
+            "name": info["name"],
+            "label": info["label"],
+            "cron": info["cron"],
+            "description": info["description"],
+            "next_run": next_run,
+        })
+    return {"ok": True, "data": jobs}
+
+
+@router.get("/tasks/logs")
+async def list_task_logs(
+    job_name: str = Query(None),
+    skip: int = 0,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Historial de ejecuciones de tareas."""
+    q = select(TaskLog).order_by(TaskLog.started_at.desc())
+    if job_name:
+        q = q.where(TaskLog.job_name == job_name)
+    q = q.offset(skip).limit(limit)
+    result = await db.execute(q)
+    logs = result.scalars().all()
+
+    return {
+        "ok": True,
+        "data": [
+            {
+                "id": l.id,
+                "job_name": l.job_name,
+                "state": l.state,
+                "started_at": l.started_at.isoformat() if l.started_at else None,
+                "finished_at": l.finished_at.isoformat() if l.finished_at else None,
+                "duration_s": l.duration_s,
+                "result_summary": l.result_summary,
+                "result_data": l.result_data,
+                "error": l.error,
+            }
+            for l in logs
+        ],
+    }
+
+
+@router.post("/tasks/{job_name}/run")
+async def run_job_now(
+    job_name: str,
+    user: User = Depends(require_admin),
+):
+    """Ejecutar un job manualmente (ahora mismo)."""
+    from app.core.scheduler import JOB_REGISTRY, execute_job
+
+    if job_name not in JOB_REGISTRY:
+        raise HTTPException(404, f"Job no encontrado: {job_name}")
+
+    result = await execute_job(job_name)
+    return {"ok": True, "data": result}
