@@ -1,3 +1,5 @@
+from datetime import date, timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, select, text
@@ -6,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user, get_current_user_optional
 from app.models.insumo import Insumo, InsumoRegionalPrice
+from app.models.price_history import PriceHistory
 from app.models.user import User
 
 router = APIRouter()
@@ -279,6 +282,134 @@ async def list_regions(db: AsyncSession = Depends(get_db)):
         .order_by(InsumoRegionalPrice.region)
     )
     return {"ok": True, "data": [{"name": r[0], "count": r[1]} for r in result.all()]}
+
+
+# ── Price History (authenticated, for admin panel) ─────────────
+@router.get("/{insumo_id}/history")
+async def get_insumo_price_history(
+    insumo_id: int,
+    limit: int = Query(50, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Price history records for an insumo, newest first."""
+    result = await db.execute(
+        select(PriceHistory)
+        .where(PriceHistory.insumo_id == insumo_id)
+        .order_by(PriceHistory.observed_date.desc())
+        .limit(limit)
+    )
+    records = result.scalars().all()
+    return {
+        "ok": True,
+        "data": [
+            {
+                "id": r.id,
+                "unit_price": r.unit_price,
+                "currency": r.currency,
+                "quantity": r.quantity,
+                "observed_date": r.observed_date.isoformat(),
+                "source": r.source,
+                "source_ref": r.source_ref,
+                "supplier_id": r.supplier_id,
+            }
+            for r in records
+        ],
+    }
+
+
+@router.get("/{insumo_id}/evolution")
+async def get_insumo_price_evolution(
+    insumo_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Price evolution by year: avg, min, max, median."""
+    result = await db.execute(
+        text("""
+            SELECT
+                EXTRACT(YEAR FROM observed_date)::int AS year,
+                COUNT(*) AS samples,
+                ROUND(AVG(unit_price)::numeric, 2) AS avg_price,
+                ROUND(MIN(unit_price)::numeric, 2) AS min_price,
+                ROUND(MAX(unit_price)::numeric, 2) AS max_price,
+                ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price)::numeric, 2) AS median_price
+            FROM mkt_price_history
+            WHERE insumo_id = :insumo_id
+            GROUP BY EXTRACT(YEAR FROM observed_date)
+            ORDER BY year
+        """),
+        {"insumo_id": insumo_id},
+    )
+    rows = result.mappings().all()
+
+    # Also get total count
+    total = (await db.execute(
+        select(func.count(PriceHistory.id)).where(PriceHistory.insumo_id == insumo_id)
+    )).scalar() or 0
+
+    return {
+        "ok": True,
+        "total_records": total,
+        "evolution": [dict(r) for r in rows],
+    }
+
+
+@router.post("/{insumo_id}/refresh-price")
+async def refresh_ref_price(
+    insumo_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Recalculate ref_price from the median of last 12 months of price history."""
+    insumo = await db.get(Insumo, insumo_id)
+    if not insumo:
+        raise HTTPException(status_code=404, detail="Insumo no encontrado")
+
+    cutoff = date.today() - timedelta(days=365)
+    result = await db.execute(
+        text("""
+            SELECT ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price)::numeric, 2) AS median_price,
+                   COUNT(*) AS sample_count
+            FROM mkt_price_history
+            WHERE insumo_id = :insumo_id AND observed_date >= :cutoff
+        """),
+        {"insumo_id": insumo_id, "cutoff": cutoff},
+    )
+    row = result.mappings().first()
+
+    if row and row["sample_count"] and row["sample_count"] > 0:
+        insumo.ref_price = float(row["median_price"])
+        await db.flush()
+        return {
+            "ok": True,
+            "ref_price": insumo.ref_price,
+            "sample_count": row["sample_count"],
+            "period": f"ultimos 12 meses (desde {cutoff.isoformat()})",
+        }
+
+    # Fallback: use all-time median if no recent data
+    result = await db.execute(
+        text("""
+            SELECT ROUND(PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY unit_price)::numeric, 2) AS median_price,
+                   COUNT(*) AS sample_count
+            FROM mkt_price_history
+            WHERE insumo_id = :insumo_id
+        """),
+        {"insumo_id": insumo_id},
+    )
+    row = result.mappings().first()
+    if row and row["sample_count"] and row["sample_count"] > 0:
+        insumo.ref_price = float(row["median_price"])
+        await db.flush()
+        return {
+            "ok": True,
+            "ref_price": insumo.ref_price,
+            "sample_count": row["sample_count"],
+            "period": "historico completo",
+        }
+
+    return {"ok": True, "ref_price": insumo.ref_price, "sample_count": 0, "period": "sin datos"}
 
 
 # ── Helpers ─────────────────────────────────────────────────────

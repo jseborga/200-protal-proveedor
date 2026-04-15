@@ -164,6 +164,7 @@ const ICONS = {
     map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
     star: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>',
     'bar-chart': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>',
+    'trending-up': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23,6 13.5,15.5 8.5,10.5 1,18"/><polyline points="17,6 23,6 23,12"/></svg>',
     settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
@@ -1118,7 +1119,10 @@ async function loadAdminProducts() {
                         <td>${esc(p.uom)}</td>
                         <td>${p.category ? esc(p.category) : '-'}</td>
                         <td>${p.ref_price ? `${p.ref_price.toFixed(2)} ${esc(p.ref_currency)}` : '-'}</td>
-                        <td><button class="btn btn-sm btn-secondary" onclick="showAdminProductForm(${p.id})">${icon('edit',14)}</button></td>
+                        <td style="white-space:nowrap">
+                            <button class="btn btn-sm btn-secondary" onclick="showPriceHistory(${p.id}, '${esc(p.name)}')" title="Ver historial de precios">${icon('trending-up',14)}</button>
+                            <button class="btn btn-sm btn-secondary" onclick="showAdminProductForm(${p.id})">${icon('edit',14)}</button>
+                        </td>
                     </tr>
                 `).join('')}</tbody>
             </table></div>
@@ -1214,6 +1218,122 @@ async function handleAdminProduct(e, editId) {
             toast(resp.detail || 'Error', 'error');
         }
     } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Price History Modal ───────────────────────────────────────
+async function showPriceHistory(insumoId, name) {
+    showModal(`Historial de Precios: ${name}`, `
+        <div id="ph-content" style="min-height:200px">
+            <p style="text-align:center;color:var(--gray-500)">Cargando historial...</p>
+        </div>
+    `);
+
+    const container = document.getElementById('ph-content');
+    try {
+        const [evoResp, histResp] = await Promise.all([
+            API.get(`/prices/${insumoId}/evolution`),
+            API.get(`/prices/${insumoId}/history?limit=30`),
+        ]);
+
+        let html = '';
+
+        // Evolution table
+        if (evoResp.ok && evoResp.evolution && evoResp.evolution.length > 0) {
+            html += `
+                <div style="margin-bottom:16px">
+                    <h4 style="margin:0 0 8px;font-size:14px;color:var(--gray-700)">Evolucion por anio (${evoResp.total_records} registros totales)</h4>
+                    <div class="table-wrap"><table>
+                        <thead><tr>
+                            <th>Anio</th><th>Muestras</th><th>Mediana</th><th>Promedio</th><th>Min</th><th>Max</th>
+                        </tr></thead>
+                        <tbody>${evoResp.evolution.map(r => `
+                            <tr>
+                                <td><strong>${r.year}</strong></td>
+                                <td>${r.samples}</td>
+                                <td><strong>${Number(r.median_price).toFixed(2)}</strong></td>
+                                <td>${Number(r.avg_price).toFixed(2)}</td>
+                                <td>${Number(r.min_price).toFixed(2)}</td>
+                                <td>${Number(r.max_price).toFixed(2)}</td>
+                            </tr>
+                        `).join('')}</tbody>
+                    </table></div>
+                </div>
+
+                <div style="margin-bottom:16px;display:flex;gap:8px;align-items:center">
+                    <button class="btn btn-primary btn-sm" onclick="refreshPrice(${insumoId})">
+                        ${icon('trending-up', 14)} Actualizar precio ref. (mediana 12 meses)
+                    </button>
+                    <span id="refresh-result" style="font-size:13px;color:var(--gray-500)"></span>
+                </div>
+            `;
+
+            // Simple bar chart visualization
+            const maxMedian = Math.max(...evoResp.evolution.map(r => Number(r.median_price)));
+            html += `
+                <div style="margin-bottom:16px">
+                    <h4 style="margin:0 0 8px;font-size:14px;color:var(--gray-700)">Tendencia de precio (mediana)</h4>
+                    <div style="display:flex;align-items:flex-end;gap:4px;height:120px;padding:8px;background:var(--gray-50);border-radius:8px">
+                        ${evoResp.evolution.map(r => {
+                            const pct = maxMedian > 0 ? (Number(r.median_price) / maxMedian * 100) : 0;
+                            return `<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px">
+                                <span style="font-size:10px;color:var(--gray-600)">${Number(r.median_price).toFixed(0)}</span>
+                                <div style="width:100%;background:var(--primary);border-radius:4px 4px 0 0;height:${Math.max(pct, 3)}%" title="${r.year}: ${Number(r.median_price).toFixed(2)} Bs"></div>
+                                <span style="font-size:10px;color:var(--gray-500)">${r.year}</span>
+                            </div>`;
+                        }).join('')}
+                    </div>
+                </div>
+            `;
+        } else {
+            html += '<div class="empty-state"><p>Sin historial de precios</p></div>';
+        }
+
+        // Recent records
+        if (histResp.ok && histResp.data && histResp.data.length > 0) {
+            html += `
+                <div>
+                    <h4 style="margin:0 0 8px;font-size:14px;color:var(--gray-700)">Ultimos registros</h4>
+                    <div class="table-wrap"><table>
+                        <thead><tr>
+                            <th>Fecha</th><th>Precio Unit.</th><th>Cantidad</th><th>Fuente</th><th>Ref.</th>
+                        </tr></thead>
+                        <tbody>${histResp.data.map(r => `
+                            <tr>
+                                <td>${r.observed_date}</td>
+                                <td><strong>${r.unit_price.toFixed(2)} ${esc(r.currency)}</strong></td>
+                                <td>${r.quantity || '-'}</td>
+                                <td><span class="badge badge-gray">${esc(r.source)}</span></td>
+                                <td>${r.source_ref ? esc(r.source_ref) : '-'}</td>
+                            </tr>
+                        `).join('')}</tbody>
+                    </table></div>
+                </div>
+            `;
+        }
+
+        container.innerHTML = html;
+    } catch (e) {
+        container.innerHTML = `<div class="empty-state"><p>Error cargando historial: ${e.message}</p></div>`;
+    }
+}
+
+async function refreshPrice(insumoId) {
+    const resultSpan = document.getElementById('refresh-result');
+    if (resultSpan) resultSpan.textContent = 'Calculando...';
+    try {
+        const resp = await API.post(`/prices/${insumoId}/refresh-price`);
+        if (resp.ok) {
+            const msg = `Precio actualizado: ${resp.ref_price} Bs (${resp.sample_count} muestras, ${resp.period})`;
+            if (resultSpan) resultSpan.textContent = msg;
+            toast(msg, 'success');
+            loadAdminProducts();
+        } else {
+            if (resultSpan) resultSpan.textContent = resp.detail || 'Error';
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch {
+        if (resultSpan) resultSpan.textContent = 'Error de conexion';
+    }
 }
 
 // ── Admin: Categories ─────────────────────────────────────────
