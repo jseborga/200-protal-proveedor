@@ -8,7 +8,10 @@ from app.core.security import hash_password, verify_api_key, pwd_context
 from app.api.deps import require_admin, require_manager, require_staff, STAFF_ROLES
 from app.models.insumo import Insumo, InsumoRegionalPrice
 from app.models.quotation import Quotation
-from app.models.supplier import Supplier
+from app.models.supplier import Supplier, SupplierBranch
+from app.models.match import ProductMatch
+from app.models.price_history import PriceHistory
+from app.models.rfq import RFQ
 from app.models.user import User
 from app.models.api_key import ApiKey
 from app.models.catalog import Category, UnitOfMeasure
@@ -548,6 +551,234 @@ async def public_uoms(db: AsyncSession = Depends(get_db)):
         .order_by(UnitOfMeasure.sort_order, UnitOfMeasure.label)
     )
     return {"ok": True, "data": [_uom_to_dict(u) for u in result.scalars().all()]}
+
+
+# ── Supplier merge ─────────────────────────────────────────────
+MERGE_FIELDS = [
+    "name", "trade_name", "nit", "email", "phone", "whatsapp",
+    "city", "department", "address", "website", "latitude", "longitude",
+    "preferred_channel",
+]
+
+
+def _supplier_summary(s: Supplier) -> dict:
+    return {
+        "id": s.id,
+        "name": s.name,
+        "trade_name": s.trade_name,
+        "nit": s.nit,
+        "email": s.email,
+        "phone": s.phone,
+        "whatsapp": s.whatsapp,
+        "city": s.city,
+        "department": s.department,
+        "address": s.address,
+        "website": s.website,
+        "latitude": s.latitude,
+        "longitude": s.longitude,
+        "categories": s.categories or [],
+        "preferred_channel": s.preferred_channel,
+        "verification_state": s.verification_state,
+        "rating": s.rating,
+        "quotation_count": s.quotation_count,
+        "is_active": s.is_active,
+    }
+
+
+@router.get("/suppliers/merge-preview")
+async def merge_preview(
+    keep_id: int = Query(...),
+    absorb_id: int = Query(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Preview de fusion: muestra ambos proveedores y conteos de registros."""
+    if keep_id == absorb_id:
+        raise HTTPException(status_code=400, detail="No se puede fusionar un proveedor consigo mismo")
+
+    keep = await db.get(Supplier, keep_id)
+    absorb = await db.get(Supplier, absorb_id)
+    if not keep:
+        raise HTTPException(status_code=404, detail=f"Proveedor {keep_id} no encontrado")
+    if not absorb:
+        raise HTTPException(status_code=404, detail=f"Proveedor {absorb_id} no encontrado")
+
+    # Count related records for absorb supplier
+    branches = (await db.execute(
+        select(func.count()).where(SupplierBranch.supplier_id == absorb_id)
+    )).scalar() or 0
+    quotations = (await db.execute(
+        select(func.count()).where(Quotation.supplier_id == absorb_id)
+    )).scalar() or 0
+    matches = (await db.execute(
+        select(func.count()).where(ProductMatch.supplier_id == absorb_id)
+    )).scalar() or 0
+    prices = (await db.execute(
+        select(func.count()).where(PriceHistory.supplier_id == absorb_id)
+    )).scalar() or 0
+
+    return {
+        "ok": True,
+        "data": {
+            "keep": _supplier_summary(keep),
+            "absorb": _supplier_summary(absorb),
+            "absorb_counts": {
+                "branches": branches,
+                "quotations": quotations,
+                "product_matches": matches,
+                "price_history": prices,
+            },
+        },
+    }
+
+
+class SupplierMergeRequest(BaseModel):
+    keep_id: int
+    absorb_id: int
+    field_overrides: dict[str, str] = {}  # campo -> "keep" | "absorb"
+
+
+@router.post("/suppliers/merge")
+async def merge_suppliers(
+    body: SupplierMergeRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Fusionar dos proveedores. keep_id sobrevive, absorb_id se desactiva."""
+    from datetime import datetime, timezone
+
+    if body.keep_id == body.absorb_id:
+        raise HTTPException(status_code=400, detail="No se puede fusionar un proveedor consigo mismo")
+
+    keep = await db.get(Supplier, body.keep_id)
+    absorb = await db.get(Supplier, body.absorb_id)
+    if not keep:
+        raise HTTPException(status_code=404, detail=f"Proveedor {body.keep_id} no encontrado")
+    if not absorb:
+        raise HTTPException(status_code=404, detail=f"Proveedor {body.absorb_id} no encontrado")
+
+    summary = {}
+
+    # 1. Apply field overrides
+    overridden = []
+    for field, choice in body.field_overrides.items():
+        if field not in MERGE_FIELDS:
+            continue
+        if choice == "absorb":
+            setattr(keep, field, getattr(absorb, field))
+            overridden.append(field)
+    summary["fields_overridden"] = overridden
+
+    # 2. Merge categories (union, no duplicates)
+    keep_cats = set(keep.categories or [])
+    absorb_cats = set(absorb.categories or [])
+    keep.categories = sorted(keep_cats | absorb_cats)
+
+    # 3. Migrate branches
+    result = await db.execute(
+        select(SupplierBranch).where(SupplierBranch.supplier_id == body.absorb_id)
+    )
+    migrated_branches = result.scalars().all()
+    for branch in migrated_branches:
+        branch.supplier_id = body.keep_id
+    summary["branches_migrated"] = len(migrated_branches)
+
+    # 4. Migrate quotations
+    q_result = await db.execute(
+        select(Quotation).where(Quotation.supplier_id == body.absorb_id)
+    )
+    migrated_quotations = q_result.scalars().all()
+    for q in migrated_quotations:
+        q.supplier_id = body.keep_id
+    summary["quotations_migrated"] = len(migrated_quotations)
+
+    # 5. Migrate price history
+    ph_result = await db.execute(
+        select(PriceHistory).where(PriceHistory.supplier_id == body.absorb_id)
+    )
+    migrated_prices = ph_result.scalars().all()
+    for ph in migrated_prices:
+        ph.supplier_id = body.keep_id
+    summary["price_history_migrated"] = len(migrated_prices)
+
+    # 6. Migrate product matches (handle unique constraint conflicts)
+    pm_result = await db.execute(
+        select(ProductMatch).where(ProductMatch.supplier_id == body.absorb_id)
+    )
+    absorb_matches = pm_result.scalars().all()
+    migrated_matches = 0
+    merged_matches = 0
+    for pm in absorb_matches:
+        # Check for conflict with existing match on keep supplier
+        conflict = (await db.execute(
+            select(ProductMatch).where(
+                ProductMatch.supplier_id == body.keep_id,
+                ProductMatch.product_name_normalized == pm.product_name_normalized,
+                ProductMatch.insumo_id == pm.insumo_id,
+            )
+        )).scalar_one_or_none()
+
+        if conflict:
+            # Merge: keep the one with higher confidence, sum usage_count
+            conflict.usage_count += pm.usage_count
+            if pm.confidence > conflict.confidence:
+                conflict.confidence = pm.confidence
+                conflict.method = pm.method
+            if pm.is_validated and not conflict.is_validated:
+                conflict.is_validated = True
+                conflict.validated_by = pm.validated_by
+            await db.delete(pm)
+            merged_matches += 1
+        else:
+            pm.supplier_id = body.keep_id
+            migrated_matches += 1
+    summary["product_matches_migrated"] = migrated_matches
+    summary["product_matches_merged"] = merged_matches
+
+    # 7. Update RFQ supplier_ids arrays
+    rfq_result = await db.execute(select(RFQ))
+    rfqs_updated = 0
+    for rfq in rfq_result.scalars().all():
+        if rfq.supplier_ids and body.absorb_id in rfq.supplier_ids:
+            new_ids = [body.keep_id if sid == body.absorb_id else sid for sid in rfq.supplier_ids]
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_ids = []
+            for sid in new_ids:
+                if sid not in seen:
+                    seen.add(sid)
+                    unique_ids.append(sid)
+            rfq.supplier_ids = unique_ids
+            rfqs_updated += 1
+    summary["rfqs_updated"] = rfqs_updated
+
+    # 8. Sum stats
+    keep.quotation_count = (keep.quotation_count or 0) + (absorb.quotation_count or 0)
+
+    # 9. Handle user association
+    if absorb.user_id:
+        summary["user_disassociated"] = absorb.user_id
+        absorb.user_id = None
+
+    # 10. Soft-delete absorbed supplier
+    absorb.is_active = False
+    absorb.extra_data = {
+        **(absorb.extra_data or {}),
+        "merged_into": body.keep_id,
+        "merged_at": datetime.now(timezone.utc).isoformat(),
+        "merged_by": user.id,
+    }
+
+    await db.commit()
+
+    return {
+        "ok": True,
+        "data": {
+            "keep_id": body.keep_id,
+            "absorb_id": body.absorb_id,
+            "summary": summary,
+        },
+    }
 
 
 # ── Helpers ────────────────────────────────────────────────────

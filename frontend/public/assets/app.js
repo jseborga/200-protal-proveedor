@@ -97,6 +97,8 @@ const API = {
     rfqs: (params = '') => API.get(`/rfq${params}`),
     createRFQ: (data) => API.post('/rfq', data),
     stats: () => API.get('/admin/stats'),
+    mergePreview: (keepId, absorbId) => API.get(`/admin/suppliers/merge-preview?keep_id=${keepId}&absorb_id=${absorbId}`),
+    mergeSuppliers: (data) => API.post('/admin/suppliers/merge', data),
 
     // Admin — user management
     adminUsers: (params = '') => API.get(`/admin/users${params}`),
@@ -1162,9 +1164,14 @@ async function renderAdminSuppliers() {
                     <option value="invalid_wa" ${_admSupContact === 'invalid_wa' ? 'selected' : ''}>WhatsApp invalido</option>
                 </select>
             </div>
-            <button class="btn btn-primary" onclick="showAdminSupplierForm()">
-                ${icon('plus',16)} Nuevo
-            </button>
+            <div style="display:flex;gap:8px">
+                <button class="btn btn-primary" onclick="showAdminSupplierForm()">
+                    ${icon('plus',16)} Nuevo
+                </button>
+                ${isManager() ? `<button class="btn btn-secondary" onclick="showMergeSupplierModal()" style="color:var(--warning)">
+                    ${icon('users',16)} Fusionar
+                </button>` : ''}
+            </div>
         </div>
         <div id="admin-suppliers-list"></div>
     `;
@@ -1585,6 +1592,189 @@ async function deleteContactFromBranch(supplierId, branchId, contactId) {
             toast(resp.detail || 'Error', 'error');
         }
     } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Supplier Merge ────────────────────────────────────────────
+let _mergeSupplierList = [];
+
+async function showMergeSupplierModal() {
+    showModal('Fusionar Proveedores', `
+        <div id="merge-content">
+            <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">
+                Selecciona dos proveedores para fusionar. El proveedor "A" sobrevivira y el "B" sera absorbido.
+            </p>
+            <p style="text-align:center;color:var(--gray-400)">Cargando proveedores...</p>
+        </div>
+    `);
+    const modal = document.querySelector('.modal');
+    if (modal) modal.style.maxWidth = '850px';
+
+    try {
+        const resp = await API.suppliers('?limit=500');
+        _mergeSupplierList = resp.ok ? resp.data : [];
+        renderMergeStep1();
+    } catch {
+        document.getElementById('merge-content').innerHTML = '<p style="color:var(--danger)">Error cargando proveedores</p>';
+    }
+}
+
+function renderMergeStep1() {
+    const c = document.getElementById('merge-content');
+    const options = _mergeSupplierList.map(s =>
+        `<option value="${s.id}">${esc(s.name)}${s.trade_name ? ' (' + esc(s.trade_name) + ')' : ''} — ${esc(s.city || '')} [ID:${s.id}]</option>`
+    ).join('');
+
+    c.innerHTML = `
+        <p style="font-size:13px;color:var(--gray-500);margin-bottom:16px">
+            Selecciona dos proveedores para fusionar. "A" sobrevive, "B" se absorbe.
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+            <div>
+                <label class="form-label" style="color:var(--success);font-weight:600">A — Proveedor que sobrevive</label>
+                <select class="form-select" id="merge-keep-id" style="width:100%">
+                    <option value="">-- Seleccionar --</option>
+                    ${options}
+                </select>
+            </div>
+            <div>
+                <label class="form-label" style="color:var(--danger);font-weight:600">B — Proveedor que se absorbe</label>
+                <select class="form-select" id="merge-absorb-id" style="width:100%">
+                    <option value="">-- Seleccionar --</option>
+                    ${options}
+                </select>
+            </div>
+        </div>
+        <button class="btn btn-primary" onclick="loadMergePreview()">Comparar</button>
+    `;
+}
+
+async function loadMergePreview() {
+    const keepId = parseInt(document.getElementById('merge-keep-id')?.value);
+    const absorbId = parseInt(document.getElementById('merge-absorb-id')?.value);
+    if (!keepId || !absorbId) { toast('Selecciona ambos proveedores', 'error'); return; }
+    if (keepId === absorbId) { toast('Deben ser proveedores diferentes', 'error'); return; }
+
+    const c = document.getElementById('merge-content');
+    c.innerHTML = '<p style="text-align:center;color:var(--gray-500)">Cargando preview...</p>';
+
+    try {
+        const resp = await API.mergePreview(keepId, absorbId);
+        if (!resp.ok) { c.innerHTML = `<p style="color:var(--danger)">${resp.detail || 'Error'}</p>`; return; }
+        renderMergeComparison(resp.data);
+    } catch (e) {
+        c.innerHTML = `<p style="color:var(--danger)">Error: ${e.message}</p>`;
+    }
+}
+
+function renderMergeComparison(data) {
+    const c = document.getElementById('merge-content');
+    const { keep, absorb, absorb_counts } = data;
+
+    const fields = [
+        { key: 'name', label: 'Razon Social' },
+        { key: 'trade_name', label: 'Nombre Comercial' },
+        { key: 'nit', label: 'NIT' },
+        { key: 'email', label: 'Email' },
+        { key: 'phone', label: 'Telefono' },
+        { key: 'whatsapp', label: 'WhatsApp' },
+        { key: 'city', label: 'Ciudad' },
+        { key: 'department', label: 'Departamento' },
+        { key: 'address', label: 'Direccion' },
+        { key: 'website', label: 'Website' },
+        { key: 'latitude', label: 'Latitud' },
+        { key: 'longitude', label: 'Longitud' },
+        { key: 'preferred_channel', label: 'Canal Preferido' },
+    ];
+
+    const rowsHtml = fields.map(f => {
+        const kVal = keep[f.key] ?? '';
+        const aVal = absorb[f.key] ?? '';
+        const same = String(kVal) === String(aVal);
+        const bg = same ? '' : 'background:var(--warning-bg, #fff8e1)';
+        return `
+            <tr style="${bg}">
+                <td style="font-weight:500;font-size:13px;padding:6px 8px">${f.label}</td>
+                <td style="padding:6px 8px">
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+                        <input type="radio" name="merge_${f.key}" value="keep" ${same || kVal ? 'checked' : ''}>
+                        ${esc(String(kVal)) || '<span style="color:var(--gray-300)">vacio</span>'}
+                    </label>
+                </td>
+                <td style="padding:6px 8px">
+                    <label style="display:flex;align-items:center;gap:4px;font-size:13px;cursor:pointer">
+                        <input type="radio" name="merge_${f.key}" value="absorb" ${!kVal && aVal ? 'checked' : ''}>
+                        ${esc(String(aVal)) || '<span style="color:var(--gray-300)">vacio</span>'}
+                    </label>
+                </td>
+            </tr>`;
+    }).join('');
+
+    const keepCats = (keep.categories || []).join(', ') || 'ninguna';
+    const absorbCats = (absorb.categories || []).join(', ') || 'ninguna';
+    const totalMigrate = absorb_counts.branches + absorb_counts.quotations + absorb_counts.product_matches + absorb_counts.price_history;
+
+    c.innerHTML = `
+        <div style="margin-bottom:12px">
+            <button class="btn btn-sm btn-secondary" onclick="renderMergeStep1()" style="font-size:12px">&larr; Volver a seleccion</button>
+        </div>
+        <div class="table-wrap"><table style="font-size:13px;width:100%">
+            <thead><tr>
+                <th style="width:140px">Campo</th>
+                <th style="color:var(--success)">A — ${esc(keep.name)} <span class="badge badge-success">sobrevive</span></th>
+                <th style="color:var(--danger)">B — ${esc(absorb.name)} <span class="badge badge-danger">se absorbe</span></th>
+            </tr></thead>
+            <tbody>${rowsHtml}</tbody>
+        </table></div>
+        <div style="margin:12px 0;font-size:13px">
+            <strong>Categorias:</strong> Se uniran automaticamente (A: ${esc(keepCats)} + B: ${esc(absorbCats)})
+        </div>
+        <div style="background:var(--gray-50);border-radius:8px;padding:12px;margin:12px 0">
+            <strong style="font-size:14px">Registros a migrar de B a A:</strong>
+            <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;font-size:13px">
+                <div><strong>${absorb_counts.branches}</strong> sucursales</div>
+                <div><strong>${absorb_counts.quotations}</strong> cotizaciones</div>
+                <div><strong>${absorb_counts.product_matches}</strong> matches</div>
+                <div><strong>${absorb_counts.price_history}</strong> precios</div>
+            </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px">
+            <button class="btn btn-primary" onclick="executeMerge(${keep.id}, ${absorb.id})"
+                    style="background:var(--danger);border-color:var(--danger)">
+                ${icon('users',16)} Confirmar Fusion
+            </button>
+            <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        </div>
+        <input type="hidden" id="merge-keep-id-val" value="${keep.id}">
+        <input type="hidden" id="merge-absorb-id-val" value="${absorb.id}">
+    `;
+}
+
+async function executeMerge(keepId, absorbId) {
+    if (!confirm('ATENCION: Esta accion es irreversible. Se fusionaran todos los datos del proveedor B en A y B quedara desactivado. Continuar?')) return;
+
+    // Collect field overrides from radio buttons
+    const fields = ['name','trade_name','nit','email','phone','whatsapp','city','department','address','website','latitude','longitude','preferred_channel'];
+    const field_overrides = {};
+    fields.forEach(f => {
+        const radio = document.querySelector(`input[name="merge_${f}"]:checked`);
+        if (radio && radio.value === 'absorb') {
+            field_overrides[f] = 'absorb';
+        }
+    });
+
+    try {
+        const resp = await API.mergeSuppliers({ keep_id: keepId, absorb_id: absorbId, field_overrides });
+        if (resp.ok) {
+            closeModal();
+            const s = resp.data.summary;
+            toast(`Fusion completada: ${s.branches_migrated} sucursales, ${s.quotations_migrated} cotizaciones, ${s.price_history_migrated} precios migrados`, 'success');
+            loadAdminSuppliers();
+        } else {
+            toast(resp.detail || 'Error en fusion', 'error');
+        }
+    } catch (e) {
+        toast('Error de conexion: ' + e.message, 'error');
+    }
 }
 
 function showAdminSupplierForm(editId) {
