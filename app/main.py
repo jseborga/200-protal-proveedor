@@ -23,6 +23,11 @@ async def _init_db():
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
         await conn.run_sync(Base.metadata.create_all)
+        # Add columns that create_all won't add to existing tables
+        for col, coltype in [("latitude", "DOUBLE PRECISION"), ("longitude", "DOUBLE PRECISION")]:
+            await conn.execute(text(
+                f"ALTER TABLE mkt_supplier ADD COLUMN IF NOT EXISTS {col} {coltype}"
+            ))
 
 
 async def _ensure_superadmin():

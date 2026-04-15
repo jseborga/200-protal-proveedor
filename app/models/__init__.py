@@ -1,5 +1,5 @@
 from .base import Base
-from .supplier import Supplier
+from .supplier import Supplier, SupplierBranch
 from .insumo import Insumo, InsumoRegionalPrice
 from .quotation import Quotation, QuotationLine
 from .rfq import RFQ, RFQItem
@@ -10,7 +10,7 @@ from .catalog import Category, UnitOfMeasure
 from .price_history import PriceHistory
 
 __all__ = [
-    "Base", "Supplier", "Insumo", "InsumoRegionalPrice",
+    "Base", "Supplier", "SupplierBranch", "Insumo", "InsumoRegionalPrice",
     "Quotation", "QuotationLine", "RFQ", "RFQItem",
     "ProductMatch", "User", "ApiKey",
     "Category", "UnitOfMeasure", "PriceHistory",

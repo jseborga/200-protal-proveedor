@@ -1,9 +1,12 @@
 """
-Script de curado de datos v2: integra terceros, productos Y pedidos.
+Script de curado de datos v3: limpieza inteligente de nombres + filtros mejorados.
 
-Lee los 3 CSVs exportados de Dolibarr, cruza datos, filtra solo materiales
-de construccion reales (con historial de compras), y genera JSONs listos
-para subir al portal.
+Mejoras sobre v2:
+- Normaliza nombres: usa descripcion cuando el nombre es pobre/codigo
+- Filtra servicios, alquileres, transporte, reparaciones
+- Consolida variantes del mismo producto (GRAVA x2 -> merge)
+- Genera archivo para normalizacion con IA (paso separado)
+- Categoriza items en "review" con razones especificas
 
 Uso:
     python scripts/curar_datos.py
@@ -13,6 +16,7 @@ Genera:
     data/curated_products.json      - materiales de construccion curados
     data/curated_prices.json        - historial de precios por producto
     data/curated_review.json        - items que necesitan revision manual
+    data/curated_ai_normalize.json  - items para normalizar con IA
     data/curated_report.txt         - resumen del curado
 """
 
@@ -72,6 +76,39 @@ EXCLUDE_KEYWORDS = [
     # Ensayos y laboratorio
     "ENSAYO", "LABORATORIO", "PRUEBA DE",
     "CONO DE ARENA", "DENSIDAD IN SITU",
+    # v3: Servicios y alquileres
+    "ALQUILER", "ARRENDATARIO", "REPARACION DE", "REPARACI",
+    "ACARREO", "TRANSPORTE EN VOLQUETA", "TRANSPORTE GRUA",
+    "RETIRO DE ", "RETIRO DEL ",
+    "INSTALACION DE GAS", "INSTALACION GPS",
+    "CORTADO DE FIERRO", "CORTADO DE COLUMNA",
+    "EXTRACCION DE NUCLEO",
+    "FLEXION DE VIGA",
+    "VIBRADOR DE CONCRETO",
+    "OPERADOR RETRO",
+    "TRASLADO",
+    "FABRICACION DE",
+    "ACHICADO DE PUERTA",
+    "PLASTIFICADO DE PISO",
+    "INSTALACION DE PISO",
+    "MONTAJE DE PISO",
+    "SERVICIO DOBLADO",
+    "ESTERILIZADOR",
+    "LIMPIA VIDRIOS",
+    "EMBRAGUE", "KIT APV",
+    "RETIRO DE CUBIERTA",
+    "RETROEXCAVADORA",  # es maquinaria, no material
+    "MAQUINARIA RETRO",
+    "CAMPANA_PARRILLA",
+    "BANQUINA DE CEMENTO",
+    "PORTON CON REJAS",
+    "BOMBA CENTRIFUGA",
+    "AUTORETRACTIL",
+    "GRANITO TUMA",  # error de datos
+    "BRISTOL",       # error de datos - no es aislante
+    "CORTE DEPORTIVO",  # error de datos
+    "TRANSPORTE MATERIAL",  # servicio de transporte
+    "SERVICIO+",  # servicios compuestos
 ]
 
 # Refs que son claramente no-construccion
@@ -86,18 +123,19 @@ EXCLUDE_REFS = {
 
 # ── Categorizacion por keywords ──────────────────────────────
 CATEGORY_RULES = [
-    # (keywords_in_name_or_ref, category_key)
     (["CEMENTO", "CEM-", "CEM0", "PORTLAND", "IP30", "IP40", "VIACHA"], "cemento"),
     (["HORMIGON", "HORM-", "HORM_", "PREMEZCLADO", "CONCRETO", "MPA", "H-25", "H-21", "H-30"], "cemento"),
     (["ARENA FINA", "ARENA CORRIENTE", "ARENA COMUN", "GRAVA", "GRAVILLA",
       "AGREGADO", "RIPIO", "PIEDRA CHANCADA", "PIEDRA BRUTA", "CASCOTE",
       "CANTO RODADO"], "agregados"),
     (["BARRA", "FIERRO", "FIERRO CORRUGADO", "ACERO", "MALLA", "ALAMBRE",
-      "ESTRIBOS", "ESTRIBO", "VARILLA", "CORRUGADO"], "acero"),
-    (["CABLE", "INTERRUPTOR", "TOMACORRIENTE", "TOMA ", "TABLERO ELECTR",
+      "ESTRIBOS", "ESTRIBO", "VARILLA", "CORRUGADO", "GEOMALLA"], "acero"),
+    (["CABLE UTP", "CABLE COXIAL", "CABLE MULTIPAR", "CABLE COBRE",
+      "INTERRUPTOR", "TOMACORRIENTE", "TOMA ", "TABLERO ELECTR",
       "BREAKER", "DISYUNTOR", "FLUORESCENTE", "FOCO ", "LED ", "LUMINARIA",
       "CINTA AISL", "CANALETA ELECTR", "TUBERIA CONDUIT",
-      "ENCHUFE", "SOCKET"], "electrico"),
+      "ENCHUFE", "SOCKET", "LAMPARA"], "electrico"),
+    (["CABLE DE ACERO", "CABLE ACERO", "TEZADOR", "GRAMPA P/CABLE"], "acero"),  # cable de acero es acero no electrico
     (["TUBO PVC", "TUBERIA PVC", "CODO PVC", "TEE PVC", "UNION PVC",
       "REDUCCION PVC", "VALVULA", "INODORO", "LAVAMANOS", "LAVAPLATO",
       "GRIFO", "DUCHA", "LLAVE DE PASO", "SIFON", "TRAMPA"], "sanitario"),
@@ -130,17 +168,17 @@ CATEGORY_RULES = [
       "LOSETA", "LOSA PRE", "POSTE", "ADOQUIN"], "prefabricados"),
     (["CASCO", "GUANTE", "CHALECO", "BOTAS DE SEGURIDAD",
       "ARNES", "LINEA DE VIDA", "GAFA", "PROTECTOR",
-      "EXTINTOR", "CONO ", "CINTA SEGURIDAD"], "seguridad"),
+      "EXTINTOR", "CONO ", "CINTA SEGURIDAD",
+      "DESLIZADOR", "SISTEMA LINEA"], "seguridad"),
     (["VIDRIO", "ESPEJO", "MAMPARA", "VITROBLOCK"], "vidrios"),
     (["AISLANTE", "TECNOPOR", "PLASTOFORMO", "POLIESTIRENO",
       "POLIETILENO", "FOAM", "FIBRA DE VIDRIO"], "aislantes"),
-    (["RETROEXCAVADORA", "VOLQUETA", "EXCAVADORA", "COMPACTADOR",
-      "MOTONIVELADORA", "GRUA", "ANDAMIO"], "maquinaria"),
+    (["ANDAMIO"], "maquinaria"),
+    (["GRUA "], "maquinaria"),
 ]
 
 # ── UOM inference rules ──────────────────────────────────────
 UOM_RULES = [
-    # (condition_on_ref_or_label, uom_key)
     (["CEMENTO", "CEM-", "CEM0", "PORTLAND", "IP30", "IP40", "BOLSA", "BLS"], "bls"),
     (["ARENA", "GRAVA", "GRAVILLA", "RIPIO", "PIEDRA", "HORMIGON",
       "HORM-", "HORM_", "PREMEZCLADO", "CONCRETO", "M3", "METRO CUBICO"], "m3"),
@@ -156,9 +194,8 @@ UOM_RULES = [
     (["ARENA FINA", "ARENA CORRIENTE", "ARENA COMUN"], "m3"),
     (["SACO", "YESO", "CAL "], "saco"),
     (["TUBO", "CANERIA", "TUBERIA"], "tubo"),
-    (["RETROEXCAVADORA", "RETRO EXCAVADORA", "VOLQUETA", "EXCAVADORA",
-      "COMPACTADOR", "MOTONIVELADORA", "GRUA"], "glb"),
     (["ANDAMIO"], "glb"),
+    (["GRUA "], "glb"),
     (["ROLLO", "CINTA"], "rollo"),
     (["CLAVO", "TORNILLO", "PERNO", "REMACHE"], "kg"),
     (["MADERA", "TABLA", "LISTON", "TABLON"], "pza"),
@@ -167,10 +204,7 @@ UOM_RULES = [
 ]
 
 # ── Rangos de precios unitarios esperados por producto/categoria ──
-# Precios de referencia Bolivia 2024-2026 en Bs
-# Se usan para filtrar outliers (totales de linea confundidos con unitarios)
 PRICE_ANCHORS = {
-    # Producto especifico -> (min, max, uom)
     "CEMENTO": (35, 100, "bls"),
     "HORMIGON": (500, 1000, "m3"),
     "ARENA": (50, 300, "m3"),
@@ -200,53 +234,301 @@ PRICE_ANCHORS = {
     "DISCO": (10, 100, "pza"),
 }
 
-# Rangos amplios por categoria (fallback si no hay ancla especifica)
 CATEGORY_PRICE_RANGE = {
-    "cemento": (20, 1200),        # desde aditivos hasta hormigon/m3
-    "acero": (5, 2000),           # desde clavos hasta planchas
-    "agregados": (30, 400),       # arenas, gravas por m3
-    "ferreteria": (0.05, 500),    # desde tornillos hasta cerraduras
-    "pintura": (10, 1000),        # desde lijas hasta baldes de pintura
-    "madera": (3, 500),           # desde listones hasta tablones
-    "electrico": (0.5, 2000),     # desde conectores hasta tableros
-    "sanitario": (3, 5000),       # desde codos hasta inodoros
-    "plomeria": (2, 500),         # desde niples hasta valvulas
-    "ceramica": (3, 500),         # desde piso hasta porcelanato
-    "herramientas": (5, 5000),    # desde destornilladores hasta vibradoras
-    "techos": (5, 500),           # desde tornillos hasta calaminas
+    "cemento": (20, 1200),
+    "acero": (5, 2000),
+    "agregados": (30, 400),
+    "ferreteria": (0.05, 500),
+    "pintura": (5, 1000),
+    "madera": (3, 500),
+    "electrico": (0.5, 2000),
+    "sanitario": (1, 5000),
+    "plomeria": (2, 500),
+    "ceramica": (3, 500),
+    "herramientas": (5, 5000),
+    "techos": (1, 500),
     "impermeabilizantes": (5, 2000),
-    "prefabricados": (0.3, 200),  # ladrillos, bloques, viguetas
-    "seguridad": (2, 1000),       # desde guantes hasta arneses
+    "prefabricados": (0.3, 200),
+    "seguridad": (2, 5000),
     "vidrios": (10, 2000),
     "aislantes": (5, 500),
-    "maquinaria": (50, 50000),    # alquileres y equipos
+    "maquinaria": (50, 50000),
 }
 
 
-def is_price_outlier(unit_price, name, category):
-    """Check if price is an outlier based on product anchors and category ranges."""
-    name_upper = name.upper()
+# ══════════════════════════════════════════════════════════════
+# v3: LOGICA DE NORMALIZACION DE NOMBRES
+# ══════════════════════════════════════════════════════════════
 
-    # Try specific product anchors first
-    for keyword, (lo, hi, _) in PRICE_ANCHORS.items():
-        if keyword in name_upper:
-            # Use 0.3x and 5x of range to allow some flexibility
-            if unit_price < lo * 0.3 or unit_price > hi * 5:
-                return True
-            return False
-
-    # Fallback to category range
-    if category and category in CATEGORY_PRICE_RANGE:
-        lo, hi = CATEGORY_PRICE_RANGE[category]
-        if unit_price < lo * 0.2 or unit_price > hi * 10:
+def is_name_poor(name):
+    """Determina si un nombre es de baja calidad y necesita mejora."""
+    if not name:
+        return True
+    n = name.strip()
+    # Es solo un codigo numerico
+    if n.replace("-", "").replace("_", "").replace(" ", "").replace(".", "").isdigit():
+        return True
+    # Codigo multi-segmento: "00.66.051.111", "01-234-567"
+    if re.match(r'^\d{2,}([.\-_]\d+){1,}(\s|$)', n):
+        return True
+    # Parece dimension sin contexto: "1x35x3", "2x4x350", "1x25x350"
+    if re.match(r'^\d+[xX]\d+[xX]?\d*$', n):
+        return True
+    # Codigo alfanumerico corto tipo "BA15x15PP", "NB732", "BT100mm"
+    if re.match(r'^[A-Z]{1,4}\d+[xX]?\d*[A-Z]*$', n) and len(n) < 15:
+        return True
+    # Marca + codigo: "BACO NB732-500", "SIKA 226 MS-POL"
+    if re.match(r'^[A-Z]{2,6}\s+[A-Z0-9]{2,}[\-]\d+', n):
+        return True
+    # Specs tecnicas sin nombre: "30MPa Ip40 67-5-10", "fck=30"
+    if re.match(r'^\d+\s*MPa\b', n, re.IGNORECASE):
+        return True
+    # Muy corto (menos de 6 caracteres)
+    if len(n) < 6:
+        return True
+    # Parece un codigo (todo mayusculas/numeros, corto)
+    if len(n) < 12 and all(c.isupper() or c.isdigit() or c in "_-/ ." for c in n):
+        # Pero no si es un nombre real como "GRAVA", "CABLE"
+        real_words = ["GRAVA", "CABLE", "CLAVO", "CEMENTO", "ARENA", "MADERA",
+                      "PERNO", "TUERCA", "GANCHO", "FOCO", "SIFON"]
+        if n.upper() not in real_words:
             return True
-        return False
+    # Baja proporcion de letras vs numeros/simbolos
+    alpha_count = sum(1 for c in n if c.isalpha())
+    if len(n) > 5 and alpha_count / len(n) < 0.3:
+        return True
+    # Es una palabra sola demasiado generica
+    generic_singles = {
+        "material", "materiales", "cemento", "madera", "agregados",
+        "pintura", "cable", "cortado", "cuerda", "barras", "extraccion",
+        "porcelanato", "anclaje", "mezcladora", "amoladora", "pala",
+        "bisagra", "tuerca", "pernos", "foco", "rodillos",
+    }
+    if name.lower().strip() in generic_singles:
+        return True
+    return False
 
-    # No anchor: use generic sanity check (reject if > 50000 Bs for a single unit)
-    return unit_price > 50000
+
+def build_better_name(name, description, ref, product_catalog_entry=None, category_hint=None):
+    """Construye un nombre mejorado usando toda la info disponible."""
+    candidates = []
+
+    # 1. Si la desc tiene mas info, usarla
+    if description:
+        first_line = description.split("\n")[0].strip()
+        # Descartar desc tipo "segun cotizacion adjunta" o muy vagas
+        vague = ["segun cotizacion", "adjunta", "varios", "ver detalle", "material de construccion"]
+        if first_line and len(first_line) > 5 and not any(v in first_line.lower() for v in vague):
+            candidates.append(first_line)
+
+    # 2. Datos del catalogo de producto
+    if product_catalog_entry:
+        cat_label = product_catalog_entry.get("label", "")
+        cat_desc = product_catalog_entry.get("description", "").split("\n")[0].strip()
+        if cat_label and len(cat_label) > len(name):
+            candidates.append(cat_label)
+        if cat_desc and len(cat_desc) > len(name):
+            candidates.append(cat_desc)
+
+    # 3. Combinar ref + name si el ref aporta info
+    if ref and ref != name and len(ref) > 3:
+        # Si ref parece un nombre real (no solo codigo)
+        ref_clean = ref.replace("_", " ").replace("-", " ").strip()
+        if any(c.isalpha() for c in ref_clean) and len(ref_clean) > 5:
+            candidates.append(ref_clean)
+
+    # 4. El nombre original si no es codigo puro
+    if name and not name.replace("-", "").replace("_", "").replace(" ", "").isdigit():
+        candidates.append(name)
+
+    if not candidates:
+        # Fallback: si el nombre parece dimension (ej: "1x35x3"), prefijarlo con categoria
+        if re.match(r'^\d+[xX]\d+', name) and category_hint:
+            prefix_map = {"madera": "Madera", "acero": "Barra", "electrico": "Cable"}
+            prefix = prefix_map.get(category_hint, "")
+            if prefix:
+                return f"{prefix} {name}"
+        # Si empieza con codigo alfanumerico corto (ej: "BT100mm"), usar desc
+        return name
+
+    # Elegir el candidato mas informativo
+    best = max(candidates, key=lambda c: _name_quality_score(c))
+
+    # Si el mejor candidato es muy generico ("madera"), enriquecer con el nombre original
+    # si este tiene dimensiones
+    if best.lower().strip() in ("madera", "acero", "cable") and name != best:
+        if re.search(r'\d', name):  # nombre original tiene numeros (dimensiones)
+            best = f"{best} {name}"
+
+    return clean_product_name(best)
 
 
-# ── Helpers ──────────────────────────────────────────────────
+def _name_quality_score(name):
+    """Puntaje de calidad para un nombre de producto."""
+    if not name:
+        return 0
+    score = 0
+    # Penalizar nombres muy cortos
+    if len(name) < 5:
+        score -= 10
+    # Premiar longitud razonable (10-60 chars)
+    if 10 <= len(name) <= 60:
+        score += 5
+    elif len(name) > 60:
+        score += 2  # demasiado largo tambien es malo
+    # Premiar si tiene numeros con contexto (dimensiones: 1/2, 3/8, 12mm)
+    if re.search(r'\d+[/x]\d+|\d+\s*mm|\d+\s*m\b|\d+\s*kg', name, re.IGNORECASE):
+        score += 10
+    # Premiar palabras clave de construccion
+    construction_words = [
+        "barra", "cemento", "arena", "grava", "hormigon", "madera",
+        "clavo", "tornillo", "tubo", "cable", "pintura", "calamina",
+        "ladrillo", "bloque", "vigueta", "malla", "alambre", "sika",
+    ]
+    name_lower = name.lower()
+    for w in construction_words:
+        if w in name_lower:
+            score += 3
+    # Penalizar si es solo un codigo
+    if name.replace("-", "").replace("_", "").replace(" ", "").isdigit():
+        score -= 20
+    # Penalizar si todo es mayusculas sin separacion
+    if name.isupper() and " " not in name and len(name) > 8:
+        score -= 3
+    # Penalizar nombres con baja proporcion de letras
+    alpha_ratio = sum(1 for c in name if c.isalpha()) / max(len(name), 1)
+    if alpha_ratio < 0.4:
+        score -= 15
+    # Penalizar codigos multi-segmento
+    if re.match(r'^\d{2,}([.\-_]\d+){1,}', name.strip()):
+        score -= 20
+    return score
+
+
+def clean_product_name(name):
+    """Limpia y normaliza un nombre de producto."""
+    if not name:
+        return name
+    # Quitar saltos de linea (reales y literales \n de Dolibarr)
+    for sep in ["\n", "\\n"]:
+        if sep in name:
+            parts = name.split(sep)
+            # Keep first part if meaningful, else try second
+            first = parts[0].strip()
+            if first and len(first) >= 3:
+                name = first
+            elif len(parts) > 1 and parts[1].strip():
+                name = parts[1].strip()
+            break
+    # Quitar espacios multiples
+    name = re.sub(r"\s+", " ", name).strip()
+    # Quitar comillas
+    name = name.strip("\"'")
+    # Quitar codigos numericos al inicio: "00.66.051.111 sellador" -> "sellador"
+    name = re.sub(r'^[\d]{2,}(?:[.\-_][\d]+){1,}\s+', '', name)
+    # Quitar codigos alfanumericos al inicio: "MAT-001-B sellador" -> "sellador"
+    name = re.sub(r'^[A-Z]{2,5}[\-_][\d]+[\-_]?[A-Z0-9]?\s+', '', name)
+    # Interpretar specs tecnicas como nombres de producto
+    # "30MPa Ip40 67-5-10" -> "Hormigon fck=30MPa"
+    mpa_match = re.match(r'^(\d+)\s*MPa\b', name, re.IGNORECASE)
+    if mpa_match:
+        name = f"Hormigon fck={mpa_match.group(1)}MPa"
+    # Title case si esta todo en mayusculas (pero preservar siglas como PVC, LED)
+    if name.isupper() and len(name) > 5:
+        name = smart_title_case(name)
+    # Truncar si es demasiado largo
+    if len(name) > 100:
+        name = name[:97] + "..."
+    return name.strip()
+
+
+def smart_title_case(text):
+    """Title case que preserva siglas comunes."""
+    siglas = {
+        "PVC", "LED", "HG", "FG", "SDR", "HP", "AWG", "THW", "UTP",
+        "SDS", "MPA", "IP30", "IP40", "BLS", "CAT", "SMD", "HDPE",
+        "PPR", "CPVC", "GU", "GU10", "MM", "CM", "MT", "ML", "M2", "M3",
+        "KG", "GLB", "PR", "BOL", "VP1", "VP2", "VP3", "VP4", "VP5", "VP6",
+        "II", "III", "IV", "DN", "NIT",
+    }
+    words = text.split()
+    result = []
+    for word in words:
+        word_upper = word.upper().rstrip(".,;:()")
+        if word_upper in siglas:
+            result.append(word.upper())
+        elif re.match(r'^\d+[xX/]\d+', word):  # dimensiones: 1/2, 3x4
+            result.append(word)
+        elif re.match(r'^\d+', word):  # empieza con numero
+            result.append(word)
+        else:
+            result.append(word.capitalize())
+        # Preservar puntuacion
+    return " ".join(result)
+
+
+# ── v3: Deteccion de servicios (no solo excluidos) ───────────
+SERVICE_INDICATORS = [
+    "INSTALACION", "FABRICACION", "MONTAJE", "REPARACION",
+    "ARMADO DE ", "TRANSPORTE", "SERVICIO", "ALQUILER",
+    "PROVISION E INSTALACION", "MANO DE OBRA",
+    "RETIRO", "TRASLADO", "OPERADOR",
+]
+
+def is_service(name, description=""):
+    """Detecta si un item es un servicio y no un material."""
+    combined = f"{name} {description}".upper()
+    # Si tiene tanto material como servicio, verificar mas
+    for indicator in SERVICE_INDICATORS:
+        if indicator in combined:
+            # Excepciones: "provision e instalacion" puede incluir material
+            if "PROVISION" in combined and "INSTALACION" in combined:
+                return False  # probablemente incluye el material
+            # "servicio+aditivos" incluye material
+            if "ADITIVO" in combined or "MATERIAL" in combined:
+                return False
+            return True
+    return False
+
+
+# ── v3: Consolidacion de variantes ───────────────────────────
+def make_consolidation_key(name, uom, category):
+    """Genera una clave para agrupar variantes del mismo producto."""
+    name_norm = normalize(name)
+
+    # Patrones especificos de consolidacion
+    consolidation_patterns = [
+        # BOL CLAVO / BOL.CLAVO -> clavo
+        (r"^bol\.?\s*clavo\s*(\d+[/ ]?\d*)\s*pr$", r"clavo \1 pr"),
+        # TORNILLO T1/T2 PUNTA AGUJA/BROCA -> tornillo tipo punta
+        (r"^tornillo[s]?\s*(t[12]|ciser.t[12])?\s*punta\s*(aguja|broca).*$", r"tornillo punta \2"),
+        # ARENA CORRIENTE con fechas -> arena corriente
+        (r"^arena corriente\s+\d+.*$", r"arena corriente"),
+        # ARENA FINA con ubicaciones -> arena fina
+        (r"^arena fina\s+\w+.*$", r"arena fina"),
+        # Grava con especificaciones -> grava tipo
+        (r"^grava\s*(chancada|semichancada|rodada)?.*$", r"grava \1"),
+        # HORMIGON con variantes de formato
+        (r"^hormigon\s*(\d+)\s*mpa$", r"hormigon \1 MPA"),
+        # MADERA DE CONSTRUCCION generico
+        (r"^madera de construccion$", None),  # None = marcar para dimension
+        # VIGUETA PRETENSADA VP{n}
+        (r"^vigueta\s*pretensada\s*(vp\d+)?.*$", r"vigueta pretensada \1"),
+    ]
+
+    for pattern, replacement in consolidation_patterns:
+        match = re.match(pattern, name_norm)
+        if match:
+            if replacement is None:
+                # No consolidar, cada uno es unico (necesita dimension)
+                return None
+            key = re.sub(pattern, replacement, name_norm).strip()
+            return f"{key}|{uom}|{category}"
+
+    return None  # no se consolida
+
+
+# ── Helpers existentes (de v2) ────────────────────────────────
 def normalize(text):
     """Lowercase, strip accents, collapse whitespace."""
     text = text.lower().strip()
@@ -268,7 +550,6 @@ def is_excluded(name, ref=""):
             return True
     if ref in EXCLUDE_REFS:
         return True
-    # Exclude refs starting with MDO
     if ref_upper.startswith("MDO"):
         return True
     return False
@@ -294,18 +575,32 @@ def infer_uom(name, ref="", default="pza"):
     return default
 
 
+def is_price_outlier(unit_price, name, category):
+    """Check if price is an outlier based on product anchors and category ranges."""
+    name_upper = name.upper()
+    for keyword, (lo, hi, _) in PRICE_ANCHORS.items():
+        if keyword in name_upper:
+            if unit_price < lo * 0.3 or unit_price > hi * 5:
+                return True
+            return False
+    if category and category in CATEGORY_PRICE_RANGE:
+        lo, hi = CATEGORY_PRICE_RANGE[category]
+        if unit_price < lo * 0.2 or unit_price > hi * 10:
+            return True
+        return False
+    return unit_price > 50000
+
+
 def clean_phone(phone):
     """Normalize phone number for Bolivia."""
     if not phone:
         return ""
     phone = re.sub(r"[^\d+]", "", phone)
     phone = phone.lstrip("+")
-    # Remove leading 591 country code for local analysis
     if phone.startswith("591"):
         local = phone[3:]
     else:
         local = phone
-    # Bolivia numbers: 8 digits mobile (6,7 start), 7 digits landline
     if len(local) >= 7:
         if not phone.startswith("591"):
             phone = "591" + local
@@ -313,12 +608,41 @@ def clean_phone(phone):
     return ""
 
 
+def validate_whatsapp_bolivia(phone):
+    """Validate if a phone number is WhatsApp-capable in Bolivia.
+    Returns: (is_valid, clean_number, issue)
+    - Bolivia movil (WhatsApp): 591 + 8 digitos empezando con 6 o 7
+    - Fijo (NO WhatsApp): empieza con 2, 3, 4, 5
+    - Placeholder: todo ceros o "0000000000"
+    """
+    clean = re.sub(r'[^\d]', '', phone or '')
+    if not clean:
+        return False, "", "empty"
+    if clean.startswith('591'):
+        local = clean[3:]
+    elif clean.startswith('0'):
+        local = clean[1:]  # quitar 0 inicial local
+    else:
+        local = clean
+    # Placeholder
+    if not local or all(c == '0' for c in local):
+        return False, "", "placeholder"
+    # Longitud Bolivia: 8 digitos
+    if len(local) != 8:
+        return False, f"591{local}" if len(local) >= 7 else clean, "wrong_length"
+    # Fijo: empieza con 2, 3, 4, 5
+    if local[0] in ('2', '3', '4', '5'):
+        return False, f"591{local}", "landline"
+    # Movil: empieza con 6, 7
+    if local[0] in ('6', '7'):
+        return True, f"591{local}", None
+    return False, f"591{local}", "unknown_prefix"
+
+
 def infer_department(address, phone):
     """Infer department from address text and phone prefix."""
     combined = (address or "").upper()
     phone_clean = re.sub(r"[^\d]", "", phone or "")
-
-    # By address keywords
     dept_keywords = {
         "La Paz": ["LA PAZ", "MURILLO", "EL ALTO", "ZONA SUR", "CALACOTO",
                     "SOPOCACHI", "MIRAFLORES", "SAN PEDRO", "OBRAJES",
@@ -338,23 +662,15 @@ def infer_department(address, phone):
         for kw in keywords:
             if kw in combined:
                 return dept
-
-    # By phone prefix
     if phone_clean.startswith("591"):
         phone_clean = phone_clean[3:]
     if len(phone_clean) >= 1:
         prefix = phone_clean[0]
-        prefix_map = {
-            "2": "La Paz", "7": "La Paz",  # 7 can be mobile from any dept
-            "4": "Cochabamba",
-            "3": "Santa Cruz",
-            "5": "Potosi",
-            "6": "Tarija",
-        }
-        if prefix in prefix_map and prefix != "7":
+        prefix_map = {"2": "La Paz", "4": "Cochabamba", "3": "Santa Cruz",
+                      "5": "Potosi", "6": "Tarija"}
+        if prefix in prefix_map:
             return prefix_map[prefix]
-
-    return "La Paz"  # default
+    return "La Paz"
 
 
 def filter_outlier_prices(prices, factor=3.0):
@@ -367,15 +683,17 @@ def filter_outlier_prices(prices, factor=3.0):
     return [p for p in prices if p / med < factor and med / p < factor]
 
 
-# ── Main processing ──────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+# MAIN PROCESSING
+# ══════════════════════════════════════════════════════════════
 def main():
     print("=" * 60)
-    print("CURACION DE DATOS v2 - APU Marketplace")
-    print("Integrando: terceros + productos + pedidos")
+    print("CURACION DE DATOS v3 - APU Marketplace")
+    print("Limpieza inteligente + normalizacion de nombres")
     print("=" * 60)
 
-    # ── Step 1: Read pedidos (purchase orders) ───────────────
-    print("\n[1/6] Leyendo pedidos de compra...")
+    # ── Step 1: Read pedidos ────────────────────────────────
+    print("\n[1/7] Leyendo pedidos de compra...")
     pedidos_lines = []
     with open(DATA_DIR / "pedidos de productos_precios.csv", encoding="latin-1") as f:
         reader = csv.reader(f)
@@ -393,21 +711,20 @@ def main():
                 "order_date": row[18].strip(),
                 "line_desc": row[30].strip(),
                 "line_qty": row[32].strip(),
-                "line_total_iva": row[35].strip(),  # total con IVA
-                "line_type": row[37].strip(),  # 0=product, 1=service
+                "line_total_iva": row[35].strip(),
+                "line_type": row[37].strip(),
                 "product_id_doli": row[38].strip(),
                 "product_ref": row[39].strip(),
                 "product_label": row[40].strip(),
             })
-
     print(f"  {len(pedidos_lines)} lineas de pedido leidas")
 
-    # Filter: only products (type=0), not services
     product_lines = [l for l in pedidos_lines if l["line_type"] == "0"]
-    print(f"  {len(product_lines)} lineas de tipo producto (excluidos {len(pedidos_lines) - len(product_lines)} servicios)")
+    service_lines = [l for l in pedidos_lines if l["line_type"] == "1"]
+    print(f"  {len(product_lines)} tipo producto, {len(service_lines)} tipo servicio")
 
-    # ── Step 2: Read products catalog ────────────────────────
-    print("\n[2/6] Leyendo catalogo de productos...")
+    # ── Step 2: Read product catalog ────────────────────────
+    print("\n[2/7] Leyendo catalogo de productos...")
     product_catalog = {}
     with open(DATA_DIR / "export_produit_1.csv", encoding="latin-1") as f:
         reader = csv.reader(f)
@@ -426,7 +743,7 @@ def main():
     print(f"  {len(product_catalog)} productos en catalogo")
 
     # ── Step 3: Read suppliers ───────────────────────────────
-    print("\n[3/6] Leyendo terceros...")
+    print("\n[3/7] Leyendo terceros...")
     supplier_catalog = {}
     with open(DATA_DIR / "terceros_bolivia14.04.2026.csv", encoding="latin-1") as f:
         reader = csv.reader(f)
@@ -450,19 +767,20 @@ def main():
     print(f"  {len(supplier_catalog)} proveedores en catalogo")
 
     # ── Step 4: Process and aggregate ────────────────────────
-    print("\n[4/6] Procesando y agregando datos...")
+    print("\n[4/7] Procesando y agregando datos...")
 
-    # Group pedido lines by product
     product_data = defaultdict(lambda: {
         "refs": set(), "labels": set(), "descriptions": set(),
         "prices": [], "price_records": [], "suppliers": set(),
         "order_count": 0, "total_qty": 0,
+        "catalog_entry": None,
     })
 
-    supplier_products = defaultdict(set)  # supplier_name -> set of product_ids
-    active_suppliers = {}  # supplier_name -> supplier info from pedidos
+    supplier_products = defaultdict(set)
+    active_suppliers = {}
 
     excluded_count = 0
+    service_count = 0
     outlier_count = 0
 
     for line in product_lines:
@@ -470,7 +788,6 @@ def main():
         ref = line["product_ref"]
         label = line["product_label"]
 
-        # Use catalog data if available for better labels
         if pid in product_catalog:
             cat_data = product_catalog[pid]
             if not label:
@@ -478,12 +795,15 @@ def main():
             if not ref:
                 ref = cat_data["ref"]
 
-        # Skip excluded items
         if is_excluded(label, ref):
             excluded_count += 1
             continue
 
-        # Calculate unit price
+        # v3: Filtrar servicios por contenido
+        if is_service(label, line.get("line_desc", "")):
+            service_count += 1
+            continue
+
         try:
             qty = float(line["line_qty"])
             total = float(line["line_total_iva"])
@@ -493,15 +813,12 @@ def main():
         except (ValueError, ZeroDivisionError):
             continue
 
-        # Parse date
         order_date = line["order_date"]
         if not order_date:
             continue
 
-        # Infer category early to use in outlier detection
         category = infer_category(label, ref)
 
-        # Filter outlier prices (totals confused with unit prices)
         if is_price_outlier(unit_price, label, category):
             outlier_count += 1
             continue
@@ -510,9 +827,15 @@ def main():
         if ref:
             pd["refs"].add(ref)
         if label:
-            pd["labels"].add(label)
+            # Clean literal \n from Dolibarr early
+            clean_label = label.split("\\n")[0].strip() if "\\n" in label else label
+            pd["labels"].add(clean_label)
         if line["line_desc"]:
-            pd["descriptions"].add(line["line_desc"].split("\n")[0][:200])
+            desc_clean = line["line_desc"].replace("\\n", "\n").split("\n")[0][:200]
+            pd["descriptions"].add(desc_clean)
+        # Guardar catalogo
+        if pid in product_catalog and not pd["catalog_entry"]:
+            pd["catalog_entry"] = product_catalog[pid]
 
         pd["prices"].append(unit_price)
         pd["price_records"].append({
@@ -526,7 +849,6 @@ def main():
         pd["order_count"] += 1
         pd["total_qty"] += qty
 
-        # Track supplier activity
         supplier_products[line["supplier_name"]].add(pid)
         if line["supplier_name"] not in active_suppliers:
             active_suppliers[line["supplier_name"]] = {
@@ -537,48 +859,66 @@ def main():
             }
 
     print(f"  {len(product_data)} productos unicos con compras reales")
-    print(f"  {excluded_count} lineas excluidas (no construccion)")
+    print(f"  {excluded_count} lineas excluidas (keywords)")
+    print(f"  {service_count} lineas excluidas (servicios)")
     print(f"  {outlier_count} lineas excluidas (precio outlier)")
     print(f"  {len(active_suppliers)} proveedores con ventas")
 
-    # ── Step 5: Curate products ──────────────────────────────
-    print("\n[5/6] Curando productos...")
+    # ── Step 5: Curate products with name normalization ─────
+    print("\n[5/7] Curando productos con normalizacion de nombres...")
 
     curated_products = []
     review_products = []
+    ai_normalize_queue = []
     category_counts = Counter()
-    uncategorized = []
+    seen_names = {}  # name_normalized -> product, for dedup
 
     for pid, data in product_data.items():
-        # Pick best label
         labels = list(data["labels"])
         label = max(labels, key=len) if labels else ""
         if not label:
             continue
 
+        # Limpiar newlines temprano (Dolibarr mete \n literal y real en labels)
+        for sep in ["\\n", "\n"]:
+            if sep in label:
+                parts = label.split(sep)
+                first = parts[0].strip()
+                if first and len(first) >= 3:
+                    label = first
+                elif len(parts) > 1:
+                    label = parts[1].strip()
+                break
+
         refs = list(data["refs"])
         ref = refs[0] if refs else ""
+        desc_text = list(data["descriptions"])[0] if data["descriptions"] else ""
 
-        # Clean prices (remove outliers)
+        # v3: Normalizar nombre
+        # Pre-infer category for name building
+        pre_category = infer_category(label, ref)
+        if is_name_poor(label):
+            new_name = build_better_name(label, desc_text, ref, data.get("catalog_entry"), category_hint=pre_category)
+            if new_name and new_name != label:
+                label = new_name
+
+        # Limpiar nombre (title case, etc)
+        label = clean_product_name(label)
+
         clean_prices = filter_outlier_prices(data["prices"])
         if not clean_prices:
             clean_prices = data["prices"]
-
         median_price = round(median(clean_prices), 2) if clean_prices else None
 
-        # Categorize
         category = infer_category(label, ref)
-        # Also check descriptions
         if not category and data["descriptions"]:
             for desc in data["descriptions"]:
                 category = infer_category(desc)
                 if category:
                     break
 
-        # Infer UOM
         uom = infer_uom(label, ref)
 
-        # Build product record
         product = {
             "name": label,
             "code": ref,
@@ -586,58 +926,89 @@ def main():
             "category": category,
             "ref_price": median_price,
             "ref_currency": "BOB",
-            "description": list(data["descriptions"])[0] if data["descriptions"] else "",
+            "description": desc_text,
             "order_count": data["order_count"],
             "supplier_count": len(data["suppliers"]),
+            "_pid": pid,
+            "_original_label": max(list(data["labels"]), key=len) if data["labels"] else "",
         }
 
-        # Decide: curated vs review
-        # Confident if: has category AND has >1 purchase AND median price makes sense
-        if category and data["order_count"] >= 1 and median_price and median_price > 0:
+        # Decide: curated vs review vs AI
+        if not category:
+            product["_review_reason"] = "sin_categoria"
+            review_products.append(product)
+            continue
+        if not median_price or median_price <= 0:
+            product["_review_reason"] = "sin_precio"
+            review_products.append(product)
+            continue
+
+        # Check if name is still poor after normalization
+        if is_name_poor(label):
+            product["_review_reason"] = "nombre_pobre"
+            ai_normalize_queue.append(product)
+            # Still add to curated but flag it
             curated_products.append(product)
             category_counts[category] += 1
-        else:
-            product["_reason"] = []
-            if not category:
-                product["_reason"].append("sin_categoria")
-            if not median_price or median_price <= 0:
-                product["_reason"].append("sin_precio")
-            if data["order_count"] < 1:
-                product["_reason"].append("pocas_compras")
-            review_products.append(product)
+            continue
 
-    # Sort curated by category then name
+        # Dedup by normalized name + uom
+        name_key = f"{normalize(label)}|{uom}"
+        if name_key in seen_names:
+            existing = seen_names[name_key]
+            # Merge: keep the one with more orders, accumulate price records
+            if data["order_count"] > existing.get("order_count", 0):
+                seen_names[name_key] = product
+                # Replace in curated list
+                for i, p in enumerate(curated_products):
+                    if p.get("_pid") == existing.get("_pid"):
+                        curated_products[i] = product
+                        break
+            continue
+        else:
+            seen_names[name_key] = product
+
+        curated_products.append(product)
+        category_counts[category] += 1
+
+    # Sort
     curated_products.sort(key=lambda p: (p["category"] or "zzz", p["name"]))
 
-    print(f"  {len(curated_products)} productos curados (listos para subir)")
+    # Clean internal fields from output
+    for p in curated_products:
+        p.pop("_pid", None)
+        p.pop("_original_label", None)
+        p.pop("_review_reason", None)
+
+    print(f"  {len(curated_products)} productos curados")
     print(f"  {len(review_products)} productos para revision manual")
+    print(f"  {len(ai_normalize_queue)} productos para normalizar con IA")
     print(f"\n  Categorias:")
     for cat, count in category_counts.most_common():
         print(f"    {cat}: {count}")
 
     # ── Step 6: Curate suppliers ─────────────────────────────
-    print("\n[6/6] Curando proveedores...")
+    print("\n[6/7] Curando proveedores...")
 
-    # Only suppliers that sold construction materials (in curated products)
     curated_product_suppliers = set()
     for p in curated_products:
-        pid_for_product = None
         for pid, data in product_data.items():
-            if max(data["labels"], key=len) if data["labels"] else "" == p["name"]:
+            labels = list(data["labels"])
+            best_label = max(labels, key=len) if labels else ""
+            # Match por nombre limpio
+            if clean_product_name(best_label) == p["name"] or best_label == p["name"]:
                 curated_product_suppliers |= data["suppliers"]
                 break
 
     curated_suppliers = []
-    seen_names = set()
+    seen_sup_names = set()
 
     for sup_name, sup_info in active_suppliers.items():
-        # Deduplicate by normalized name
         name_norm = normalize(sup_name)
-        if name_norm in seen_names:
+        if name_norm in seen_sup_names:
             continue
-        seen_names.add(name_norm)
+        seen_sup_names.add(name_norm)
 
-        # Enrich from supplier catalog
         enriched = dict(sup_info)
         for sid, cat_sup in supplier_catalog.items():
             if normalize(cat_sup["name"]) == name_norm:
@@ -651,13 +1022,9 @@ def main():
                     enriched["nit"] = cat_sup["nit"]
                 break
 
-        # Clean phone
         whatsapp = clean_phone(enriched.get("phone", ""))
-
-        # Infer department
         department = infer_department(enriched.get("address", ""), enriched.get("phone", ""))
 
-        # Infer categories from products sold
         sup_categories = set()
         for pid in supplier_products.get(sup_name, set()):
             if pid in product_data:
@@ -669,16 +1036,29 @@ def main():
                 if cat:
                     sup_categories.add(cat)
 
+        # Validar WhatsApp
+        is_valid_wa, clean_wa, wa_issue = validate_whatsapp_bolivia(whatsapp)
+
         supplier = {
             "name": sup_name,
-            "whatsapp": whatsapp or "0000000000",
+            "whatsapp": clean_wa if is_valid_wa else "",
+            "phone": enriched.get("phone", ""),
             "city": enriched.get("city") or department,
             "department": department,
             "categories": sorted(sup_categories) if sup_categories else [],
-            "verification_state": "verified",
+            "verification_state": "verified" if is_valid_wa else "pending",
         }
-        if enriched.get("phone"):
+        if wa_issue:
+            supplier["_wa_issue"] = wa_issue
+            # Si es fijo, guardarlo como telefono en vez de whatsapp
+            if wa_issue == "landline" and clean_wa:
+                supplier["phone"] = clean_wa
+        # Solo sobrescribir phone si no se asigno ya por landline
+        if enriched.get("phone") and not supplier.get("phone"):
             supplier["phone"] = clean_phone(enriched["phone"])
+        # Limpiar phone vacio
+        if not supplier.get("phone"):
+            supplier.pop("phone", None)
         if enriched.get("email"):
             supplier["email"] = enriched["email"]
         if enriched.get("nit"):
@@ -689,25 +1069,40 @@ def main():
         curated_suppliers.append(supplier)
 
     curated_suppliers.sort(key=lambda s: s["name"])
+
+    # Resumen de validacion WhatsApp
+    wa_issues = Counter(s.get("_wa_issue", "valid") for s in curated_suppliers)
+    wa_verified = sum(1 for s in curated_suppliers if s["verification_state"] == "verified")
+    wa_pending = sum(1 for s in curated_suppliers if s["verification_state"] == "pending")
     print(f"  {len(curated_suppliers)} proveedores curados")
+    print(f"  WhatsApp: {wa_verified} verificados, {wa_pending} pendientes")
+    for issue, count in wa_issues.most_common():
+        print(f"    {issue}: {count}")
 
     # ── Build price history ──────────────────────────────────
-    print("\nGenerando historial de precios...")
-    price_history = []
+    print("\n[7/7] Generando historial de precios...")
+
+    # Build name lookup: pid -> curated product name
+    pid_to_curated_name = {}
     for pid, data in product_data.items():
         labels = list(data["labels"])
-        label = max(labels, key=len) if labels else ""
-        if not label:
-            continue
+        best_label = max(labels, key=len) if labels else ""
+        cleaned = clean_product_name(best_label)
+        # Find matching curated product
+        for p in curated_products:
+            if p["name"] == cleaned or p["name"] == best_label:
+                pid_to_curated_name[pid] = p["name"]
+                break
 
-        # Only for curated products
-        is_curated = any(p["name"] == label for p in curated_products)
-        if not is_curated:
+    price_history = []
+    for pid, data in product_data.items():
+        curated_name = pid_to_curated_name.get(pid)
+        if not curated_name:
             continue
 
         for rec in data["price_records"]:
             price_history.append({
-                "product_name": label,
+                "product_name": curated_name,
                 "supplier_name": rec["supplier_name"],
                 "unit_price": rec["unit_price"],
                 "currency": "BOB",
@@ -722,6 +1117,8 @@ def main():
     # ── Save outputs ─────────────────────────────────────────
     print("\nGuardando archivos...")
 
+    DATA_DIR.mkdir(exist_ok=True)
+
     with open(DATA_DIR / "curated_suppliers.json", "w", encoding="utf-8") as f:
         json.dump(curated_suppliers, f, ensure_ascii=False, indent=2)
     print(f"  curated_suppliers.json: {len(curated_suppliers)} proveedores")
@@ -734,24 +1131,49 @@ def main():
         json.dump(price_history, f, ensure_ascii=False, indent=2)
     print(f"  curated_prices.json: {len(price_history)} registros de precio")
 
+    # Review con razones
+    for p in review_products:
+        p.pop("_pid", None)
+        p.pop("_original_label", None)
     with open(DATA_DIR / "curated_review.json", "w", encoding="utf-8") as f:
         json.dump(review_products, f, ensure_ascii=False, indent=2)
     print(f"  curated_review.json: {len(review_products)} items para revision")
 
+    # AI normalize queue
+    ai_output = []
+    for p in ai_normalize_queue:
+        ai_output.append({
+            "current_name": p["name"],
+            "description": p.get("description", ""),
+            "code": p.get("code", ""),
+            "category": p.get("category", ""),
+            "ref_price": p.get("ref_price"),
+            "uom": p.get("uom", ""),
+        })
+    with open(DATA_DIR / "curated_ai_normalize.json", "w", encoding="utf-8") as f:
+        json.dump(ai_output, f, ensure_ascii=False, indent=2)
+    print(f"  curated_ai_normalize.json: {len(ai_output)} items para IA")
+
     # ── Report ───────────────────────────────────────────────
     report_lines = [
         "=" * 60,
-        "REPORTE DE CURACION v2",
+        "REPORTE DE CURACION v3",
         "=" * 60,
         "",
         f"Fuentes:",
-        f"  Pedidos: {len(pedidos_lines)} lineas ({len(product_lines)} productos, {len(pedidos_lines) - len(product_lines)} servicios)",
+        f"  Pedidos: {len(pedidos_lines)} lineas ({len(product_lines)} productos, {len(service_lines)} servicios)",
         f"  Catalogo productos: {len(product_catalog)}",
         f"  Catalogo proveedores: {len(supplier_catalog)}",
+        "",
+        f"Filtros aplicados:",
+        f"  Excluidos por keywords: {excluded_count}",
+        f"  Excluidos por ser servicios: {service_count}",
+        f"  Excluidos por precio outlier: {outlier_count}",
         "",
         f"Resultados:",
         f"  Productos curados: {len(curated_products)}",
         f"  Productos para revision: {len(review_products)}",
+        f"  Productos para normalizar con IA: {len(ai_output)}",
         f"  Proveedores curados: {len(curated_suppliers)}",
         f"  Registros de precio: {len(price_history)}",
         "",
@@ -760,28 +1182,25 @@ def main():
     for cat, count in category_counts.most_common():
         report_lines.append(f"  {cat}: {count}")
 
-    report_lines.extend([
-        "",
-        "Top 20 productos por frecuencia de compra:",
-    ])
+    report_lines.extend(["", "Top 20 productos por frecuencia de compra:"])
     top_products = sorted(curated_products, key=lambda p: p["order_count"], reverse=True)[:20]
     for p in top_products:
         report_lines.append(
-            f"  {p['name'][:45]:45s}  x{p['order_count']:4d}  {p['ref_price']:>10.2f} Bs/{p['uom']}"
+            f"  {p['name'][:50]:50s}  x{p['order_count']:4d}  {p['ref_price']:>10.2f} Bs/{p['uom']}"
         )
 
-    report_lines.extend([
-        "",
-        "Productos sin categoria (revision manual):",
-        f"  Total: {len([p for p in review_products if 'sin_categoria' in p.get('_reason', [])])}",
-    ])
+    report_lines.extend(["", "Review por razon:"])
+    review_reasons = Counter(p.get("_review_reason", "unknown") for p in review_products)
+    for reason, cnt in review_reasons.most_common():
+        report_lines.append(f"  {reason}: {cnt}")
 
     report_text = "\n".join(report_lines)
     with open(DATA_DIR / "curated_report.txt", "w", encoding="utf-8") as f:
         f.write(report_text)
 
     print("\n" + report_text)
-    print("\nCuracion completada!")
+    print("\nCuracion v3 completada!")
+    print("\nSiguiente paso: ejecutar 'python scripts/ai_normalize.py' para normalizar nombres con IA")
 
 
 if __name__ == "__main__":

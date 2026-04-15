@@ -1,4 +1,6 @@
+import json
 from datetime import date, timedelta
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -10,6 +12,8 @@ from app.core.security import get_current_user, get_current_user_optional
 from app.models.insumo import Insumo, InsumoRegionalPrice
 from app.models.price_history import PriceHistory
 from app.models.user import User
+
+REVIEW_FILE = Path(__file__).resolve().parent.parent.parent.parent / "data" / "curated_review.json"
 
 router = APIRouter()
 
@@ -494,6 +498,127 @@ async def get_product_suppliers(
             for r in rows
         ],
     }
+
+
+# ── Review Panel (curated_review.json) ─────────────────────────
+@router.get("/review/pending")
+async def list_review_items(
+    q: str | None = Query(None),
+    category: str | None = Query(None),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    user: User = Depends(get_current_user),
+):
+    """List items pending review from curated_review.json."""
+    if not REVIEW_FILE.exists():
+        return {"ok": True, "data": [], "total": 0}
+
+    with open(REVIEW_FILE, "r", encoding="utf-8") as f:
+        items = json.load(f)
+
+    # Filter
+    if q:
+        q_lower = q.lower()
+        items = [i for i in items if q_lower in i.get("name", "").lower()
+                 or q_lower in i.get("description", "").lower()]
+    if category:
+        items = [i for i in items if i.get("category") == category]
+
+    total = len(items)
+    page = items[offset:offset + limit]
+
+    # Add index for reference
+    for idx, item in enumerate(page):
+        item["_index"] = offset + idx
+
+    return {"ok": True, "data": page, "total": total}
+
+
+@router.get("/review/categories")
+async def review_categories(user: User = Depends(get_current_user)):
+    """List categories available in review items."""
+    if not REVIEW_FILE.exists():
+        return {"ok": True, "data": []}
+
+    with open(REVIEW_FILE, "r", encoding="utf-8") as f:
+        items = json.load(f)
+
+    from collections import Counter
+    cats = Counter(i.get("category") or "sin_categoria" for i in items)
+    return {
+        "ok": True,
+        "data": [{"name": k, "count": v} for k, v in sorted(cats.items())],
+    }
+
+
+class ReviewApproveInput(BaseModel):
+    name: str
+    uom: str
+    category: str
+    ref_price: float | None = None
+    description: str | None = None
+
+
+@router.post("/review/{index}/approve")
+async def approve_review_item(
+    index: int,
+    body: ReviewApproveInput,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Approve a review item: create it as a product and remove from review."""
+    if not REVIEW_FILE.exists():
+        raise HTTPException(status_code=404, detail="No hay items de review")
+
+    with open(REVIEW_FILE, "r", encoding="utf-8") as f:
+        items = json.load(f)
+
+    if index < 0 or index >= len(items):
+        raise HTTPException(status_code=404, detail="Item no encontrado")
+
+    # Create the product
+    from app.services.matching import normalize_text, normalize_uom
+    insumo = Insumo(
+        name=body.name,
+        name_normalized=normalize_text(body.name),
+        uom=body.uom,
+        uom_normalized=normalize_uom(body.uom),
+        category=body.category,
+        description=body.description,
+        ref_price=body.ref_price,
+        ref_currency="BOB",
+    )
+    db.add(insumo)
+    await db.flush()
+
+    # Remove from review file
+    items.pop(index)
+    with open(REVIEW_FILE, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+    return {"ok": True, "data": _insumo_to_dict(insumo), "remaining": len(items)}
+
+
+@router.delete("/review/{index}")
+async def reject_review_item(
+    index: int,
+    user: User = Depends(get_current_user),
+):
+    """Reject/discard a review item."""
+    if not REVIEW_FILE.exists():
+        raise HTTPException(status_code=404, detail="No hay items de review")
+
+    with open(REVIEW_FILE, "r", encoding="utf-8") as f:
+        items = json.load(f)
+
+    if index < 0 or index >= len(items):
+        raise HTTPException(status_code=404, detail="Item no encontrado")
+
+    removed = items.pop(index)
+    with open(REVIEW_FILE, "w", encoding="utf-8") as f:
+        json.dump(items, f, ensure_ascii=False, indent=2)
+
+    return {"ok": True, "removed": removed.get("name", ""), "remaining": len(items)}
 
 
 # ── Helpers ─────────────────────────────────────────────────────

@@ -162,6 +162,7 @@ const ICONS = {
     phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>',
     whatsapp: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>',
     map: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
+    'map-pin': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></svg>',
     star: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>',
     'bar-chart': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>',
     'trending-up': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23,6 13.5,15.5 8.5,10.5 1,18"/><polyline points="17,6 23,6 23,12"/></svg>',
@@ -170,6 +171,9 @@ const ICONS = {
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
     'user-plus': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>',
     key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
+    'check-circle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg>',
+    x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -575,6 +579,40 @@ function renderPagination(total, offset, limit, loadFn) {
     container.innerHTML = html;
 }
 
+// ── Map Utilities ─────────────────────────────────────────────
+const MapUtils = {
+    _map: null,
+    _markers: [],
+    createMap(containerId, center = [-16.5, -64.5], zoom = 6) {
+        if (this._map) { this._map.remove(); this._map = null; }
+        const map = L.map(containerId).setView(center, zoom);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+            maxZoom: 18,
+        }).addTo(map);
+        this._map = map;
+        return map;
+    },
+    clearMarkers() {
+        this._markers.forEach(m => m.remove());
+        this._markers = [];
+    },
+    addMarker(lat, lon, popup, opts = {}) {
+        if (!this._map) return null;
+        const marker = L.marker([lat, lon]).addTo(this._map);
+        if (popup) marker.bindPopup(popup);
+        this._markers.push(marker);
+        return marker;
+    },
+    fitToMarkers() {
+        if (!this._map || !this._markers.length) return;
+        const group = L.featureGroup(this._markers);
+        this._map.fitBounds(group.getBounds().pad(0.1));
+    },
+};
+
+let _supplierMapMode = false;
+
 // ── Render: Public Suppliers page ──────────────────────────────
 async function renderPublicSuppliers() {
     const page = document.getElementById('page-content');
@@ -589,15 +627,106 @@ async function renderPublicSuppliers() {
                 <option value="">Todos los departamentos</option>
                 ${DEPARTMENTS.map(d => `<option value="${d}"${state.selectedDepartment === d ? ' selected' : ''}>${d}</option>`).join('')}
             </select>
+            <button class="btn btn-secondary" id="btn-toggle-map" onclick="toggleSupplierMap()" title="Ver en mapa">
+                ${icon('map-pin',16)} ${_supplierMapMode ? 'Lista' : 'Mapa'}
+            </button>
+            <button class="btn btn-secondary" onclick="findNearbySuppliers()" title="Cerca de mi">
+                ${icon('map-pin',16)} Cerca de mi
+            </button>
         </div>
         <div class="categories-bar" id="supplier-categories"></div>
-        <div class="supplier-grid" id="suppliers-list">
+        <div id="supplier-map-container" style="height:450px;border-radius:8px;margin-bottom:16px;display:${_supplierMapMode ? 'block' : 'none'}"></div>
+        <div class="supplier-grid" id="suppliers-list" style="display:${_supplierMapMode ? 'none' : 'grid'}">
             <div class="empty-state"><p>Cargando...</p></div>
         </div>
     `;
 
     loadSupplierCategoryChips();
     loadPublicSuppliers();
+}
+
+function toggleSupplierMap() {
+    _supplierMapMode = !_supplierMapMode;
+    const mapEl = document.getElementById('supplier-map-container');
+    const listEl = document.getElementById('suppliers-list');
+    const btn = document.getElementById('btn-toggle-map');
+    if (_supplierMapMode) {
+        mapEl.style.display = 'block';
+        listEl.style.display = 'none';
+        if (btn) btn.innerHTML = `${icon('map-pin',16)} Lista`;
+        // Initialize map if not done
+        MapUtils.createMap('supplier-map-container');
+        loadSuppliersOnMap();
+    } else {
+        mapEl.style.display = 'none';
+        listEl.style.display = 'grid';
+        if (btn) btn.innerHTML = `${icon('map-pin',16)} Mapa`;
+    }
+}
+
+async function loadSuppliersOnMap() {
+    const q = document.getElementById('supplier-search')?.value?.trim() || '';
+    let params = '?limit=200';
+    if (q) params += `&q=${encodeURIComponent(q)}`;
+    if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
+    if (state.selectedDepartment) params += `&department=${encodeURIComponent(state.selectedDepartment)}`;
+
+    try {
+        const resp = await API.publicSuppliers(params);
+        MapUtils.clearMarkers();
+        if (resp.ok && resp.data) {
+            resp.data.forEach(s => {
+                if (s.latitude && s.longitude) {
+                    const cats = (s.categories || []).map(c => esc(c)).join(', ');
+                    const wa = s.whatsapp ? `<br><a href="https://wa.me/${s.whatsapp}" target="_blank" style="color:#25d366">WhatsApp</a>` : '';
+                    MapUtils.addMarker(s.latitude, s.longitude,
+                        `<strong>${esc(s.name)}</strong><br>${esc(s.city || '')} - ${esc(s.department || '')}<br><small>${cats}</small>${wa}`
+                    );
+                }
+            });
+            MapUtils.fitToMarkers();
+        }
+    } catch {}
+}
+
+async function findNearbySuppliers() {
+    if (!navigator.geolocation) {
+        toast('Geolocalizacion no disponible en tu navegador', 'error');
+        return;
+    }
+    toast('Obteniendo tu ubicacion...', 'info');
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+        const { latitude, longitude } = pos.coords;
+        try {
+            const resp = await API.get(`/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=30`);
+            if (resp.ok && resp.data.length) {
+                _supplierMapMode = true;
+                const mapEl = document.getElementById('supplier-map-container');
+                const listEl = document.getElementById('suppliers-list');
+                if (mapEl) mapEl.style.display = 'block';
+                if (listEl) listEl.style.display = 'none';
+                MapUtils.createMap('supplier-map-container', [latitude, longitude], 11);
+                MapUtils.clearMarkers();
+                // Add user marker
+                L.marker([latitude, longitude], {
+                    icon: L.divIcon({ className: 'user-marker', html: '<div style="background:#1e40af;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 0 4px rgba(0,0,0,0.3)"></div>', iconSize: [20, 20], iconAnchor: [10, 10] })
+                }).addTo(MapUtils._map).bindPopup('Tu ubicacion');
+                resp.data.forEach(s => {
+                    if (s.latitude && s.longitude) {
+                        MapUtils.addMarker(s.latitude, s.longitude,
+                            `<strong>${esc(s.name)}</strong><br>${esc(s.city || '')} - ${esc(s.department || '')}<br><em>${s.distance_km} km</em>`
+                        );
+                    }
+                });
+                MapUtils.fitToMarkers();
+                toast(`${resp.data.length} proveedores encontrados cerca`, 'success');
+            } else {
+                toast('No se encontraron proveedores cercanos con ubicacion', 'info');
+            }
+        } catch { toast('Error buscando proveedores cercanos', 'error'); }
+    }, () => {
+        toast('No se pudo obtener tu ubicacion', 'error');
+    });
 }
 
 async function loadSupplierCategoryChips() {
@@ -793,6 +922,7 @@ async function renderAdmin() {
         { key: 'suppliers', label: 'Proveedores', icon: 'users' },
         { key: 'products', label: 'Productos', icon: 'tag' },
     ];
+    if (isAdmin()) tabs.push({ key: 'review', label: 'Revision', icon: 'check-circle' });
     if (isAdmin()) tabs.push({ key: 'categories', label: 'Categorias', icon: 'tag' });
     if (isAdmin()) tabs.push({ key: 'uoms', label: 'Unidades', icon: 'settings' });
     if (isManager()) tabs.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
@@ -827,6 +957,7 @@ function renderAdminTab() {
         case 'dashboard': renderAdminDashboard(); break;
         case 'suppliers': renderAdminSuppliers(); break;
         case 'products': renderAdminProducts(); break;
+        case 'review': renderAdminReview(); break;
         case 'categories': renderAdminCategories(); break;
         case 'uoms': renderAdminUoms(); break;
         case 'users': renderAdminUsers(); break;
@@ -866,17 +997,50 @@ async function renderAdminDashboard() {
 }
 
 // ── Admin: Suppliers ───────────────────────────────────────────
+let _admSupOffset = 0;
+let _admSupCategory = '';
+let _admSupContact = '';
+const _admSupPageSize = 50;
+
 async function renderAdminSuppliers() {
     const c = document.getElementById('admin-content');
+
+    // Load categories for filter
+    let catOptions = '<option value="">Todas las categorias</option>';
+    try {
+        const catsRes = await API.adminCategories();
+        if (catsRes.ok && catsRes.data) {
+            catOptions += catsRes.data.map(cat =>
+                `<option value="${esc(cat.key)}" ${_admSupCategory === cat.key ? 'selected' : ''}>${esc(cat.label || cat.key)}</option>`
+            ).join('');
+        }
+    } catch {}
+
     c.innerHTML = `
-        <div class="search-bar">
-            <input class="form-input" id="admin-supplier-search" placeholder="Buscar proveedor..." oninput="debounceAdminSuppliers()">
-            <select class="form-select" id="admin-supplier-state" onchange="loadAdminSuppliers()" style="max-width:160px">
-                <option value="">Todos los estados</option>
-                <option value="pending">Pendiente</option>
-                <option value="verified">Verificado</option>
-                <option value="rejected">Rechazado</option>
-            </select>
+        <div class="admin-toolbar">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input class="form-input" id="admin-supplier-search" placeholder="Buscar proveedor..."
+                       oninput="debounceAdminSuppliers()" style="width:200px">
+                <select class="form-select" id="admin-supplier-state" onchange="_admSupOffset=0;loadAdminSuppliers()" style="max-width:160px">
+                    <option value="">Todos los estados</option>
+                    <option value="pending">Pendiente</option>
+                    <option value="verified">Verificado</option>
+                    <option value="rejected">Rechazado</option>
+                </select>
+                <select id="admin-supplier-category"
+                        onchange="_admSupCategory=this.value;_admSupOffset=0;loadAdminSuppliers()"
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px">
+                    ${catOptions}
+                </select>
+                <select id="admin-supplier-contact"
+                        onchange="_admSupContact=this.value;_admSupOffset=0;loadAdminSuppliers()"
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px">
+                    <option value="">Todos contactos</option>
+                    <option value="valid_wa" ${_admSupContact === 'valid_wa' ? 'selected' : ''}>WhatsApp valido</option>
+                    <option value="no_wa" ${_admSupContact === 'no_wa' ? 'selected' : ''}>Sin WhatsApp</option>
+                    <option value="invalid_wa" ${_admSupContact === 'invalid_wa' ? 'selected' : ''}>WhatsApp invalido</option>
+                </select>
+            </div>
             <button class="btn btn-primary" onclick="showAdminSupplierForm()">
                 ${icon('plus',16)} Nuevo
             </button>
@@ -889,15 +1053,17 @@ async function renderAdminSuppliers() {
 let _admSupTimer;
 function debounceAdminSuppliers() {
     clearTimeout(_admSupTimer);
-    _admSupTimer = setTimeout(loadAdminSuppliers, 300);
+    _admSupTimer = setTimeout(() => { _admSupOffset = 0; loadAdminSuppliers(); }, 300);
 }
 
 async function loadAdminSuppliers() {
     const q = document.getElementById('admin-supplier-search')?.value?.trim() || '';
     const st = document.getElementById('admin-supplier-state')?.value || '';
-    let params = '?limit=100';
+    let params = `?limit=${_admSupPageSize}&offset=${_admSupOffset}`;
     if (q) params += `&q=${encodeURIComponent(q)}`;
     if (st) params += `&state=${encodeURIComponent(st)}`;
+    if (_admSupCategory) params += `&category=${encodeURIComponent(_admSupCategory)}`;
+    if (_admSupContact) params += `&contact=${encodeURIComponent(_admSupContact)}`;
 
     try {
         const resp = await API.suppliers(params);
@@ -907,29 +1073,43 @@ async function loadAdminSuppliers() {
             container.innerHTML = '<div class="empty-state"><p>No hay proveedores</p></div>';
             return;
         }
+        const total = resp.total || 0;
         container.innerHTML = `
             <div class="table-wrap"><table>
                 <thead><tr>
                     <th>Nombre</th><th>Ciudad</th><th>Depto.</th><th>WhatsApp</th>
                     <th>Categorias</th><th>Estado</th><th>Acciones</th>
                 </tr></thead>
-                <tbody>${resp.data.map(s => `
+                <tbody>${resp.data.map(s => {
+                    const waNum = (s.whatsapp || '').replace(/[^0-9]/g, '');
+                    const waInvalid = !waNum || waNum === '0000000000' || (waNum.startsWith('591') && waNum.length >= 11 && !['6','7'].includes(waNum[3]));
+                    return `
                     <tr>
                         <td><strong>${esc(s.name)}</strong>${s.trade_name ? `<br><small style="color:var(--gray-500)">${esc(s.trade_name)}</small>` : ''}</td>
                         <td>${esc(s.city) || '-'}</td>
                         <td>${esc(s.department) || '-'}</td>
-                        <td>${s.whatsapp ? `<a href="https://wa.me/${s.whatsapp.replace(/[^0-9]/g,'')}" target="_blank" style="color:var(--whatsapp)">${esc(s.whatsapp)}</a>` : '-'}</td>
+                        <td>${s.whatsapp && s.whatsapp !== '0000000000'
+                            ? `<a href="https://wa.me/${waNum}" target="_blank" style="color:${waInvalid ? 'var(--danger)' : 'var(--whatsapp)'}">${esc(s.whatsapp)}${waInvalid ? ' ⚠' : ''}</a>`
+                            : '<span style="color:var(--danger)">Sin WhatsApp</span>'}</td>
                         <td>${(s.categories || []).map(c => `<span class="supplier-cat">${esc(c)}</span>`).join(' ') || '-'}</td>
                         <td><span class="badge badge-${s.verification_state === 'verified' ? 'success' : s.verification_state === 'rejected' ? 'danger' : 'warning'}">${esc(s.verification_state)}</span></td>
                         <td style="white-space:nowrap">
-                            <button class="btn btn-sm btn-secondary" onclick="showSupplierProducts(${s.id}, '${esc(s.name)}')" title="Ver productos">${icon('tag',14)}</button>
+                            <button class="btn btn-sm btn-secondary" onclick="showSupplierProducts(${s.id}, decodeURIComponent('${encodeURIComponent(s.name)}'))" title="Ver productos">${icon('tag',14)}</button>
                             <button class="btn btn-sm btn-secondary" onclick="showAdminSupplierForm(${s.id})" title="Editar">${icon('edit',14)}</button>
                             ${isManager() ? `<button class="btn btn-sm btn-secondary" onclick="verifySupplier(${s.id},'verified')" title="Verificar" style="color:var(--success)">&#10003;</button>` : ''}
                         </td>
-                    </tr>
-                `).join('')}</tbody>
+                    </tr>`;
+                }).join('')}</tbody>
             </table></div>
-            <p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${resp.total} proveedores</p>
+            ${total > _admSupPageSize ? `
+                <div style="display:flex;justify-content:center;gap:8px;margin-top:16px;align-items:center">
+                    <button class="btn btn-sm" ${_admSupOffset === 0 ? 'disabled' : ''}
+                            onclick="_admSupOffset=Math.max(0,_admSupOffset-${_admSupPageSize});loadAdminSuppliers()">Anterior</button>
+                    <span style="padding:6px;color:#666;font-size:13px">${_admSupOffset + 1}-${Math.min(_admSupOffset + _admSupPageSize, total)} de ${total}</span>
+                    <button class="btn btn-sm" ${_admSupOffset + _admSupPageSize >= total ? 'disabled' : ''}
+                            onclick="_admSupOffset+=${_admSupPageSize};loadAdminSuppliers()">Siguiente</button>
+                </div>
+            ` : `<p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${total} proveedores</p>`}
         `;
     } catch { document.getElementById('admin-suppliers-list').innerHTML = '<div class="empty-state"><p>Error cargando</p></div>'; }
 }
@@ -1029,6 +1209,10 @@ function showAdminSupplierForm(editId) {
                     <option value="telegram">Telegram</option>
                 </select>
             </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Latitud</label><input class="form-input" name="latitude" type="number" step="any" placeholder="-16.5"></div>
+                <div class="form-group"><label class="form-label">Longitud</label><input class="form-input" name="longitude" type="number" step="any" placeholder="-68.15"></div>
+            </div>
             ${isManager() ? `
             <div class="form-group"><label class="form-label">Estado de verificacion</label>
                 <select class="form-select" name="verification_state">
@@ -1041,10 +1225,19 @@ function showAdminSupplierForm(editId) {
                 ${editId ? 'Guardar Cambios' : 'Registrar Proveedor'}
             </button>
         </form>
+        ${editId ? `
+        <hr style="margin:16px 0">
+        <h4 style="margin-bottom:8px">Sucursales</h4>
+        <div id="supplier-branches-list"><p style="color:#999;font-size:13px">Cargando sucursales...</p></div>
+        <button class="btn btn-sm btn-secondary" onclick="showBranchForm(${editId})" style="margin-top:8px">+ Agregar Sucursal</button>
+        ` : ''}
     `);
 
     // If editing, load existing data
-    if (editId) loadSupplierIntoForm(editId);
+    if (editId) {
+        loadSupplierIntoForm(editId);
+        loadSupplierBranches(editId);
+    }
 }
 
 async function loadSupplierIntoForm(id) {
@@ -1064,6 +1257,8 @@ async function loadSupplierIntoForm(id) {
         if (s.department) f.department.value = s.department;
         if (s.address) f.address.value = s.address;
         if (s.preferred_channel) f.preferred_channel.value = s.preferred_channel;
+        if (s.latitude) f.latitude.value = s.latitude;
+        if (s.longitude) f.longitude.value = s.longitude;
         if (f.verification_state && s.verification_state) f.verification_state.value = s.verification_state;
         // Check category checkboxes
         (s.categories || []).forEach(c => {
@@ -1092,6 +1287,8 @@ async function handleAdminSupplier(e, editId) {
         address: f.address.value || null,
         categories: categories.length ? categories : null,
         preferred_channel: f.preferred_channel.value,
+        latitude: f.latitude.value ? parseFloat(f.latitude.value) : null,
+        longitude: f.longitude.value ? parseFloat(f.longitude.value) : null,
     };
 
     if (f.verification_state) {
@@ -1112,12 +1309,164 @@ async function handleAdminSupplier(e, editId) {
     } catch { toast('Error de conexion', 'error'); }
 }
 
+// ── Supplier Branches ─────────────────────────────────────────
+async function loadSupplierBranches(supplierId) {
+    const container = document.getElementById('supplier-branches-list');
+    if (!container) return;
+    try {
+        const resp = await API.get(`/suppliers/${supplierId}/branches`);
+        if (!resp.ok || !resp.data.length) {
+            container.innerHTML = '<p style="color:#999;font-size:13px">Sin sucursales registradas</p>';
+            return;
+        }
+        container.innerHTML = `<table style="width:100%;font-size:13px;border-collapse:collapse">
+            <thead><tr style="text-align:left;border-bottom:1px solid #eee">
+                <th>Sucursal</th><th>Ciudad</th><th>WhatsApp</th><th>Acciones</th>
+            </tr></thead>
+            <tbody>${resp.data.map(b => `
+                <tr style="border-bottom:1px solid #f0f0f0">
+                    <td>${esc(b.branch_name)}${b.is_main ? ' <span class="badge badge-success" style="font-size:10px">Principal</span>' : ''}</td>
+                    <td>${esc(b.city || '-')}</td>
+                    <td>${b.whatsapp || '-'}</td>
+                    <td>
+                        <button class="btn btn-sm btn-secondary" onclick="showBranchForm(${supplierId}, ${b.id})" style="padding:2px 6px">${icon('edit',12)}</button>
+                        <button class="btn btn-sm btn-danger" onclick="deleteBranch(${supplierId}, ${b.id})" style="padding:2px 6px">${icon('x',12)}</button>
+                    </td>
+                </tr>
+            `).join('')}</tbody>
+        </table>`;
+    } catch {
+        container.innerHTML = '<p style="color:red;font-size:13px">Error cargando sucursales</p>';
+    }
+}
+
+function showBranchForm(supplierId, branchId) {
+    const title = branchId ? 'Editar Sucursal' : 'Nueva Sucursal';
+    const formHtml = `
+        <form id="branch-form" onsubmit="handleBranch(event, ${supplierId}, ${branchId || 'null'})">
+            <div class="form-group"><label class="form-label">Nombre Sucursal *</label>
+                <input class="form-input" name="branch_name" required placeholder="Sucursal Santa Cruz"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Ciudad</label><input class="form-input" name="city" placeholder="Santa Cruz"></div>
+                <div class="form-group"><label class="form-label">Departamento</label>
+                    <select class="form-select" name="department">
+                        <option value="">Seleccionar...</option>
+                        ${DEPARTMENTS.map(d => `<option value="${d}">${d}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            <div class="form-group"><label class="form-label">Direccion</label><input class="form-input" name="address" placeholder="Av. Banzer #456"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Telefono</label><input class="form-input" name="phone"></div>
+                <div class="form-group"><label class="form-label">WhatsApp</label><input class="form-input" name="whatsapp" placeholder="59177001122"></div>
+            </div>
+            <div class="form-group"><label class="form-label">Email</label><input class="form-input" type="email" name="email"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group"><label class="form-label">Latitud</label><input class="form-input" name="latitude" type="number" step="any"></div>
+                <div class="form-group"><label class="form-label">Longitud</label><input class="form-input" name="longitude" type="number" step="any"></div>
+            </div>
+            <div class="form-group"><label style="display:flex;align-items:center;gap:6px;font-size:13px">
+                <input type="checkbox" name="is_main"> Sucursal principal
+            </label></div>
+            <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">${branchId ? 'Guardar' : 'Crear Sucursal'}</button>
+        </form>
+    `;
+    showModal(title, formHtml);
+    if (branchId) loadBranchIntoForm(supplierId, branchId);
+}
+
+async function loadBranchIntoForm(supplierId, branchId) {
+    try {
+        const resp = await API.get(`/suppliers/${supplierId}/branches`);
+        if (!resp.ok) return;
+        const b = resp.data.find(x => x.id === branchId);
+        if (!b) return;
+        const f = document.getElementById('branch-form');
+        if (!f) return;
+        f.branch_name.value = b.branch_name || '';
+        f.city.value = b.city || '';
+        f.department.value = b.department || '';
+        f.address.value = b.address || '';
+        f.phone.value = b.phone || '';
+        f.whatsapp.value = b.whatsapp || '';
+        f.email.value = b.email || '';
+        if (b.latitude) f.latitude.value = b.latitude;
+        if (b.longitude) f.longitude.value = b.longitude;
+        f.is_main.checked = b.is_main || false;
+    } catch {}
+}
+
+async function handleBranch(e, supplierId, branchId) {
+    e.preventDefault();
+    const f = e.target;
+    const data = {
+        branch_name: f.branch_name.value,
+        city: f.city.value || null,
+        department: f.department.value || null,
+        address: f.address.value || null,
+        phone: f.phone.value || null,
+        whatsapp: f.whatsapp.value || null,
+        email: f.email.value || null,
+        latitude: f.latitude.value ? parseFloat(f.latitude.value) : null,
+        longitude: f.longitude.value ? parseFloat(f.longitude.value) : null,
+        is_main: f.is_main.checked,
+    };
+    try {
+        const resp = branchId
+            ? await API.put(`/suppliers/${supplierId}/branches/${branchId}`, data)
+            : await API.post(`/suppliers/${supplierId}/branches`, data);
+        if (resp.ok) {
+            closeModal();
+            toast(branchId ? 'Sucursal actualizada' : 'Sucursal creada', 'success');
+            // Reload the supplier form to show updated branches
+            showAdminSupplierForm(supplierId);
+        } else {
+            toast(resp.detail || 'Error', 'error');
+        }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function deleteBranch(supplierId, branchId) {
+    if (!confirm('Eliminar esta sucursal?')) return;
+    try {
+        const resp = await API.del(`/suppliers/${supplierId}/branches/${branchId}`);
+        if (resp.ok) {
+            toast('Sucursal eliminada', 'success');
+            loadSupplierBranches(supplierId);
+        } else { toast(resp.detail || 'Error', 'error'); }
+    } catch { toast('Error de conexion', 'error'); }
+}
+
 // ── Admin: Products ────────────────────────────────────────────
+let _admProdOffset = 0;
+let _admProdCategory = '';
+const _admProdPageSize = 50;
+
 async function renderAdminProducts() {
     const c = document.getElementById('admin-content');
+
+    // Load categories for filter
+    let catOptions = '<option value="">Todas las categorias</option>';
+    try {
+        const catsRes = await API.adminCategories();
+        if (catsRes.ok && catsRes.data) {
+            catOptions += catsRes.data.map(cat =>
+                `<option value="${esc(cat.key)}" ${_admProdCategory === cat.key ? 'selected' : ''}>${esc(cat.label || cat.key)}</option>`
+            ).join('');
+        }
+    } catch {}
+
     c.innerHTML = `
-        <div class="search-bar">
-            <input class="form-input" id="admin-product-search" placeholder="Buscar producto/insumo..." oninput="debounceAdminProducts()">
+        <div class="admin-toolbar">
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input class="form-input" id="admin-product-search" placeholder="Buscar producto/insumo..."
+                       oninput="debounceAdminProducts()" style="width:250px">
+                <select id="admin-product-category"
+                        onchange="_admProdCategory=this.value;_admProdOffset=0;loadAdminProducts()"
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px">
+                    ${catOptions}
+                </select>
+            </div>
             <button class="btn btn-primary" onclick="showAdminProductForm()">
                 ${icon('plus',16)} Nuevo
             </button>
@@ -1130,13 +1479,14 @@ async function renderAdminProducts() {
 let _admProdTimer;
 function debounceAdminProducts() {
     clearTimeout(_admProdTimer);
-    _admProdTimer = setTimeout(loadAdminProducts, 300);
+    _admProdTimer = setTimeout(() => { _admProdOffset = 0; loadAdminProducts(); }, 300);
 }
 
 async function loadAdminProducts() {
     const q = document.getElementById('admin-product-search')?.value?.trim() || '';
-    let params = '?limit=100';
+    let params = `?limit=${_admProdPageSize}&offset=${_admProdOffset}`;
     if (q) params += `&q=${encodeURIComponent(q)}`;
+    if (_admProdCategory) params += `&category=${encodeURIComponent(_admProdCategory)}`;
 
     try {
         const resp = await API.insumos(params);
@@ -1146,6 +1496,7 @@ async function loadAdminProducts() {
             container.innerHTML = '<div class="empty-state"><p>No hay productos</p></div>';
             return;
         }
+        const total = resp.total || 0;
         container.innerHTML = `
             <div class="table-wrap"><table>
                 <thead><tr>
@@ -1156,16 +1507,24 @@ async function loadAdminProducts() {
                         <td><strong>${esc(p.name)}</strong></td>
                         <td>${p.code ? `<span class="badge badge-gray">${esc(p.code)}</span>` : '-'}</td>
                         <td>${esc(p.uom)}</td>
-                        <td>${p.category ? esc(p.category) : '-'}</td>
+                        <td>${p.category ? `<span class="badge">${esc(p.category)}</span>` : '-'}</td>
                         <td>${p.ref_price ? `${p.ref_price.toFixed(2)} ${esc(p.ref_currency)}` : '-'}</td>
                         <td style="white-space:nowrap">
-                            <button class="btn btn-sm btn-secondary" onclick="showPriceHistory(${p.id}, '${esc(p.name)}')" title="Ver historial de precios">${icon('trending-up',14)}</button>
+                            <button class="btn btn-sm btn-secondary" onclick="showPriceHistory(${p.id}, decodeURIComponent('${encodeURIComponent(p.name)}'))" title="Ver historial de precios">${icon('trending-up',14)}</button>
                             <button class="btn btn-sm btn-secondary" onclick="showAdminProductForm(${p.id})">${icon('edit',14)}</button>
                         </td>
                     </tr>
                 `).join('')}</tbody>
             </table></div>
-            <p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${resp.total} productos</p>
+            ${total > _admProdPageSize ? `
+                <div style="display:flex;justify-content:center;gap:8px;margin-top:16px;align-items:center">
+                    <button class="btn btn-sm" ${_admProdOffset === 0 ? 'disabled' : ''}
+                            onclick="_admProdOffset=Math.max(0,_admProdOffset-${_admProdPageSize});loadAdminProducts()">Anterior</button>
+                    <span style="padding:6px;color:#666;font-size:13px">${_admProdOffset + 1}-${Math.min(_admProdOffset + _admProdPageSize, total)} de ${total}</span>
+                    <button class="btn btn-sm" ${_admProdOffset + _admProdPageSize >= total ? 'disabled' : ''}
+                            onclick="_admProdOffset+=${_admProdPageSize};loadAdminProducts()">Siguiente</button>
+                </div>
+            ` : `<p style="margin-top:8px;font-size:13px;color:var(--gray-500)">${total} productos</p>`}
         `;
     } catch { document.getElementById('admin-products-list').innerHTML = '<div class="empty-state"><p>Error cargando</p></div>'; }
 }
@@ -1477,6 +1836,191 @@ async function refreshPrice(insumoId) {
         }
     } catch {
         if (resultSpan) resultSpan.textContent = 'Error de conexion';
+    }
+}
+
+// ── Admin: Review Panel ──────────────────────────────────────
+let _reviewOffset = 0;
+let _reviewCategory = '';
+let _reviewSearch = '';
+
+async function renderAdminReview() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<p>Cargando items de revision...</p>';
+
+    try {
+        // Load categories and items in parallel
+        const [catsRes, itemsRes] = await Promise.all([
+            API.get('/prices/review/categories'),
+            API.get(`/prices/review/pending?offset=${_reviewOffset}&limit=25${_reviewCategory ? '&category=' + _reviewCategory : ''}${_reviewSearch ? '&q=' + encodeURIComponent(_reviewSearch) : ''}`),
+        ]);
+
+        const categories = catsRes.data || [];
+        const items = itemsRes.data || [];
+        const total = itemsRes.total || 0;
+
+        c.innerHTML = `
+            <div class="admin-toolbar">
+                <h3>${icon('check-circle', 20)} Revision de Datos (${total} pendientes)</h3>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                    <input type="text" placeholder="Buscar..." value="${_reviewSearch}"
+                           onchange="_reviewSearch=this.value;_reviewOffset=0;renderAdminReview()"
+                           style="padding:6px 10px;border:1px solid #ddd;border-radius:4px;width:200px">
+                    <select onchange="_reviewCategory=this.value;_reviewOffset=0;renderAdminReview()"
+                            style="padding:6px 10px;border:1px solid #ddd;border-radius:4px">
+                        <option value="">Todas las categorias</option>
+                        ${categories.map(c => `<option value="${c.name}" ${_reviewCategory === c.name ? 'selected' : ''}>${c.name} (${c.count})</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+            <p style="color:#666;margin:8px 0">
+                Items sin categoria del curado de datos. Puedes aprobarlos (se crean como productos) o descartarlos.
+            </p>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>Nombre</th>
+                        <th>Descripcion</th>
+                        <th>UOM</th>
+                        <th>Categoria</th>
+                        <th>Precio Ref</th>
+                        <th>Compras</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${items.length === 0 ? '<tr><td colspan="8" style="text-align:center;color:#999">No hay items pendientes</td></tr>' : ''}
+                    ${items.map(item => `
+                        <tr>
+                            <td>${item._index}</td>
+                            <td><strong>${esc(item.name || '')}</strong></td>
+                            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+                                title="${esc(item.description || '')}">${esc((item.description || '').substring(0, 50))}</td>
+                            <td>${esc(item.uom || 'pza')}</td>
+                            <td>${item.category ? `<span class="badge">${esc(item.category)}</span>` : '<em style="color:#999">sin cat.</em>'}</td>
+                            <td>${item.ref_price ? item.ref_price.toFixed(2) + ' Bs' : '-'}</td>
+                            <td>${item.order_count || 0}</td>
+                            <td>
+                                <button class="btn btn-sm btn-primary" onclick="showReviewApproveForm(${item._index}, ${JSON.stringify(JSON.stringify(item))})">
+                                    ${icon('check', 14)} Aprobar
+                                </button>
+                                <button class="btn btn-sm btn-danger" onclick="rejectReviewItem(${item._index})">
+                                    ${icon('x', 14)}
+                                </button>
+                            </td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            </table>
+            ${total > 25 ? `
+                <div style="display:flex;justify-content:center;gap:8px;margin-top:16px">
+                    <button class="btn btn-sm" ${_reviewOffset === 0 ? 'disabled' : ''}
+                            onclick="_reviewOffset=Math.max(0,_reviewOffset-25);renderAdminReview()">Anterior</button>
+                    <span style="padding:6px;color:#666">${_reviewOffset + 1}-${Math.min(_reviewOffset + 25, total)} de ${total}</span>
+                    <button class="btn btn-sm" ${_reviewOffset + 25 >= total ? 'disabled' : ''}
+                            onclick="_reviewOffset+=25;renderAdminReview()">Siguiente</button>
+                </div>
+            ` : ''}
+        `;
+    } catch (e) {
+        c.innerHTML = `<p style="color:red">Error cargando revision: ${e.message}</p>`;
+    }
+}
+
+function showReviewApproveForm(index, itemJson) {
+    const item = JSON.parse(itemJson);
+    const cats = ['acero','agregados','aislantes','cemento','ceramica','electrico',
+        'ferreteria','herramientas','impermeabilizantes','madera','maquinaria',
+        'pintura','plomeria','prefabricados','sanitario','seguridad','techos','vidrios'];
+    const uoms = ['pza','m3','m2','ml','kg','bls','gl','lt','varilla','rollo','tubo','glb','caja','saco'];
+
+    // Show modal with editable form
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+        <div class="modal" style="max-width:500px">
+            <div class="modal-header">
+                <h3>Aprobar Item #${index}</h3>
+                <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+            </div>
+            <form onsubmit="handleReviewApprove(event, ${index})" style="padding:16px">
+                <div style="margin-bottom:12px">
+                    <label style="font-weight:600;display:block;margin-bottom:4px">Nombre</label>
+                    <input type="text" name="name" value="${esc(item.name || '')}" required
+                           style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+                    <div>
+                        <label style="font-weight:600;display:block;margin-bottom:4px">Categoria</label>
+                        <select name="category" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+                            <option value="">Seleccionar...</option>
+                            ${cats.map(c => `<option value="${c}" ${item.category === c ? 'selected' : ''}>${c}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label style="font-weight:600;display:block;margin-bottom:4px">Unidad</label>
+                        <select name="uom" required style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+                            ${uoms.map(u => `<option value="${u}" ${item.uom === u ? 'selected' : ''}>${u}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div style="margin-bottom:12px">
+                    <label style="font-weight:600;display:block;margin-bottom:4px">Precio referencia (Bs)</label>
+                    <input type="number" name="ref_price" step="0.01" value="${item.ref_price || ''}"
+                           style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">
+                </div>
+                <div style="margin-bottom:16px">
+                    <label style="font-weight:600;display:block;margin-bottom:4px">Descripcion</label>
+                    <textarea name="description" rows="2"
+                              style="width:100%;padding:8px;border:1px solid #ddd;border-radius:4px">${esc(item.description || '')}</textarea>
+                </div>
+                ${item.code ? `<p style="color:#999;font-size:12px">Codigo original: ${esc(item.code)}</p>` : ''}
+                <div style="display:flex;gap:8px;justify-content:flex-end">
+                    <button type="button" class="btn" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">${icon('check', 14)} Aprobar y crear producto</button>
+                </div>
+            </form>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+async function handleReviewApprove(e, index) {
+    e.preventDefault();
+    const form = e.target;
+    const body = {
+        name: form.name.value,
+        uom: form.uom.value,
+        category: form.category.value,
+        ref_price: form.ref_price.value ? parseFloat(form.ref_price.value) : null,
+        description: form.description.value || null,
+    };
+
+    try {
+        const res = await API.post(`/prices/review/${index}/approve`, body);
+        if (res.ok) {
+            form.closest('.modal-overlay').remove();
+            toast(`Producto "${body.name}" creado (quedan ${res.remaining})`, 'success');
+            renderAdminReview();
+        } else {
+            toast(res.error || 'Error al aprobar', 'error');
+        }
+    } catch (e) {
+        toast('Error: ' + e.message, 'error');
+    }
+}
+
+async function rejectReviewItem(index) {
+    if (!confirm('Descartar este item de la lista de revision?')) return;
+    try {
+        const res = await API.del(`/prices/review/${index}`);
+        if (res.ok) {
+            toast(`Item descartado (quedan ${res.remaining})`, 'info');
+            renderAdminReview();
+        }
+    } catch (e) {
+        toast('Error: ' + e.message, 'error');
     }
 }
 

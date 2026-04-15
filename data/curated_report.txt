@@ -1,0 +1,65 @@
+============================================================
+REPORTE DE CURACION v3
+============================================================
+
+Fuentes:
+  Pedidos: 17494 lineas (14150 productos, 3344 servicios)
+  Catalogo productos: 4401
+  Catalogo proveedores: 2214
+
+Filtros aplicados:
+  Excluidos por keywords: 3070
+  Excluidos por ser servicios: 232
+  Excluidos por precio outlier: 243
+
+Resultados:
+  Productos curados: 801
+  Productos para revision: 1610
+  Productos para normalizar con IA: 23
+  Proveedores curados: 395
+  Registros de precio: 3090
+
+Categorias:
+  acero: 124
+  madera: 98
+  ferreteria: 94
+  cemento: 72
+  pintura: 68
+  herramientas: 51
+  impermeabilizantes: 42
+  sanitario: 36
+  agregados: 34
+  techos: 32
+  electrico: 29
+  ceramica: 27
+  seguridad: 26
+  vidrios: 21
+  prefabricados: 20
+  maquinaria: 13
+  plomeria: 12
+  aislantes: 2
+
+Top 20 productos por frecuencia de compra:
+  Cemento viacha Estandar                             x 210       52.00 Bs/bls
+  Arena Fina                                          x 120      120.00 Bs/m3
+  Arena Corriente                                     x  82      100.00 Bs/m3
+  Hormigon 4.5 MPA                                    x  81      710.00 Bs/m3
+  Hormigon premezclado H-25                           x  76      787.50 Bs/m3
+  Agregados Grava Chancada 3/4                        x  73      108.33 Bs/m3
+  Barra 3/8x12 Corrugado                              x  53       38.30 Bs/varilla
+  Latex Tradicional                                   x  48      376.02 Bs/gl
+  Rollo de alambre de 46 kg                           x  38      420.00 Bs/rollo
+  Ladrillo 6 Huecos                                   x  36        0.88 Bs/pza
+  Botines Con Punta De Acero                          x  33       79.00 Bs/pza
+  Cemento Viacha IP40                                 x  31       45.50 Bs/bls
+  guantes de goma y lana                              x  29       95.00 Bs/pza
+  FIERRO BELGO 1/4"o 6 mm 12 MT                       x  26       15.68 Bs/pza
+  BARRAS 1/4x12 CORR                                  x  24       20.35 Bs/varilla
+  Barra 1/2x12 Corrugado                              x  24       65.65 Bs/varilla
+  FIERRO BELGO 1/2"o 12 mm 12 MT                      x  23       62.57 Bs/pza
+  BOL Clavo 21/2 PR                                   x  22       10.30 Bs/kg
+  guantes de lavar                                    x  22       95.00 Bs/pza
+  Alambre De Amarre                                   x  21        9.45 Bs/rollo
+
+Review por razon:
+  sin_categoria: 1610

@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "apu-marketplace": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "env": {
+        "MKT_API_URL": "https://apu-marketplace-app.q8waob.easypanel.host",
+        "MKT_API_KEY": "mkt_z3dccrUc8-ZyCyaYPkEUMNy6WOwt8muzvRR-E3iM9vs"
+      }
+    }
+  }
+}

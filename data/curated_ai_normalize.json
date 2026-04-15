@@ -1,0 +1,186 @@
+[
+  {
+    "current_name": "Anclaje",
+    "description": "ANCLAJE",
+    "code": "ANCLAJE",
+    "category": "ferreteria",
+    "ref_price": 465.0,
+    "uom": "pza"
+  },
+  {
+    "current_name": "madera",
+    "description": "madera",
+    "code": "2x4x350",
+    "category": "madera",
+    "ref_price": 44.0,
+    "uom": "pza"
+  },
+  {
+    "current_name": "madera",
+    "description": "madera",
+    "code": "1x8x12",
+    "category": "madera",
+    "ref_price": 39.6,
+    "uom": "pza"
+  },
+  {
+    "current_name": "madera",
+    "description": "madera",
+    "code": "1x25x350",
+    "category": "madera",
+    "ref_price": 46.7,
+    "uom": "pza"
+  },
+  {
+    "current_name": "madera",
+    "description": "madera",
+    "code": "1x35x4",
+    "category": "madera",
+    "ref_price": 71.85,
+    "uom": "pza"
+  },
+  {
+    "current_name": "madera",
+    "description": "madera",
+    "code": "1x35x350",
+    "category": "madera",
+    "ref_price": 69.3,
+    "uom": "pza"
+  },
+  {
+    "current_name": "madera",
+    "description": "madera",
+    "code": "1x35x3",
+    "category": "madera",
+    "ref_price": 59.4,
+    "uom": "pza"
+  },
+  {
+    "current_name": "Barras",
+    "description": "BARRAS",
+    "code": "BARRAS",
+    "category": "acero",
+    "ref_price": 171.5,
+    "uom": "varilla"
+  },
+  {
+    "current_name": "Mezcladora",
+    "description": "MEZCLADORA",
+    "code": "MEZCLADORA",
+    "category": "herramientas",
+    "ref_price": 8000.0,
+    "uom": "pza"
+  },
+  {
+    "current_name": "GRIFO",
+    "description": "GRIFO",
+    "code": "GRIFO",
+    "category": "sanitario",
+    "ref_price": 150.0,
+    "uom": "pza"
+  },
+  {
+    "current_name": "SIFON",
+    "description": "SIFON",
+    "code": "SIFON",
+    "category": "sanitario",
+    "ref_price": 35.0,
+    "uom": "pza"
+  },
+  {
+    "current_name": "Pernos",
+    "description": "PERNOS",
+    "code": "PERNOS",
+    "category": "ferreteria",
+    "ref_price": 5.0,
+    "uom": "kg"
+  },
+  {
+    "current_name": "Amoladora",
+    "description": "4.5 900w-ALM",
+    "code": "AMOLADORA",
+    "category": "herramientas",
+    "ref_price": 1950.0,
+    "uom": "pza"
+  },
+  {
+    "current_name": "DUCHA",
+    "description": "DUCHA",
+    "code": "DUCHA",
+    "category": "sanitario",
+    "ref_price": 80.0,
+    "uom": "pza"
+  },
+  {
+    "current_name": "FOCO",
+    "description": "FOCO",
+    "code": "FOCO",
+    "category": "electrico",
+    "ref_price": 12.0,
+    "uom": "pza"
+  },
+  {
+    "current_name": "Pala",
+    "description": "",
+    "code": "Pala",
+    "category": "herramientas",
+    "ref_price": 57.5,
+    "uom": "pza"
+  },
+  {
+    "current_name": "GRUA",
+    "description": "GRUA",
+    "code": "GRUA",
+    "category": "maquinaria",
+    "ref_price": 400.0,
+    "uom": "glb"
+  },
+  {
+    "current_name": "Porcelanato",
+    "description": "PORCELANATO",
+    "code": "PORCELANATO",
+    "category": "ceramica",
+    "ref_price": 1980.0,
+    "uom": "pza"
+  },
+  {
+    "current_name": "Bisagra",
+    "description": "",
+    "code": "BISAGRA",
+    "category": "ferreteria",
+    "ref_price": 15.5,
+    "uom": "pza"
+  },
+  {
+    "current_name": "Pintura",
+    "description": "",
+    "code": "PINTURA",
+    "category": "pintura",
+    "ref_price": 1516.47,
+    "uom": "gl"
+  },
+  {
+    "current_name": "GRAVA",
+    "description": "8m3",
+    "code": "GRAVA",
+    "category": "agregados",
+    "ref_price": 95.0,
+    "uom": "m3"
+  },
+  {
+    "current_name": "Tuerca",
+    "description": "TUERCA",
+    "code": "TUERCA",
+    "category": "ferreteria",
+    "ref_price": 1.16,
+    "uom": "pza"
+  },
+  {
+    "current_name": "Agregados",
+    "description": "",
+    "code": "AGREGADOS",
+    "category": "agregados",
+    "ref_price": 480.0,
+    "uom": "pza"
+  }
+]

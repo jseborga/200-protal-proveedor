@@ -1,0 +1,50 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/jseborga/OneDrive - SSA Ingenieria SRL/00 JSP PERSONAL/02 PROYECTOS/200-protal-proveedor/**)",
+      "Read(//c/Users/jseborga/OneDrive - SSA Ingenieria SRL/00 JSP PERSONAL/02 PROYECTOS/200-protal-proveedor//**)",
+      "Bash(where python *)",
+      "Bash(where python3 *)",
+      "Bash(where py *)",
+      "Bash(\"/c/Program Files/Python312/python.exe\" scripts/curar_datos.py)",
+      "Bash('/c/Program Files/Python312/python.exe' -c ' *)",
+      "Bash(\"/c/Program Files/Python312/python.exe\" scripts/upload_curated.py)",
+      "Bash('C:\\\\Program Files\\\\Python312\\\\python.exe' -c ' *)",
+      "Bash(\"C:\\\\Program Files\\\\Python312\\\\python.exe\" scripts/curar_datos.py)",
+      "mcp__apu-marketplace__get_stats",
+      "Bash(python -c ' *)",
+      "Bash(ls scripts/*.json)",
+      "Bash(ls scripts/*.csv)",
+      "Bash(python -m uvicorn app.main:app --host 0.0.0.0 --port 8000)",
+      "Bash(ls .venv/Scripts/python.exe)",
+      "Bash(.venv/Scripts/python.exe -c \"import fastapi; print\\(fastapi.__version__\\)\")",
+      "Bash(pip list *)",
+      "Bash(python)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/curar_datos.py)",
+      "Bash(PYTHONIOENCODING=utf-8 python)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/ai_normalize.py)",
+      "Bash(pip install *)",
+      "Bash(PYTHONIOENCODING=utf-8 python scripts/upload_curated.py --purge)",
+      "Bash(node -c frontend/public/assets/app.js)",
+      "Bash(tasklist)",
+      "Bash(python scripts/upload_curated.py --prices)",
+      "Bash(grep -E \"\\\\.py$\")",
+      "Bash(python3 -c \"import json; data = json.load\\(open\\('data/curated_suppliers.json'\\)\\); print\\(f'Total suppliers: {len\\(data\\)}'\\)\")",
+      "Bash(python scripts/curar_datos.py)",
+      "Bash(python scripts/upload_curated.py --purge)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('scripts/curar_datos.py'\\).read\\(\\)\\); print\\('curar_datos.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('scripts/upload_curated.py'\\).read\\(\\)\\); print\\('upload_curated.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/models/supplier.py'\\).read\\(\\)\\); print\\('supplier.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/main.py'\\).read\\(\\)\\); print\\('main.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('scripts/curar_datos.py', encoding='utf-8'\\).read\\(\\)\\); print\\('curar_datos.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('scripts/upload_curated.py', encoding='utf-8'\\).read\\(\\)\\); print\\('upload_curated.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/models/supplier.py', encoding='utf-8'\\).read\\(\\)\\); print\\('supplier.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/main.py', encoding='utf-8'\\).read\\(\\)\\); print\\('main.py: OK'\\)\")",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('app/api/routes/suppliers.py', encoding='utf-8'\\).read\\(\\)\\); print\\('suppliers_route.py: OK'\\)\")"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "apu-marketplace"
+  ]
+}

@@ -34,6 +34,8 @@ class SupplierIn(BaseModel):
     categories: list[str] | None = None
     preferred_channel: str = "whatsapp"
     verification_state: str = "verified"
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class ProductIn(BaseModel):

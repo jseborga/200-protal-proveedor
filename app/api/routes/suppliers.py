@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.api.deps import require_manager, require_staff
-from app.models.supplier import Supplier
+from app.models.supplier import Supplier, SupplierBranch
 from app.models.user import User
 
 router = APIRouter()
@@ -26,6 +26,8 @@ class SupplierCreate(BaseModel):
     address: str | None = None
     categories: list[str] | None = None
     preferred_channel: str = "email"
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class SupplierUpdate(BaseModel):
@@ -42,6 +44,8 @@ class SupplierUpdate(BaseModel):
     preferred_channel: str | None = None
     verification_state: str | None = None
     is_active: bool | None = None
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 # ── Public endpoints ────────────────────────────────────────────
@@ -123,6 +127,47 @@ async def public_supplier_categories(db: AsyncSession = Depends(get_db)):
     }
 
 
+# ── Nearby endpoint (public) ───────────────────────────────────
+@router.get("/public/nearby")
+async def nearby_suppliers(
+    lat: float = Query(..., description="Latitude"),
+    lon: float = Query(..., description="Longitude"),
+    radius_km: float = Query(50, ge=1, le=500),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+):
+    """Find nearest suppliers with known coordinates."""
+    result = await db.execute(text("""
+        SELECT *, (
+            6371 * acos(
+                LEAST(1.0, cos(radians(:lat)) * cos(radians(latitude)) *
+                cos(radians(longitude) - radians(:lon)) +
+                sin(radians(:lat)) * sin(radians(latitude)))
+            )
+        ) AS distance_km
+        FROM mkt_supplier
+        WHERE is_active = true AND verification_state = 'verified'
+          AND latitude IS NOT NULL AND longitude IS NOT NULL
+        ORDER BY distance_km
+        LIMIT :lim
+    """), {"lat": lat, "lon": lon, "lim": limit})
+    rows = result.mappings().all()
+    return {
+        "ok": True,
+        "data": [
+            {
+                "id": r["id"], "name": r["name"], "trade_name": r["trade_name"],
+                "whatsapp": r["whatsapp"], "phone": r["phone"],
+                "city": r["city"], "department": r["department"],
+                "latitude": r["latitude"], "longitude": r["longitude"],
+                "distance_km": round(r["distance_km"], 1),
+                "categories": r["categories"],
+            }
+            for r in rows if r["distance_km"] <= radius_km
+        ],
+    }
+
+
 # ── Authenticated endpoints ────────────────────────────────────
 @router.get("")
 async def list_suppliers(
@@ -130,6 +175,7 @@ async def list_suppliers(
     city: str | None = Query(None),
     category: str | None = Query(None),
     state: str | None = Query(None),
+    contact: str | None = Query(None, description="valid_wa, invalid_wa, no_wa"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -144,6 +190,22 @@ async def list_suppliers(
         query = query.where(Supplier.categories.contains([category]))
     if state:
         query = query.where(Supplier.verification_state == state)
+    # WhatsApp contact filter
+    if contact == "no_wa":
+        query = query.where(
+            (Supplier.whatsapp == None) | (Supplier.whatsapp == "")  # noqa: E711
+        )
+    elif contact == "invalid_wa":
+        # Has a number but not a valid Bolivia mobile format
+        query = query.where(
+            Supplier.whatsapp != None,  # noqa: E711
+            Supplier.whatsapp != "",
+            ~Supplier.whatsapp.op("~")(r"^591[67]\d{7}$"),
+        )
+    elif contact == "valid_wa":
+        query = query.where(
+            Supplier.whatsapp.op("~")(r"^591[67]\d{7}$"),
+        )
 
     total_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(total_q)).scalar() or 0
@@ -278,6 +340,8 @@ def _public_supplier_dict(s: Supplier) -> dict:
         "department": s.department,
         "categories": s.categories,
         "rating": s.rating,
+        "latitude": s.latitude,
+        "longitude": s.longitude,
     }
 
 
@@ -293,10 +357,128 @@ def _supplier_to_dict(s: Supplier) -> dict:
         "city": s.city,
         "department": s.department,
         "country": s.country,
+        "address": s.address,
         "categories": s.categories,
         "verification_state": s.verification_state,
         "rating": s.rating,
         "quotation_count": s.quotation_count,
         "preferred_channel": s.preferred_channel,
+        "latitude": s.latitude,
+        "longitude": s.longitude,
         "created_at": s.created_at.isoformat() if s.created_at else None,
     }
+
+
+def _branch_to_dict(b: SupplierBranch) -> dict:
+    return {
+        "id": b.id,
+        "supplier_id": b.supplier_id,
+        "branch_name": b.branch_name,
+        "city": b.city,
+        "department": b.department,
+        "address": b.address,
+        "phone": b.phone,
+        "whatsapp": b.whatsapp,
+        "email": b.email,
+        "latitude": b.latitude,
+        "longitude": b.longitude,
+        "is_main": b.is_main,
+        "is_active": b.is_active,
+    }
+
+
+# ── Branch schemas ─────────────────────────────────────────────
+class BranchCreate(BaseModel):
+    branch_name: str
+    city: str | None = None
+    department: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+    email: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    is_main: bool = False
+
+
+class BranchUpdate(BaseModel):
+    branch_name: str | None = None
+    city: str | None = None
+    department: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+    email: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    is_main: bool | None = None
+    is_active: bool | None = None
+
+
+# ── Branch endpoints ───────────────────────────────────────────
+@router.get("/{supplier_id}/branches")
+async def list_branches(
+    supplier_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    supplier = await db.get(Supplier, supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+    result = await db.execute(
+        select(SupplierBranch)
+        .where(SupplierBranch.supplier_id == supplier_id)
+        .order_by(SupplierBranch.is_main.desc(), SupplierBranch.branch_name)
+    )
+    branches = result.scalars().all()
+    return {"ok": True, "data": [_branch_to_dict(b) for b in branches]}
+
+
+@router.post("/{supplier_id}/branches", status_code=201)
+async def create_branch(
+    supplier_id: int,
+    body: BranchCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff(get_current_user)),
+):
+    supplier = await db.get(Supplier, supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+    branch = SupplierBranch(supplier_id=supplier_id, **body.model_dump())
+    db.add(branch)
+    await db.commit()
+    await db.refresh(branch)
+    return {"ok": True, "data": _branch_to_dict(branch)}
+
+
+@router.put("/{supplier_id}/branches/{branch_id}")
+async def update_branch(
+    supplier_id: int,
+    branch_id: int,
+    body: BranchUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff(get_current_user)),
+):
+    branch = await db.get(SupplierBranch, branch_id)
+    if not branch or branch.supplier_id != supplier_id:
+        raise HTTPException(status_code=404, detail="Sucursal no encontrada")
+    for k, v in body.model_dump(exclude_unset=True).items():
+        setattr(branch, k, v)
+    await db.commit()
+    await db.refresh(branch)
+    return {"ok": True, "data": _branch_to_dict(branch)}
+
+
+@router.delete("/{supplier_id}/branches/{branch_id}")
+async def delete_branch(
+    supplier_id: int,
+    branch_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff(get_current_user)),
+):
+    branch = await db.get(SupplierBranch, branch_id)
+    if not branch or branch.supplier_id != supplier_id:
+        raise HTTPException(status_code=404, detail="Sucursal no encontrada")
+    await db.delete(branch)
+    await db.commit()
+    return {"ok": True}
