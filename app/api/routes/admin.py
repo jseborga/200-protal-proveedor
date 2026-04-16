@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -1788,6 +1788,7 @@ async def test_whatsapp_connection(
 
 @router.post("/integrations/setup-telegram-webhook")
 async def setup_telegram_webhook(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
@@ -1800,20 +1801,39 @@ async def setup_telegram_webhook(
     token = cfg.get("telegram_bot_token") or env.telegram_bot_token
     secret = cfg.get("telegram_webhook_secret") or env.telegram_webhook_secret
 
-    # Use public_url from DB config, then APP_URL env, then request host
-    app_url = (cfg.get("public_url") or env.app_url).rstrip("/")
+    # Resolve public URL: DB config → APP_URL env → request origin
+    app_url = cfg.get("public_url") or ""
+    if not app_url or "localhost" in app_url or "127.0.0.1" in app_url:
+        app_url = env.app_url
+    if not app_url or "localhost" in app_url or "127.0.0.1" in app_url:
+        # Last resort: derive from the incoming request (works behind reverse proxy)
+        scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
+        host = request.headers.get("x-forwarded-host", request.headers.get("host", ""))
+        if host and "localhost" not in host and "127.0.0.1" not in host:
+            app_url = f"{scheme}://{host}"
+
+    app_url = app_url.rstrip("/")
 
     if not token:
         return {"ok": False, "error": "Bot token no configurado"}
-    if "localhost" in app_url or "127.0.0.1" in app_url:
-        return {"ok": False, "error": f"URL publica no configurada (actual: {app_url}). Configura la URL publica en Integraciones."}
+    if not app_url or "localhost" in app_url or "127.0.0.1" in app_url:
+        return {
+            "ok": False,
+            "error": (
+                f"URL publica no configurada (actual: {app_url or 'vacio'}). "
+                "Configura la 'URL Publica del Portal' en la seccion de Integraciones "
+                "con tu dominio HTTPS (ej: https://apu-marketplace-app.q8waob.easypanel.host)"
+            ),
+        }
+    if not app_url.startswith("https://"):
+        return {"ok": False, "error": f"Telegram requiere HTTPS. URL actual: {app_url}"}
 
     webhook_url = f"{app_url}/api/v1/webhook/telegram"
     if secret:
         webhook_url += f"?secret={secret}"
 
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 f"https://api.telegram.org/bot{token}/setWebhook",
                 json={
@@ -1825,7 +1845,7 @@ async def setup_telegram_webhook(
         if data.get("ok"):
             return {"ok": True, "data": {"webhook_url": webhook_url, "description": data.get("description", "OK")}}
         else:
-            return {"ok": False, "error": data.get("description", "Error desconocido")}
+            return {"ok": False, "error": f"{data.get('description', 'Error desconocido')} (URL enviada: {webhook_url})"}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
 

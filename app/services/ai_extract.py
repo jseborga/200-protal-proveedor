@@ -171,19 +171,30 @@ def _detect_columns(header: list[str]) -> dict:
 
 
 # ── AI extraction (PDF / Photo) ─────────────────────────────────
-EXTRACTION_PROMPT = """Extrae los items de esta cotizacion/lista de precios de construccion.
-Devuelve SOLO un JSON array con objetos, cada uno con estos campos:
-- name: nombre del producto/material
-- code: codigo si existe (null si no)
-- uom: unidad de medida (m3, kg, m2, pza, ml, bls, lt, gl, etc.)
-- price: precio unitario (numero)
-- brand: marca si se menciona (null si no)
+EXTRACTION_PROMPT = """Extrae los items de este documento de construccion (cotizacion, factura, lista de precios, proforma, nota de venta, etc.).
 
-Ejemplo de respuesta:
-[{"name": "Cemento Portland IP-30", "code": null, "uom": "bls", "price": 58.5, "brand": "Viacha"}]
+Devuelve SOLO un JSON object con esta estructura:
+{
+  "supplier": {"name": "nombre del proveedor/empresa", "nit": "NIT si aparece", "phone": "telefono si aparece", "address": "direccion si aparece"},
+  "document": {"type": "factura|cotizacion|proforma|lista_precios|nota_venta", "number": "numero de documento si existe", "date": "fecha si aparece (YYYY-MM-DD)"},
+  "items": [
+    {"name": "nombre del producto/material", "code": "codigo si existe", "uom": "unidad de medida (m3, kg, m2, pza, ml, bls, lt, gl, etc.)", "price": 0.00, "quantity": 1, "brand": "marca si se menciona"}
+  ]
+}
 
-Si no puedes extraer datos, devuelve [].
-No incluyas texto adicional, solo el JSON array."""
+Reglas:
+- "price" es el precio UNITARIO (si solo hay total y cantidad, divide total/cantidad)
+- Si no identificas proveedor, pon supplier como null
+- Si no identificas tipo de documento, pon document como null
+- Los items siempre deben ser un array (vacio [] si no hay items)
+- Limpia los nombres: sin codigos internos, sin caracteres raros, primera letra mayuscula
+- uom: normaliza a abreviaturas estandar (bls, kg, m3, m2, pza, ml, lt, gl, m, und, rollo, plza)
+
+Ejemplo:
+{"supplier": {"name": "Ferreteria El Constructor", "nit": "12345678", "phone": null, "address": "Av. Blanco Galindo 1234"}, "document": {"type": "factura", "number": "F-001234", "date": "2025-03-15"}, "items": [{"name": "Cemento Portland IP-30", "code": null, "uom": "bls", "price": 58.5, "quantity": 10, "brand": "Viacha"}]}
+
+Si no puedes extraer datos, devuelve {"supplier": null, "document": null, "items": []}.
+No incluyas texto adicional, SOLO el JSON."""
 
 
 async def _extract_with_ai(
@@ -250,18 +261,23 @@ async def _call_anthropic(
 ) -> dict | None:
     """Call Anthropic Messages API directly."""
     b64 = base64.b64encode(content).decode()
-    media_type = "application/pdf" if source == "pdf" else "image/jpeg"
+
+    if source == "pdf":
+        # Anthropic uses 'document' type for PDFs
+        media_block = {
+            "type": "document",
+            "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
+        }
+    else:
+        media_block = {
+            "type": "image",
+            "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+        }
 
     messages = [
         {
             "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {"type": "base64", "media_type": media_type, "data": b64},
-                },
-                {"type": "text", "text": EXTRACTION_PROMPT},
-            ],
+            "content": [media_block, {"type": "text", "text": EXTRACTION_PROMPT}],
         }
     ]
 
@@ -330,27 +346,50 @@ async def _call_openai_compatible(
 
 
 def _parse_ai_response(text: str, filename: str, source: str, config: dict) -> dict | None:
-    """Parse AI response text into structured data."""
+    """Parse AI response text into structured data.
+
+    Supports two response formats:
+    - New: {"supplier": {...}, "document": {...}, "items": [...]}
+    - Legacy: plain JSON array of items [...]
+    """
     text = text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
 
+    parsed = None
     try:
-        lines = json.loads(text)
+        parsed = json.loads(text)
     except json.JSONDecodeError:
-        match = re.search(r"\[.*\]", text, re.DOTALL)
-        if match:
-            try:
-                lines = json.loads(match.group())
-            except json.JSONDecodeError:
-                return None
-        else:
-            return None
+        # Try to find JSON object or array in the response
+        obj_match = re.search(r"\{.*\}", text, re.DOTALL)
+        arr_match = re.search(r"\[.*\]", text, re.DOTALL)
+        for m in [obj_match, arr_match]:
+            if m:
+                try:
+                    parsed = json.loads(m.group())
+                    break
+                except json.JSONDecodeError:
+                    continue
+
+    if parsed is None:
+        return None
+
+    # Handle new format: {supplier, document, items}
+    supplier_info = None
+    document_info = None
+    if isinstance(parsed, dict) and "items" in parsed:
+        supplier_info = parsed.get("supplier")
+        document_info = parsed.get("document")
+        lines = parsed.get("items", [])
+    elif isinstance(parsed, list):
+        lines = parsed
+    else:
+        return None
 
     if not isinstance(lines, list) or not lines:
         return None
 
-    return {
+    result = {
         "lines": lines,
         "metadata": {
             "source": source,
@@ -360,3 +399,9 @@ def _parse_ai_response(text: str, filename: str, source: str, config: dict) -> d
             "items_extracted": len(lines),
         },
     }
+    if supplier_info and isinstance(supplier_info, dict) and supplier_info.get("name"):
+        result["supplier"] = supplier_info
+    if document_info and isinstance(document_info, dict):
+        result["document"] = document_info
+
+    return result

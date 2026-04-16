@@ -363,13 +363,16 @@ async def handle_telegram_message(db, msg: dict):
         await send_telegram(chat_id, (
             "Hola! Soy el asistente de APU Marketplace.\n\n"
             "Preguntame sobre productos, precios, proveedores o pideme ejecutar tareas.\n\n"
-            "Tambien puedes enviarme una FOTO o PDF de una cotizacion y la proceso automaticamente "
-            "(extraigo proveedor, items y precios).\n\n"
-            "Ejemplos:\n"
+            "Puedes enviarme:\n"
+            "- FOTO de una cotizacion o factura\n"
+            "- PDF de cotizacion, factura o lista de precios\n"
+            "- Excel con lista de precios\n\n"
+            "Extraigo automaticamente proveedor, items y precios, "
+            "y los registro en el sistema.\n\n"
+            "Ejemplos de preguntas:\n"
             "- cuantos productos hay?\n"
             "- busca cemento en Santa Cruz\n"
-            "- precios de fierro corrugado\n"
-            "- [envia una foto de cotizacion]"
+            "- precios de fierro corrugado"
         ))
         return
 
@@ -430,16 +433,36 @@ async def handle_telegram_message(db, msg: dict):
 
             lines = extraction["lines"]
             meta = extraction.get("metadata", {})
-            print(f"[TG] Extracted {len(lines)} items from {filename}")
+            extracted_supplier = extraction.get("supplier")  # {name, nit, phone, address}
+            extracted_doc = extraction.get("document")  # {type, number, date}
+            print(f"[TG] Extracted {len(lines)} items from {filename}"
+                  + (f" | supplier: {extracted_supplier.get('name')}" if extracted_supplier else "")
+                  + (f" | doc: {extracted_doc.get('type')}" if extracted_doc else ""))
 
-            # Show extraction summary to user
-            supplier_hint = text.strip() if text.strip() else ""
-            summary = f"Extraidos {len(lines)} items"
-            if supplier_hint:
-                summary += f" (contexto: {supplier_hint})"
-            summary += ":\n\n"
+            # Build supplier hint from user text + AI extraction
+            user_hint = text.strip() if text.strip() else ""
+            supplier_name = ""
+            if extracted_supplier and extracted_supplier.get("name"):
+                supplier_name = extracted_supplier["name"]
+            elif user_hint:
+                supplier_name = user_hint
+
+            # Build summary for user
+            doc_type = (extracted_doc or {}).get("type", media_label)
+            doc_label = {"factura": "Factura", "cotizacion": "Cotizacion", "proforma": "Proforma",
+                         "lista_precios": "Lista de Precios", "nota_venta": "Nota de Venta"}.get(doc_type, media_label.capitalize())
+            summary = f"{doc_label}"
+            if extracted_doc and extracted_doc.get("number"):
+                summary += f" #{extracted_doc['number']}"
+            if supplier_name:
+                summary += f" — {supplier_name}"
+            summary += f"\nExtraidos {len(lines)} items:\n\n"
             for i, l in enumerate(lines[:10], 1):
-                summary += f"{i}. {l.get('name','?')} — {l.get('price',0)} Bs/{l.get('uom','pza')}"
+                qty = l.get('quantity', 1) or 1
+                price_str = f"{l.get('price', 0)} Bs/{l.get('uom', 'pza')}"
+                if qty != 1:
+                    price_str = f"{qty} x {price_str}"
+                summary += f"{i}. {l.get('name', '?')} — {price_str}"
                 if l.get('brand'):
                     summary += f" ({l['brand']})"
                 summary += "\n"
@@ -450,22 +473,40 @@ async def handle_telegram_message(db, msg: dict):
             from app.services.agent_executor import fire_routine
             import json as _json
 
-            items_json = _json.dumps(lines, ensure_ascii=False)
+            # Build rich context for the routine
+            routine_data = {"items": lines}
+            if extracted_supplier:
+                routine_data["supplier"] = extracted_supplier
+            if extracted_doc:
+                routine_data["document"] = extracted_doc
+
+            items_json = _json.dumps(routine_data, ensure_ascii=False)
+
+            supplier_instruction = ""
+            if supplier_name:
+                supplier_instruction = (
+                    f"Proveedor detectado: '{supplier_name}'"
+                    + (f" (NIT: {extracted_supplier['nit']})" if extracted_supplier and extracted_supplier.get('nit') else "")
+                    + ". Busca con list_suppliers si ya existe. "
+                    "Si no existe, crealo con create_supplier.\n"
+                )
+            else:
+                supplier_instruction = "No se detecto proveedor. Si los items sugieren uno, crealo. Sino, registra precios sin proveedor.\n"
+
             routine_task = (
-                f"PROCESAR COTIZACION recibida por Telegram.\n\n"
-                f"{'Proveedor/contexto mencionado: ' + supplier_hint + chr(10) if supplier_hint else ''}"
-                f"Se extrajeron {len(lines)} items de una {media_label}.\n\n"
+                f"PROCESAR {'FACTURA' if doc_type == 'factura' else 'COTIZACION'} recibida por Telegram.\n\n"
+                f"{supplier_instruction}"
+                f"Se extrajeron {len(lines)} items de una {doc_label.lower()}.\n\n"
                 f"DATOS EXTRAIDOS (JSON):\n{items_json}\n\n"
                 f"INSTRUCCIONES:\n"
-                f"1. Si se menciona un proveedor, busca con list_suppliers si ya existe. "
-                f"Si no existe, crealo con create_supplier (ciudad: La Paz, department: La Paz, categories segun los items).\n"
+                f"1. {supplier_instruction}"
                 f"2. Para cada item, busca con list_products si el producto ya existe en el catalogo. "
                 f"Considera variaciones de nombre (ej: 'Cemento IP-30' vs 'CEMENTO PORTLAND IP-30').\n"
                 f"3. Clasifica cada item en la categoria correcta: "
                 f"ferreteria, agregados, acero, electrico, sanitario, madera, cemento, pintura, ceramica, herramientas, techos, plomeria, vidrios, prefabricados.\n"
                 f"4. Los productos que NO existan, crealos con create_products_bulk (nombre limpio, unidad correcta, categoria, precio como ref_price).\n"
                 f"5. Registra TODOS los precios con create_price_history_bulk "
-                f"(source: 'telegram', observed_date: hoy, supplier_name si se conoce).\n"
+                f"(source: 'telegram', observed_date: hoy, supplier_name: '{supplier_name}' si se conoce).\n"
                 f"6. Al final, reporta un resumen: cuantos productos nuevos, existentes, precios registrados.\n"
             )
 
@@ -491,8 +532,8 @@ async def handle_telegram_message(db, msg: dict):
                     for l in lines
                 )
                 agent_msg = (
-                    f"COTIZACION RECIBIDA POR FOTO ({len(lines)} items extraidos).\n"
-                    f"{'Proveedor/contexto: ' + supplier_hint + chr(10) if supplier_hint else ''}"
+                    f"{doc_label.upper()} RECIBIDA ({len(lines)} items extraidos).\n"
+                    f"{'Proveedor: ' + supplier_name + chr(10) if supplier_name else ''}"
                     f"Items:\n{items_text}\n\n"
                     f"Registra estos items usando registrar_cotizacion: busca/crea el proveedor, "
                     f"busca/crea los productos y registra los precios."

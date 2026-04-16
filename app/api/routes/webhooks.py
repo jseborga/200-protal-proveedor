@@ -30,9 +30,16 @@ async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db))
 @router.post("/telegram")
 async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     """Receive Telegram updates."""
-    # Verify webhook secret via query param
+    # Verify webhook secret via query param (check DB config first, then .env)
     secret = request.query_params.get("secret")
-    if settings.telegram_webhook_secret and secret != settings.telegram_webhook_secret:
+    from app.models.system_setting import SystemSetting
+    tg_setting = await db.get(SystemSetting, "integrations")
+    expected_secret = ""
+    if tg_setting and tg_setting.value:
+        expected_secret = tg_setting.value.get("telegram_webhook_secret", "")
+    if not expected_secret:
+        expected_secret = settings.telegram_webhook_secret
+    if expected_secret and secret != expected_secret:
         raise HTTPException(status_code=403, detail="Invalid secret")
 
     body = await request.json()
