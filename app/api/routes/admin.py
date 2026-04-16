@@ -1622,9 +1622,13 @@ async def get_integrations(
         display_instances.append(di)
     display["evolution_instances"] = display_instances
 
-    # Build webhook URLs
-    display["webhook_whatsapp"] = f"{env.app_url}/api/v1/webhook/whatsapp"
-    display["webhook_telegram"] = f"{env.app_url}/api/v1/webhook/telegram"
+    # Public URL (for webhooks)
+    public_url = (cfg.get("public_url") or env.app_url).rstrip("/")
+    display["public_url"] = cfg.get("public_url", "")  # only show DB-saved value
+
+    # Build webhook URLs using public URL
+    display["webhook_whatsapp"] = f"{public_url}/api/v1/webhook/whatsapp"
+    display["webhook_telegram"] = f"{public_url}/api/v1/webhook/telegram"
     if merged.get("telegram_webhook_secret"):
         display["webhook_telegram"] += f"?secret={merged['telegram_webhook_secret']}"
 
@@ -1656,6 +1660,7 @@ async def update_integrations(
 ):
     """Update integration config."""
     allowed_keys = {
+        "public_url",
         "evolution_api_url", "evolution_api_key", "evolution_instance_name",
         "telegram_bot_token", "telegram_webhook_secret",
         "smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from",
@@ -1794,10 +1799,14 @@ async def setup_telegram_webhook(
     from app.core.config import settings as env
     token = cfg.get("telegram_bot_token") or env.telegram_bot_token
     secret = cfg.get("telegram_webhook_secret") or env.telegram_webhook_secret
-    app_url = env.app_url.rstrip("/")
+
+    # Use public_url from DB config, then APP_URL env, then request host
+    app_url = (cfg.get("public_url") or env.app_url).rstrip("/")
 
     if not token:
         return {"ok": False, "error": "Bot token no configurado"}
+    if "localhost" in app_url or "127.0.0.1" in app_url:
+        return {"ok": False, "error": f"URL publica no configurada (actual: {app_url}). Configura la URL publica en Integraciones."}
 
     webhook_url = f"{app_url}/api/v1/webhook/telegram"
     if secret:

@@ -5685,7 +5685,26 @@ async function renderAdminIntegrations() {
     const d = resp.data;
 
     c.innerHTML = `
-        <h2 class="adm-title">${icon('whatsapp',22)} Integraciones</h2>
+        <h2 class="adm-title">${icon('globe',22)} Integraciones</h2>
+
+        <!-- URL Publica -->
+        <div class="integ-section">
+            <div class="integ-header">
+                <span class="integ-icon" style="background:#e0e7ff;color:#4338ca">${icon('globe',20)}</span>
+                <div>
+                    <h3>URL Publica del Portal</h3>
+                    <p>Necesaria para registrar webhooks de Telegram y WhatsApp</p>
+                </div>
+            </div>
+            <form onsubmit="saveIntegrations(event,'public')">
+                <div class="form-group">
+                    <label class="form-label">URL publica (HTTPS)</label>
+                    <input class="form-input" name="public_url" value="${esc(d.public_url || '')}" placeholder="https://apu-marketplace-app.q8waob.easypanel.host">
+                    ${!d.public_url ? '<small style="color:var(--red-500)">No configurada — los webhooks no funcionaran con localhost</small>' : ''}
+                </div>
+                <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar</button>
+            </form>
+        </div>
 
         <!-- WhatsApp / Evolution API — Multi-instance -->
         <div class="integ-section">
