@@ -494,12 +494,24 @@ async def resolve_all_ai_configs(company_id: int | None = None) -> list[dict]:
                 configs.append(c)
                 seen_keys.add(key)
 
-    # 3. .env fallback
+    # 3. .env fallback (primary)
     if settings.ai_api_key:
         c = _build_config({
             "provider": settings.ai_provider,
             "api_key": settings.ai_api_key,
             "model": settings.ai_model,
+        })
+        key = (c["provider"], c["api_key"][:8])
+        if key not in seen_keys:
+            configs.append(c)
+            seen_keys.add(key)
+
+    # 4. Anthropic fallback — if ANTHROPIC_API_KEY is set, always add as last resort
+    if settings.anthropic_api_key:
+        c = _build_config({
+            "provider": "anthropic",
+            "api_key": settings.anthropic_api_key,
+            "model": "claude-sonnet-4-20250514",
         })
         key = (c["provider"], c["api_key"][:8])
         if key not in seen_keys:
