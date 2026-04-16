@@ -634,6 +634,7 @@ async def handle_telegram_message(db, msg: dict):
                 filename=filename,
                 user_hint=user_hint,
                 source="telegram",
+                chat_id=chat_id,
             )
 
             routine_result = await fire_routine(db, routine_task)
@@ -688,11 +689,12 @@ def _build_routine_task_for_media(
     user_hint: str = "",
     source: str = "telegram",
     batch_description: str = "",
+    chat_id: str = "",
 ) -> str:
     """Build the task text for Claude Code Routine with image tokens.
 
     Instructs Claude Code to use get_uploaded_image to see each image,
-    extract data, and register products/prices via MCP tools.
+    extract data, register products/prices, and notify the user via Telegram.
     """
     image_tokens = [f for f in saved_files if f["media_type"].startswith("image/")]
     excel_tokens = [f for f in saved_files if "excel" in f["media_type"] or f["filename"].endswith((".xlsx", ".xls"))]
@@ -701,6 +703,8 @@ def _build_routine_task_for_media(
     parts.append(f"PROCESAR DOCUMENTO recibido por {source.upper()}.")
     if batch_description:
         parts.append(f"Descripcion del lote: {batch_description}")
+    if chat_id:
+        parts.append(f"TELEGRAM CHAT_ID: {chat_id}")
     parts.append("")
 
     # Image viewing instructions
@@ -739,7 +743,21 @@ def _build_routine_task_for_media(
     parts.append("6. Productos nuevos: crealos con create_products_bulk (nombre limpio, unidad correcta, categoria, precio como ref_price).")
     parts.append(f"7. Registra TODOS los precios con create_price_history_bulk (source: '{source}', observed_date: hoy).")
     parts.append("8. Vincula proveedor-producto con link_supplier_product para cada item.")
-    parts.append("9. Reporta un resumen: productos nuevos, existentes, precios registrados, proveedor.")
+
+    # Telegram notification instruction
+    if chat_id:
+        parts.append("")
+        parts.append(f"9. OBLIGATORIO AL FINALIZAR: Llama notify_telegram con chat_id='{chat_id}' y un mensaje resumen.")
+        parts.append("   El mensaje debe incluir (en HTML):")
+        parts.append("   - <b>Resumen</b> de lo procesado")
+        parts.append("   - Proveedor (nuevo o existente)")
+        parts.append("   - Cantidad de productos nuevos creados")
+        parts.append("   - Cantidad de productos existentes actualizados")
+        parts.append("   - Cantidad de precios registrados")
+        parts.append("   - Si hubo errores, mencionarlos")
+        parts.append("   Ejemplo: '<b>Cotizacion procesada</b>\\nProveedor: Ferreteria X (nuevo)\\nProductos: 5 nuevos, 3 existentes\\nPrecios: 8 registrados'")
+    else:
+        parts.append("9. Reporta un resumen: productos nuevos, existentes, precios registrados, proveedor.")
 
     return "\n".join(parts)
 
@@ -868,6 +886,7 @@ async def _process_batch(db, chat_id: str, session: dict):
         user_hint=user_hint,
         source="telegram_batch",
         batch_description=desc,
+        chat_id=chat_id,
     )
 
     routine_result = await fire_routine(db, routine_task)

@@ -554,6 +554,25 @@ async def get_supplier_products(supplier_id: int) -> str:
     } for pm, cat_name, cat in rows], ensure_ascii=False)
 
 
+# ── Telegram notification (for Routine → user feedback) ───────
+
+@mcp.tool()
+async def notify_telegram(chat_id: str, message: str) -> str:
+    """Send a message to a Telegram user. Use this to report results back
+    after processing their documents.
+
+    IMPORTANT: Always call this when you finish processing a task from Telegram.
+    Include a summary of what was done: products created, prices registered, etc.
+    Use HTML formatting: <b>bold</b>, <i>italic</i>, <code>code</code>.
+    """
+    from app.services.messaging import send_telegram
+
+    success = await send_telegram(chat_id, message)
+    if success:
+        return json.dumps({"ok": True, "message": "Notification sent"})
+    return json.dumps({"ok": False, "error": "Failed to send Telegram message"})
+
+
 # ── Uploaded image retrieval (for Routine vision) ─────────────
 
 @mcp.tool()
