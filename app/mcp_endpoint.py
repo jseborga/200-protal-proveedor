@@ -554,6 +554,51 @@ async def get_supplier_products(supplier_id: int) -> str:
     } for pm, cat_name, cat in rows], ensure_ascii=False)
 
 
+# ── Uploaded image retrieval (for Routine vision) ─────────────
+
+@mcp.tool()
+async def get_uploaded_image(token: str) -> list:
+    """Retrieve an uploaded image by token. Returns the image so you can see it
+    with your vision capabilities. Use this to view photos/PDFs sent by Telegram users.
+
+    Call this tool for each image token provided in the task instructions."""
+    import base64
+    from mcp.types import ImageContent, TextContent
+    from app.services.temp_files import get_temp_file
+
+    entry = get_temp_file(token)
+    if not entry:
+        return [TextContent(type="text", text=f"Error: image token '{token}' not found or expired.")]
+
+    b64 = base64.b64encode(entry["data"]).decode()
+    return [
+        ImageContent(type="image", data=b64, mimeType=entry["media_type"]),
+        TextContent(type="text", text=f"Image: {entry['filename']} ({len(entry['data'])} bytes)"),
+    ]
+
+
+@mcp.tool()
+async def get_uploaded_excel(token: str) -> str:
+    """Retrieve an uploaded Excel file by token. Parses the Excel and returns
+    the data as JSON (rows with headers). Use this for Excel files sent by Telegram users."""
+    from app.services.temp_files import get_temp_file
+    from app.services.ai_extract import _extract_from_excel
+
+    entry = get_temp_file(token)
+    if not entry:
+        return json.dumps({"error": f"Token '{token}' not found or expired."})
+
+    result = _extract_from_excel(entry["data"], entry["filename"])
+    if result and result.get("lines"):
+        return json.dumps({
+            "ok": True,
+            "filename": entry["filename"],
+            "items": result["lines"],
+            "metadata": result.get("metadata", {}),
+        }, ensure_ascii=False)
+    return json.dumps({"error": "Could not parse Excel file.", "filename": entry["filename"]})
+
+
 def get_mcp_sse_app():
     """Return the MCP SSE Starlette app with proxy-friendly response headers."""
     sse_app = mcp.sse_app()

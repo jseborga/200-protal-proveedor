@@ -582,14 +582,16 @@ async def handle_telegram_message(db, msg: dict):
         return
     ai_config, agent_prompt = result
 
-    # ── Photo or Document: extract + process ────────────────────
+    # ── Photo or Document: send directly to Claude Code ─────────
     if has_media:
-        await send_telegram(chat_id, f"Recibida {media_label}. Procesando...")
+        await send_telegram(chat_id, f"Recibida {media_label}. Enviando a Claude Code...")
 
         try:
-            # Get file_id
+            from app.services.temp_files import save_media_for_routine
+            from app.services.agent_executor import fire_routine
+
+            # Get file_id and classify
             if has_photo:
-                # Telegram sends multiple sizes, take the largest
                 photos = msg["photo"]
                 file_id = photos[-1]["file_id"]
                 source_type = "photo"
@@ -606,7 +608,7 @@ async def handle_telegram_message(db, msg: dict):
                 elif "spreadsheet" in mime or "excel" in mime or filename.endswith((".xlsx", ".xls")):
                     source_type = "excel"
                 else:
-                    source_type = "photo"  # try as image
+                    source_type = "photo"
 
             # Download from Telegram
             dl = await _download_telegram_file(file_id)
@@ -616,156 +618,52 @@ async def handle_telegram_message(db, msg: dict):
             content, file_path = dl
             print(f"[TG] Downloaded {len(content)} bytes: {file_path}")
 
-            # Check AI config before extraction
-            from app.services.ai_extract import extract_quotation_data, resolve_all_ai_configs
-            ai_configs = await resolve_all_ai_configs()
-            if not ai_configs:
-                await send_telegram(
-                    chat_id,
-                    "No hay proveedor de IA configurado.\n"
-                    "Configura Google AI Studio u otro en Admin > IA.",
-                    buttons=[[{"text": "Diagnostico IA", "callback_data": "cmd_diagnostico"}]],
-                )
+            # Save to temp storage (PDF pages get converted to images)
+            saved = save_media_for_routine(content, filename, source_type)
+            if not saved:
+                await send_telegram(chat_id, "Error preparando el archivo.")
                 return
 
-            extraction = await extract_quotation_data(content, filename, source_type)
-
-            if not extraction or not extraction.get("lines"):
-                provider = ai_configs[0].get("provider", "?")
-                model = ai_configs[0].get("model", "?")
-                await send_telegram(
-                    chat_id,
-                    f"No pude extraer datos de este archivo.\n\n"
-                    f"<b>IA usada:</b> {provider} / {model}\n"
-                    f"<b>Tipo:</b> {source_type} ({len(content)} bytes)\n\n"
-                    f"Posibles causas:\n"
-                    f"- La imagen no es legible o esta borrosa\n"
-                    f"- No es una cotizacion/factura/lista de precios\n"
-                    f"- Error en el proveedor de IA\n\n"
-                    f"Usa /diagnostico para verificar que la IA funciona.",
-                    buttons=[[{"text": "Diagnostico IA", "callback_data": "cmd_diagnostico"}]],
-                )
-                return
-
-            lines = extraction["lines"]
-            meta = extraction.get("metadata", {})
-            extracted_supplier = extraction.get("supplier")  # {name, nit, phone, address}
-            extracted_doc = extraction.get("document")  # {type, number, date}
-            print(f"[TG] Extracted {len(lines)} items from {filename}"
-                  + (f" | supplier: {extracted_supplier.get('name')}" if extracted_supplier else "")
-                  + (f" | doc: {extracted_doc.get('type')}" if extracted_doc else ""))
-
-            # Build supplier hint from user text + AI extraction
+            # User hint (caption text)
             user_hint = text.strip() if text.strip() else ""
-            supplier_name = ""
-            if extracted_supplier and extracted_supplier.get("name"):
-                supplier_name = extracted_supplier["name"]
-            elif user_hint:
-                supplier_name = user_hint
 
-            # Build summary for user
-            doc_type = (extracted_doc or {}).get("type", media_label)
-            doc_label = {"factura": "Factura", "cotizacion": "Cotizacion", "proforma": "Proforma",
-                         "lista_precios": "Lista de Precios", "nota_venta": "Nota de Venta"}.get(doc_type, media_label.capitalize())
-            summary = f"{doc_label}"
-            if extracted_doc and extracted_doc.get("number"):
-                summary += f" #{extracted_doc['number']}"
-            if supplier_name:
-                summary += f" — {supplier_name}"
-            summary += f"\nExtraidos {len(lines)} items:\n\n"
-            for i, l in enumerate(lines[:10], 1):
-                qty = l.get('quantity', 1) or 1
-                price_str = f"{l.get('price', 0)} Bs/{l.get('uom', 'pza')}"
-                if qty != 1:
-                    price_str = f"{qty} x {price_str}"
-                summary += f"{i}. {l.get('name', '?')} — {price_str}"
-                if l.get('brand'):
-                    summary += f" ({l['brand']})"
-                summary += "\n"
-            if len(lines) > 10:
-                summary += f"... y {len(lines)-10} mas\n"
-
-            # ── Try Claude Code Routine first (full intelligence) ──
-            from app.services.agent_executor import fire_routine
-            import json as _json
-
-            # Build rich context for the routine
-            routine_data = {"items": lines}
-            if extracted_supplier:
-                routine_data["supplier"] = extracted_supplier
-            if extracted_doc:
-                routine_data["document"] = extracted_doc
-
-            items_json = _json.dumps(routine_data, ensure_ascii=False)
-
-            supplier_instruction = ""
-            if supplier_name:
-                supplier_instruction = (
-                    f"Proveedor detectado: '{supplier_name}'"
-                    + (f" (NIT: {extracted_supplier['nit']})" if extracted_supplier and extracted_supplier.get('nit') else "")
-                    + ". Busca con list_suppliers si ya existe. "
-                    "Si no existe, crealo con create_supplier.\n"
-                )
-            else:
-                supplier_instruction = "No se detecto proveedor. Si los items sugieren uno, crealo. Sino, registra precios sin proveedor.\n"
-
-            routine_task = (
-                f"PROCESAR {'FACTURA' if doc_type == 'factura' else 'COTIZACION'} recibida por Telegram.\n\n"
-                f"{supplier_instruction}"
-                f"Se extrajeron {len(lines)} items de una {doc_label.lower()}.\n\n"
-                f"DATOS EXTRAIDOS (JSON):\n{items_json}\n\n"
-                f"INSTRUCCIONES:\n"
-                f"1. {supplier_instruction}"
-                f"2. Para cada item, busca con list_products si el producto ya existe en el catalogo. "
-                f"Considera variaciones de nombre (ej: 'Cemento IP-30' vs 'CEMENTO PORTLAND IP-30').\n"
-                f"3. Clasifica cada item en la categoria correcta: "
-                f"ferreteria, agregados, acero, electrico, sanitario, madera, cemento, pintura, ceramica, herramientas, techos, plomeria, vidrios, prefabricados.\n"
-                f"4. Los productos que NO existan, crealos con create_products_bulk (nombre limpio, unidad correcta, categoria, precio como ref_price).\n"
-                f"5. Registra TODOS los precios con create_price_history_bulk "
-                f"(source: 'telegram', observed_date: hoy, supplier_name: '{supplier_name}' si se conoce).\n"
-                f"6. Al final, reporta un resumen: cuantos productos nuevos, existentes, precios registrados.\n"
+            # Build routine task with image tokens
+            routine_task = _build_routine_task_for_media(
+                saved_files=saved,
+                source_type=source_type,
+                filename=filename,
+                user_hint=user_hint,
+                source="telegram",
             )
 
             routine_result = await fire_routine(db, routine_task)
 
             if routine_result.get("estado") == "iniciada":
                 session_url = routine_result.get("url", "")
-                summary += (
-                    f"\nDelegado a Claude Code para procesar inteligentemente.\n"
-                    f"(verificar proveedores, clasificar, registrar precios)\n"
+                type_label = "PDF" if source_type == "pdf" else ("Excel" if source_type == "excel" else "Foto")
+                pages_info = f" ({len(saved)} paginas)" if source_type == "pdf" and len(saved) > 1 else ""
+                reply = (
+                    f"{type_label}{pages_info} enviada a Claude Code.\n"
+                    f"Claude Code analizara la imagen, extraera los datos "
+                    f"y registrara productos y precios automaticamente."
                 )
+                if user_hint:
+                    reply += f"\nNota: {user_hint}"
                 if session_url:
-                    summary += f"\nSesion: {session_url}"
-                await send_telegram(chat_id, summary)
+                    reply += f"\n\nSesion: {session_url}"
+                await send_telegram(chat_id, reply)
             else:
-                # Routine not configured or failed — fallback to simple agent
                 routine_error = routine_result.get("error", "")
-                print(f"[TG] Routine unavailable ({routine_error}), falling back to agent")
-
-                items_text = "\n".join(
-                    f"- {l.get('name','?')} | {l.get('uom','pza')} | {l.get('price',0)} Bs"
-                    + (f" | marca: {l['brand']}" if l.get('brand') else "")
-                    for l in lines
+                print(f"[TG] Routine unavailable: {routine_error}")
+                await send_telegram(
+                    chat_id,
+                    f"No se pudo delegar a Claude Code.\n"
+                    f"Error: {routine_error[:150]}\n\n"
+                    f"Verifica la configuracion de Routine en Admin > Integraciones.",
                 )
-                agent_msg = (
-                    f"{doc_label.upper()} RECIBIDA ({len(lines)} items extraidos).\n"
-                    f"{'Proveedor: ' + supplier_name + chr(10) if supplier_name else ''}"
-                    f"Items:\n{items_text}\n\n"
-                    f"Registra estos items usando registrar_cotizacion: busca/crea el proveedor, "
-                    f"busca/crea los productos y registra los precios."
-                )
-
-                response = await execute_agent_message(
-                    db, agent_msg, ai_config, agent_prompt,
-                    extracted_items=lines,
-                )
-                if response:
-                    await send_telegram(chat_id, response)
-                else:
-                    await send_telegram(chat_id, summary)
 
         except Exception as e:
-            print(f"[TG] Photo processing error: {e}")
+            print(f"[TG] Media processing error: {e}")
             import traceback
             traceback.print_exc()
             await send_telegram(chat_id, f"Error procesando la {media_label}: {str(e)[:100]}")
@@ -779,6 +677,71 @@ async def handle_telegram_message(db, msg: dict):
     except Exception as e:
         print(f"[TG] Agent error: {e}")
         await send_telegram(chat_id, "Error procesando tu mensaje. Intenta de nuevo.")
+
+
+# ── Routine task builder ──────────────────────────────────────
+
+def _build_routine_task_for_media(
+    saved_files: list[dict],
+    source_type: str,
+    filename: str,
+    user_hint: str = "",
+    source: str = "telegram",
+    batch_description: str = "",
+) -> str:
+    """Build the task text for Claude Code Routine with image tokens.
+
+    Instructs Claude Code to use get_uploaded_image to see each image,
+    extract data, and register products/prices via MCP tools.
+    """
+    image_tokens = [f for f in saved_files if f["media_type"].startswith("image/")]
+    excel_tokens = [f for f in saved_files if "excel" in f["media_type"] or f["filename"].endswith((".xlsx", ".xls"))]
+
+    parts = []
+    parts.append(f"PROCESAR DOCUMENTO recibido por {source.upper()}.")
+    if batch_description:
+        parts.append(f"Descripcion del lote: {batch_description}")
+    parts.append("")
+
+    # Image viewing instructions
+    if image_tokens:
+        parts.append(f"HAY {len(image_tokens)} IMAGEN(ES) PARA ANALIZAR.")
+        parts.append("Para ver cada imagen, usa la herramienta get_uploaded_image con el token correspondiente:")
+        parts.append("")
+        for f in image_tokens:
+            label = f"Pagina {f['page']}" if f["page"] > 0 else f["filename"]
+            parts.append(f"  - Token: {f['token']}  ({label}, {f['size']} bytes)")
+        parts.append("")
+        parts.append("IMPORTANTE: Llama get_uploaded_image para CADA token. Veras la imagen y podras extraer los datos.")
+        parts.append("")
+
+    # Excel instructions
+    if excel_tokens:
+        parts.append(f"HAY {len(excel_tokens)} ARCHIVO(S) EXCEL.")
+        parts.append("Para leer cada Excel, usa la herramienta get_uploaded_excel con el token:")
+        parts.append("")
+        for f in excel_tokens:
+            parts.append(f"  - Token: {f['token']}  ({f['filename']}, {f['size']} bytes)")
+        parts.append("")
+
+    # User hint
+    if user_hint:
+        parts.append(f"NOTA DEL USUARIO: {user_hint}")
+        parts.append("")
+
+    # Instructions
+    parts.append("INSTRUCCIONES:")
+    parts.append("1. Llama get_uploaded_image (o get_uploaded_excel) para ver el contenido del documento.")
+    parts.append("2. Identifica: proveedor (nombre, NIT, telefono), tipo de documento (factura, cotizacion, proforma, lista de precios), y los items con sus precios.")
+    parts.append("3. Busca con list_suppliers si el proveedor ya existe. Si no existe, crealo con create_supplier.")
+    parts.append("4. Para cada item, busca con list_products si el producto ya existe. Considera variaciones de nombre.")
+    parts.append("5. Clasifica cada item: ferreteria, agregados, acero, electrico, sanitario, madera, cemento, pintura, ceramica, herramientas, techos, plomeria, vidrios, prefabricados.")
+    parts.append("6. Productos nuevos: crealos con create_products_bulk (nombre limpio, unidad correcta, categoria, precio como ref_price).")
+    parts.append(f"7. Registra TODOS los precios con create_price_history_bulk (source: '{source}', observed_date: hoy).")
+    parts.append("8. Vincula proveedor-producto con link_supplier_product para cada item.")
+    parts.append("9. Reporta un resumen: productos nuevos, existentes, precios registrados, proveedor.")
+
+    return "\n".join(parts)
 
 
 # ── Batch helpers ──────────────────────────────────────────────
@@ -828,7 +791,7 @@ def _build_batch_status(session: dict) -> str:
 
 
 async def _process_batch(db, chat_id: str, session: dict):
-    """Process a completed batch: download, extract, merge, delegate."""
+    """Process a completed batch: download all files, save to temp, delegate to Claude Code."""
     desc = session.get("description", "")
     items = session["items"]
 
@@ -843,23 +806,21 @@ async def _process_batch(db, chat_id: str, session: dict):
         chat_id,
         f"Procesando lote: {len(media_items)} archivo{'s' if len(media_items) != 1 else ''}"
         + (f", {len(text_notes)} nota{'s' if len(text_notes) != 1 else ''}" if text_notes else "")
-        + "..."
+        + "\nDescargando y enviando a Claude Code..."
     )
 
-    # ── Download and extract from each media file ───────────────
-    from app.services.ai_extract import extract_quotation_data
+    from app.services.temp_files import save_media_for_routine
+    from app.services.agent_executor import fire_routine
 
-    all_lines = []
-    all_suppliers = []
-    all_docs = []
-    extraction_errors = []
+    # ── Download and save all media files ──────────────────────
+    all_saved = []
+    download_errors = []
 
     for idx, item in enumerate(media_items, 1):
         file_id = item["file_id"]
         filename = item.get("filename", "archivo")
         mime = item.get("mime_type", item.get("mime", ""))
 
-        # Determine source_type
         if item["type"] == "photo":
             source_type = "photo"
         elif "pdf" in mime:
@@ -871,216 +832,73 @@ async def _process_batch(db, chat_id: str, session: dict):
         else:
             source_type = "photo"
 
-        # Download
         dl = await _download_telegram_file(file_id)
         if not dl:
-            extraction_errors.append(f"No pude descargar {filename}")
+            download_errors.append(f"No pude descargar {filename}")
             continue
         content, file_path = dl
         print(f"[TG-Batch] Downloaded #{idx}: {len(content)} bytes ({file_path})")
 
-        # Extract
         try:
-            extraction = await extract_quotation_data(content, filename, source_type)
+            saved = save_media_for_routine(content, filename, source_type)
+            all_saved.extend(saved)
         except Exception as e:
-            print(f"[TG-Batch] Extraction error for #{idx}: {e}")
-            extraction_errors.append(f"Error extrayendo {filename}: {str(e)[:80]}")
-            continue
+            print(f"[TG-Batch] Save error for #{idx}: {e}")
+            download_errors.append(f"Error procesando {filename}: {str(e)[:80]}")
 
-        if not extraction or not extraction.get("lines"):
-            extraction_errors.append(f"Sin datos en {filename}")
-            continue
-
-        lines = extraction["lines"]
-        supplier = extraction.get("supplier")
-        doc_info = extraction.get("document")
-
-        # Tag each line with its source file
-        for line in lines:
-            line["_source_file"] = filename
-            line["_source_idx"] = idx
-
-        all_lines.extend(lines)
-        if supplier and supplier.get("name"):
-            all_suppliers.append(supplier)
-        if doc_info:
-            all_docs.append(doc_info)
-
-        print(f"[TG-Batch] #{idx}: {len(lines)} items"
-              + (f" | supplier: {supplier.get('name')}" if supplier else "")
-              + (f" | doc: {doc_info.get('type')}" if doc_info else ""))
-
-    # ── Build user summary ──────────────────────────────────────
-    if not all_lines:
-        error_detail = "\n".join(f"- {e}" for e in extraction_errors) if extraction_errors else "Sin detalles"
-        await send_telegram(
-            chat_id,
-            f"No se pudieron extraer datos del lote.\n\n{error_detail}"
-        )
+    if not all_saved:
+        error_detail = "\n".join(f"- {e}" for e in download_errors) if download_errors else "Sin detalles"
+        await send_telegram(chat_id, f"No se pudieron preparar los archivos.\n\n{error_detail}")
         return
 
-    # Deduplicate suppliers by name
-    unique_suppliers = {}
-    for s in all_suppliers:
-        name = s.get("name", "").strip().lower()
-        if name and name not in unique_suppliers:
-            unique_suppliers[name] = s
-    supplier_list = list(unique_suppliers.values())
-
-    # Primary supplier (most mentioned or from description)
-    primary_supplier_name = ""
-    if supplier_list:
-        primary_supplier_name = supplier_list[0].get("name", "")
+    # ── Build user hint from notes ─────────────────────────────
+    user_hint = ""
+    if text_notes:
+        user_hint = "; ".join(text_notes)
+    if desc and not user_hint:
+        user_hint = desc
     elif desc:
-        primary_supplier_name = desc
+        user_hint = f"{desc}. {user_hint}"
 
-    summary = "<b>Lote procesado</b>\n"
-    if desc:
-        summary += f"Descripcion: {desc}\n"
-    summary += f"Archivos: {len(media_items)} | Items extraidos: {len(all_lines)}\n"
-    if supplier_list:
-        names = ", ".join(s.get("name", "?") for s in supplier_list)
-        summary += f"Proveedores detectados: {names}\n"
-    if all_docs:
-        doc_labels = []
-        for d in all_docs:
-            label = {"factura": "Factura", "cotizacion": "Cotizacion", "proforma": "Proforma",
-                     "lista_precios": "Lista", "nota_venta": "Nota"}.get(d.get("type", ""), "Doc")
-            if d.get("number"):
-                label += f" #{d['number']}"
-            doc_labels.append(label)
-        summary += f"Documentos: {', '.join(doc_labels)}\n"
-    if text_notes:
-        summary += f"Notas del usuario: {len(text_notes)}\n"
-    if extraction_errors:
-        summary += f"Errores: {len(extraction_errors)}\n"
-
-    summary += f"\nItems (primeros 15):\n"
-    for i, l in enumerate(all_lines[:15], 1):
-        qty = l.get('quantity', 1) or 1
-        price_str = f"{l.get('price', 0)} Bs/{l.get('uom', 'pza')}"
-        if qty != 1:
-            price_str = f"{qty} x {price_str}"
-        summary += f"{i}. {l.get('name', '?')} — {price_str}\n"
-    if len(all_lines) > 15:
-        summary += f"... y {len(all_lines) - 15} mas\n"
-
-    # ── Delegate to Routine or Agent ────────────────────────────
-    import json as _json
-    from app.services.agent_executor import fire_routine
-
-    # Build rich data payload
-    routine_data = {"items": all_lines}
-    if supplier_list:
-        routine_data["suppliers"] = supplier_list
-    if all_docs:
-        routine_data["documents"] = all_docs
-    if text_notes:
-        routine_data["user_notes"] = text_notes
-
-    items_json = _json.dumps(routine_data, ensure_ascii=False)
-
-    # Build supplier instructions
-    if supplier_list:
-        supplier_parts = []
-        for s in supplier_list:
-            part = f"'{s.get('name', '?')}'"
-            if s.get("nit"):
-                part += f" (NIT: {s['nit']})"
-            if s.get("phone"):
-                part += f" (Tel: {s['phone']})"
-            supplier_parts.append(part)
-        supplier_instruction = (
-            f"Proveedores detectados: {', '.join(supplier_parts)}. "
-            "Para cada proveedor, busca con list_suppliers si ya existe. "
-            "Si no existe, crealo con create_supplier.\n"
-        )
-    elif primary_supplier_name:
-        supplier_instruction = (
-            f"Posible proveedor (de la descripcion del lote): '{primary_supplier_name}'. "
-            "Busca con list_suppliers si ya existe. Si no existe, crealo.\n"
-        )
-    else:
-        supplier_instruction = (
-            "No se detecto proveedor. Si los items o notas sugieren uno, crealo. "
-            "Sino, registra precios sin proveedor.\n"
-        )
-
-    notes_text = ""
-    if text_notes:
-        notes_text = f"\nNOTAS DEL USUARIO:\n" + "\n".join(f"- {n}" for n in text_notes) + "\n"
-
-    doc_type_label = "DOCUMENTOS" if len(media_items) > 1 else "DOCUMENTO"
-    routine_task = (
-        f"PROCESAR LOTE de {len(media_items)} {doc_type_label} recibidos por Telegram.\n"
-        + (f"Descripcion del lote: {desc}\n" if desc else "")
-        + f"\n{supplier_instruction}"
-        + f"Se extrajeron {len(all_lines)} items en total de {len(media_items)} archivos.\n"
-        + notes_text
-        + f"\nDATOS EXTRAIDOS (JSON):\n{items_json}\n\n"
-        f"INSTRUCCIONES:\n"
-        f"1. {supplier_instruction}"
-        f"2. Para cada item, busca con list_products si el producto ya existe en el catalogo. "
-        f"Considera variaciones de nombre (ej: 'Cemento IP-30' vs 'CEMENTO PORTLAND IP-30').\n"
-        f"3. Clasifica cada item en la categoria correcta: "
-        f"ferreteria, agregados, acero, electrico, sanitario, madera, cemento, pintura, ceramica, herramientas, techos, plomeria, vidrios, prefabricados.\n"
-        f"4. Los productos que NO existan, crealos con create_products_bulk (nombre limpio, unidad correcta, categoria, precio como ref_price).\n"
-        f"5. Registra TODOS los precios con create_price_history_bulk "
-        f"(source: 'telegram_batch', observed_date: hoy"
-        + (f", supplier_name del proveedor correspondiente" if supplier_list else "")
-        + f").\n"
-        f"6. Al final, reporta un resumen: cuantos productos nuevos, existentes, precios registrados, por proveedor si hay varios.\n"
+    # ── Build and fire routine task ────────────────────────────
+    routine_task = _build_routine_task_for_media(
+        saved_files=all_saved,
+        source_type="batch",
+        filename=f"lote_{len(media_items)}_archivos",
+        user_hint=user_hint,
+        source="telegram_batch",
+        batch_description=desc,
     )
 
     routine_result = await fire_routine(db, routine_task)
 
+    images_n = sum(1 for f in all_saved if f["media_type"].startswith("image/"))
+    excels_n = sum(1 for f in all_saved if "excel" in f["media_type"])
+
     if routine_result.get("estado") == "iniciada":
         session_url = routine_result.get("url", "")
-        summary += (
-            "\nDelegado a Claude Code para procesar inteligentemente.\n"
-            "(verificar proveedores, clasificar, registrar precios)\n"
+        summary = (
+            f"<b>Lote enviado a Claude Code</b>\n"
+            + (f"Descripcion: {desc}\n" if desc else "")
+            + f"Archivos: {len(media_items)} | Imagenes: {images_n}"
+            + (f" | Excel: {excels_n}" if excels_n else "")
+            + "\n\nClaude Code analizara cada imagen, extraera los datos "
+            "y registrara productos y precios automaticamente."
         )
+        if download_errors:
+            summary += f"\n\nErrores de descarga: {len(download_errors)}"
         if session_url:
-            summary += f"\nSesion: {session_url}"
+            summary += f"\n\nSesion: {session_url}"
         await send_telegram(chat_id, summary)
     else:
-        # Fallback to simple agent
         routine_error = routine_result.get("error", "")
-        print(f"[TG-Batch] Routine unavailable ({routine_error}), falling back to agent")
-
-        try:
-            from app.services.agent_executor import execute_agent_message, resolve_agent_config
-            result = await resolve_agent_config(db, "communicator")
-            if result and result[0]:
-                ai_config, agent_prompt = result
-
-                items_text = "\n".join(
-                    f"- {l.get('name','?')} | {l.get('uom','pza')} | {l.get('price',0)} Bs"
-                    + (f" | marca: {l['brand']}" if l.get('brand') else "")
-                    for l in all_lines
-                )
-                agent_msg = (
-                    f"LOTE DE {len(media_items)} DOCUMENTOS ({len(all_lines)} items extraidos).\n"
-                    + (f"Descripcion: {desc}\n" if desc else "")
-                    + (f"Proveedor principal: {primary_supplier_name}\n" if primary_supplier_name else "")
-                    + (f"Notas: {'; '.join(text_notes)}\n" if text_notes else "")
-                    + f"Items:\n{items_text}\n\n"
-                    f"Registra estos items usando registrar_cotizacion: busca/crea los proveedores, "
-                    f"busca/crea los productos y registra los precios."
-                )
-
-                response = await execute_agent_message(
-                    db, agent_msg, ai_config, agent_prompt,
-                    extracted_items=all_lines,
-                )
-                if response:
-                    await send_telegram(chat_id, response)
-                    return
-        except Exception as e:
-            print(f"[TG-Batch] Agent fallback error: {e}")
-
-        # Last resort: just send the summary
-        await send_telegram(chat_id, summary)
+        print(f"[TG-Batch] Routine unavailable: {routine_error}")
+        await send_telegram(
+            chat_id,
+            f"No se pudo delegar a Claude Code.\n"
+            f"Error: {routine_error[:150]}\n\n"
+            f"Verifica la configuracion de Routine en Admin > Integraciones.",
+        )
 
 
 # ── Callback handler (inline button clicks) ──────────────────
