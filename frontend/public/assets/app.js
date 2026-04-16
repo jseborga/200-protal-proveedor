@@ -211,6 +211,12 @@ const API = {
     adminSeoConfig: () => API.get('/admin/seo-config'),
     adminUpdateSeoConfig: (data) => API.put('/admin/seo-config', data),
 
+    // Admin — Integrations
+    adminIntegrations: () => API.get('/admin/integrations'),
+    adminUpdateIntegrations: (data) => API.put('/admin/integrations', data),
+    adminTestWhatsApp: () => API.post('/admin/integrations/test-whatsapp'),
+    adminTestEmail: () => API.post('/admin/integrations/test-email'),
+
     // Public site config (no auth needed)
     siteConfig: () => fetch(`${API_BASE}/site-config`).then(r => r.json()),
 
@@ -1317,45 +1323,68 @@ async function renderAdmin() {
     if (!isStaff()) { showLoginModal(); navigate('home'); return; }
 
     const page = document.getElementById('page-content');
-    const tabs = [
+
+    // Tab groups for sidebar
+    const dataGroup = [
         { key: 'dashboard', label: 'Dashboard', icon: 'bar-chart' },
         { key: 'suppliers', label: 'Proveedores', icon: 'users' },
         { key: 'products', label: 'Productos', icon: 'tag' },
         { key: 'groups', label: 'Grupos', icon: 'layers' },
     ];
-    if (isAdmin()) tabs.push({ key: 'review', label: 'Revision', icon: 'check-circle' });
-    if (isAdmin()) tabs.push({ key: 'categories', label: 'Categorias', icon: 'tag' });
-    if (isAdmin()) tabs.push({ key: 'uoms', label: 'Unidades', icon: 'settings' });
-    if (isManager()) tabs.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
-    if (isAdmin()) tabs.push({ key: 'apikeys', label: 'API Keys', icon: 'key' });
-    if (isManager()) tabs.push({ key: 'suggestions', label: 'Sugerencias', icon: 'user-plus' });
-    if (isAdmin()) tabs.push({ key: 'plans', label: 'Planes', icon: 'star' });
-    if (isAdmin()) tabs.push({ key: 'companies', label: 'Empresas', icon: 'building' });
-    if (isAdmin()) tabs.push({ key: 'subscriptions', label: 'Suscripciones', icon: 'crown' });
-    if (isAdmin()) tabs.push({ key: 'tasks', label: 'Tareas', icon: 'clock' });
-    if (isAdmin()) tabs.push({ key: 'ai', label: 'IA', icon: 'globe' });
-    if (isAdmin()) tabs.push({ key: 'seo', label: 'SEO', icon: 'globe' });
+    if (isAdmin()) dataGroup.push({ key: 'review', label: 'Revision', icon: 'check-circle' });
+    if (isManager()) dataGroup.push({ key: 'suggestions', label: 'Sugerencias', icon: 'user-plus' });
 
-    const tabOptions = tabs.map(t =>
+    const catalogGroup = [];
+    if (isAdmin()) catalogGroup.push({ key: 'categories', label: 'Categorias', icon: 'tag' });
+    if (isAdmin()) catalogGroup.push({ key: 'uoms', label: 'Unidades', icon: 'settings' });
+
+    const bizGroup = [];
+    if (isManager()) bizGroup.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
+    if (isAdmin()) bizGroup.push({ key: 'companies', label: 'Empresas', icon: 'building' });
+    if (isAdmin()) bizGroup.push({ key: 'subscriptions', label: 'Suscripciones', icon: 'crown' });
+    if (isAdmin()) bizGroup.push({ key: 'plans', label: 'Planes', icon: 'star' });
+
+    const configGroup = [];
+    if (isAdmin()) configGroup.push({ key: 'ai', label: 'Inteligencia AI', icon: 'globe' });
+    if (isAdmin()) configGroup.push({ key: 'integrations', label: 'Integraciones', icon: 'whatsapp' });
+    if (isAdmin()) configGroup.push({ key: 'tasks', label: 'Tareas Auto', icon: 'clock' });
+    if (isAdmin()) configGroup.push({ key: 'apikeys', label: 'API Keys', icon: 'key' });
+    if (isAdmin()) configGroup.push({ key: 'seo', label: 'SEO y Marca', icon: 'globe' });
+
+    const groups = [
+        { label: 'Datos', items: dataGroup },
+        ...(catalogGroup.length ? [{ label: 'Catalogo', items: catalogGroup }] : []),
+        ...(bizGroup.length ? [{ label: 'Negocio', items: bizGroup }] : []),
+        ...(configGroup.length ? [{ label: 'Configuracion', items: configGroup }] : []),
+    ];
+    const allTabs = groups.flatMap(g => g.items);
+
+    // Mobile dropdown
+    const tabOptions = allTabs.map(t =>
         `<option value="${t.key}" ${_adminTab === t.key ? 'selected' : ''}>${t.label}</option>`
     ).join('');
 
-    page.innerHTML = `
-        <div class="page-header">
-            <h1 class="page-title">${icon('settings', 24)} Admin</h1>
-        </div>
-        <select class="admin-tab-select" onchange="switchAdminTab(this.value)">
-            ${tabOptions}
-        </select>
-        <div class="admin-tabs">
-            ${tabs.map(t => `
-                <button class="admin-tab${_adminTab === t.key ? ' active' : ''}"
+    // Desktop sidebar
+    const sidebarHtml = groups.map(g => `
+        <div class="adm-sidebar-group">
+            <div class="adm-sidebar-label">${g.label}</div>
+            ${g.items.map(t => `
+                <button class="adm-sidebar-item${_adminTab === t.key ? ' active' : ''}"
                         onclick="switchAdminTab('${t.key}')">
                     ${icon(t.icon, 16)} ${t.label}
                 </button>
             `).join('')}
         </div>
-        <div id="admin-content"></div>
+    `).join('');
+
+    page.innerHTML = `
+        <select class="admin-tab-select" onchange="switchAdminTab(this.value)">
+            ${tabOptions}
+        </select>
+        <div class="adm-layout">
+            <aside class="adm-sidebar">${sidebarHtml}</aside>
+            <main class="adm-main" id="admin-content"></main>
+        </div>
     `;
 
     renderAdminTab();
@@ -1384,6 +1413,7 @@ function renderAdminTab() {
         case 'tasks': renderAdminTasks(); break;
         case 'ai': renderAdminAI(); break;
         case 'seo': renderAdminSEO(); break;
+        case 'integrations': renderAdminIntegrations(); break;
     }
 }
 
@@ -1391,29 +1421,49 @@ function renderAdminTab() {
 async function renderAdminDashboard() {
     const c = document.getElementById('admin-content');
     c.innerHTML = `
-        <div class="stats-grid" id="admin-stats">
-            <div class="stat-card"><div class="stat-value">-</div><div class="stat-label">Cargando...</div></div>
+        <h2 class="adm-title">Dashboard</h2>
+        <div class="adm-stats" id="admin-stats">
+            <div class="adm-stat loading"><div class="adm-stat-val">-</div><div class="adm-stat-lbl">Cargando</div></div>
         </div>
-        <div class="card" style="margin-top:16px">
-            <div class="card-header"><span class="card-title">Acciones rapidas</span></div>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">
-                <button class="btn btn-primary" onclick="switchAdminTab('suppliers')">${icon('plus',16)} Nuevo Proveedor</button>
-                <button class="btn btn-secondary" onclick="switchAdminTab('products')">${icon('plus',16)} Nuevo Producto</button>
-                ${isManager() ? `<button class="btn btn-secondary" onclick="switchAdminTab('users')">${icon('user-plus',16)} Crear Agente</button>` : ''}
-            </div>
+        <div class="adm-quick-grid">
+            <button class="adm-quick" onclick="switchAdminTab('suppliers')">
+                <span class="adm-quick-icon" style="background:#dbeafe;color:#1e40af">${icon('users',22)}</span>
+                <span>Nuevo Proveedor</span>
+            </button>
+            <button class="adm-quick" onclick="switchAdminTab('products')">
+                <span class="adm-quick-icon" style="background:#fef3c7;color:#92400e">${icon('tag',22)}</span>
+                <span>Nuevo Producto</span>
+            </button>
+            <button class="adm-quick" onclick="switchAdminTab('review')">
+                <span class="adm-quick-icon" style="background:#d1fae5;color:#065f46">${icon('check-circle',22)}</span>
+                <span>Revisar Precios</span>
+            </button>
+            <button class="adm-quick" onclick="switchAdminTab('ai')">
+                <span class="adm-quick-icon" style="background:#ede9fe;color:#6d28d9">${icon('globe',22)}</span>
+                <span>Configurar IA</span>
+            </button>
         </div>
     `;
     try {
         const resp = await API.stats();
         if (resp.ok) {
             const s = resp.data;
-            document.getElementById('admin-stats').innerHTML = `
-                <div class="stat-card"><div class="stat-value">${s.suppliers}</div><div class="stat-label">Proveedores</div></div>
-                <div class="stat-card"><div class="stat-value">${s.insumos}</div><div class="stat-label">Productos</div></div>
-                <div class="stat-card"><div class="stat-value">${s.quotations}</div><div class="stat-label">Cotizaciones</div></div>
-                <div class="stat-card"><div class="stat-value">${s.users}</div><div class="stat-label">Usuarios</div></div>
-                <div class="stat-card"><div class="stat-value">${s.regions}</div><div class="stat-label">Regiones</div></div>
-            `;
+            const stats = [
+                { val: s.suppliers, lbl: 'Proveedores', color: '#1e40af', bg: '#dbeafe', ico: 'users' },
+                { val: s.insumos, lbl: 'Productos', color: '#92400e', bg: '#fef3c7', ico: 'tag' },
+                { val: s.quotations, lbl: 'Cotizaciones', color: '#065f46', bg: '#d1fae5', ico: 'file-text' },
+                { val: s.users, lbl: 'Usuarios', color: '#6d28d9', bg: '#ede9fe', ico: 'user-plus' },
+                { val: s.regions, lbl: 'Regiones', color: '#0369a1', bg: '#e0f2fe', ico: 'map' },
+            ];
+            document.getElementById('admin-stats').innerHTML = stats.map(st => `
+                <div class="adm-stat">
+                    <div class="adm-stat-ico" style="background:${st.bg};color:${st.color}">${icon(st.ico, 20)}</div>
+                    <div>
+                        <div class="adm-stat-val">${st.val}</div>
+                        <div class="adm-stat-lbl">${st.lbl}</div>
+                    </div>
+                </div>
+            `).join('');
         }
     } catch {}
 }
@@ -4999,54 +5049,61 @@ async function renderAdminAI() {
     }, {}));
 
     c.innerHTML = `
-        <h2 style="margin-bottom:16px">${icon('globe', 20)} Configuracion de IA</h2>
-        <p style="color:var(--gray-500);margin-bottom:16px;font-size:14px">
-            Configura el proveedor de IA para extraccion de datos de cotizaciones (PDF, fotos).
-            Las empresas pueden usar su propio token desde su perfil.
-        </p>
+        <h2 class="adm-title">${icon('globe', 22)} Inteligencia Artificial</h2>
 
-        <h3 style="margin-bottom:12px">Seleccionar Proveedor</h3>
-        <div class="ai-providers-grid">${providerCards}</div>
+        <!-- What AI does -->
+        <div class="ai-features-grid">
+            <div class="ai-feat"><span class="ai-feat-ico" style="background:#dbeafe;color:#1e40af">${icon('file-text',18)}</span><div><strong>Extraccion de Documentos</strong><p>Extrae precios y productos de PDFs, fotos y Excel de cotizaciones automaticamente</p></div></div>
+            <div class="ai-feat"><span class="ai-feat-ico" style="background:#d1fae5;color:#065f46">${icon('check-circle',18)}</span><div><strong>Curacion de Materiales</strong><p>Detecta duplicados, sugiere agrupaciones y normaliza nombres de productos</p></div></div>
+            <div class="ai-feat"><span class="ai-feat-ico" style="background:#fef3c7;color:#92400e">${icon('trending-up',18)}</span><div><strong>Analisis de Precios</strong><p>Valida precios fuera de rango, calcula promedios y detecta anomalias</p></div></div>
+        </div>
 
-        <div id="ai-config-form-wrap" style="margin-top:20px">
-            <form id="ai-config-form" onsubmit="handleSaveAIConfig(event)">
+        <!-- Provider selection -->
+        <div class="integ-section">
+            <h3 style="margin-bottom:12px">Proveedor de IA</h3>
+            <div class="ai-providers-grid">${providerCards}</div>
+
+            <form id="ai-config-form" onsubmit="handleSaveAIConfig(event)" style="margin-top:16px">
                 <input type="hidden" id="ai-providers-data" value='${providersJson.replace(/'/g, "&#39;")}'>
-                <div class="form-group">
-                    <label class="form-label">Proveedor</label>
-                    <select class="form-input" id="ai-provider-select" name="provider" onchange="onAIProviderChange()" required>
-                        <option value="">-- Seleccionar --</option>
-                        ${providerOptions}
-                    </select>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Proveedor</label>
+                        <select class="form-input" id="ai-provider-select" name="provider" onchange="onAIProviderChange()" required>
+                            <option value="">-- Seleccionar --</option>
+                            ${providerOptions}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Modelo</label>
+                        <select class="form-input" id="ai-model-select" name="model">
+                            <option value="">Default del proveedor</option>
+                        </select>
+                    </div>
                 </div>
                 <div class="form-group">
                     <label class="form-label">API Key</label>
                     <input class="form-input" name="api_key" type="password" value="${esc(currentKey)}" placeholder="sk-..." required>
                     <a id="ai-help-link" href="#" target="_blank" style="font-size:12px;color:var(--primary);display:${currentProvider ? 'inline' : 'none'}">Obtener API Key</a>
                 </div>
-                <div class="form-group">
-                    <label class="form-label">Modelo</label>
-                    <select class="form-input" id="ai-model-select" name="model">
-                        <option value="">Default del proveedor</option>
-                    </select>
-                </div>
-                <div style="display:flex;gap:8px;margin-top:16px">
+                <div style="display:flex;gap:8px">
                     <button type="submit" class="btn btn-primary">${icon('check', 16)} Guardar</button>
                     <button type="button" class="btn btn-secondary" onclick="testAIConfig()">Probar Conexion</button>
                 </div>
             </form>
-            <div id="ai-test-result" style="margin-top:12px"></div>
+            <div id="ai-test-result" style="margin-top:8px"></div>
+            ${config ? `<div style="margin-top:12px;font-size:12px;color:var(--gray-400)">Config actual: ${esc(currentProvider)} / ${esc(currentModel)} / Key: ${currentKey ? '●●●' + currentKey.slice(-4) : 'sin configurar'}</div>` : ''}
         </div>
 
-        ${config ? `
-            <div class="ai-current-config" style="margin-top:24px">
-                <h3>Config Actual</h3>
-                <div style="background:var(--gray-50);padding:12px;border-radius:8px;font-size:13px;margin-top:8px">
-                    <div><strong>Proveedor:</strong> ${esc(currentProvider)}</div>
-                    <div><strong>Modelo:</strong> ${esc(currentModel)}</div>
-                    <div><strong>API Key:</strong> ${currentKey ? '●●●●●●' + currentKey.slice(-4) : 'No configurada'}</div>
-                </div>
+        <!-- AI Actions -->
+        <div class="integ-section">
+            <h3 style="margin-bottom:8px">Ejecutar Acciones AI</h3>
+            <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">Estas tareas se ejecutan automaticamente (ver Tareas Auto), pero puedes lanzarlas manualmente.</p>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-secondary" onclick="runJobNow('material_curation')">${icon('check-circle',16)} Curar Materiales</button>
+                <button class="btn btn-secondary" onclick="runJobNow('refresh_prices')">${icon('trending-up',16)} Recalcular Precios</button>
             </div>
-        ` : ''}
+            <div id="ai-action-result" style="margin-top:8px"></div>
+        </div>
     `;
 
     // Initialize model dropdown
@@ -5341,6 +5398,159 @@ async function handleSaveSEO(e) {
         renderAdminSEO();
     } else {
         toast(resp.detail || 'Error guardando SEO', 'error');
+    }
+}
+
+// ── Admin: Integrations ──────────────────────────────────────
+async function renderAdminIntegrations() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="loading">Cargando integraciones...</div>';
+
+    const resp = await API.adminIntegrations();
+    if (!resp.ok) { c.innerHTML = '<p>Error cargando integraciones</p>'; return; }
+    const d = resp.data;
+
+    c.innerHTML = `
+        <h2 class="adm-title">${icon('whatsapp',22)} Integraciones</h2>
+
+        <!-- WhatsApp / Evolution API -->
+        <div class="integ-section">
+            <div class="integ-header">
+                <span class="integ-icon" style="background:#dcfce7;color:#16a34a">${icon('whatsapp',20)}</span>
+                <div>
+                    <h3>WhatsApp (Evolution API)</h3>
+                    <p>Envia cotizaciones y recibe respuestas por WhatsApp</p>
+                </div>
+            </div>
+            <form onsubmit="saveIntegrations(event,'whatsapp')">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">URL Evolution API</label>
+                        <input class="form-input" name="evolution_api_url" value="${esc(d.evolution_api_url)}" placeholder="http://localhost:8080">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Nombre de Instancia</label>
+                        <input class="form-input" name="evolution_instance_name" value="${esc(d.evolution_instance_name)}" placeholder="apu-marketplace">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input class="form-input" name="evolution_api_key" type="password" value="${esc(d.evolution_api_key)}" placeholder="Tu API key de Evolution">
+                    ${d.evolution_api_key_masked ? `<small style="color:var(--gray-400)">Actual: ${esc(d.evolution_api_key_masked)}</small>` : ''}
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Webhook URL (configura esto en Evolution API)</label>
+                    <div class="integ-webhook-url" onclick="navigator.clipboard.writeText(this.textContent);toast('Copiado','success')">${esc(d.webhook_whatsapp)}</div>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar</button>
+                    <button type="button" class="btn btn-secondary" onclick="testWhatsApp()">Probar Conexion</button>
+                </div>
+                <div id="wa-test-result" style="margin-top:8px"></div>
+            </form>
+        </div>
+
+        <!-- Telegram -->
+        <div class="integ-section">
+            <div class="integ-header">
+                <span class="integ-icon" style="background:#dbeafe;color:#1e40af">${icon('send',20)}</span>
+                <div>
+                    <h3>Telegram Bot</h3>
+                    <p>Recibe y envia cotizaciones via Telegram</p>
+                </div>
+            </div>
+            <form onsubmit="saveIntegrations(event,'telegram')">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Bot Token</label>
+                        <input class="form-input" name="telegram_bot_token" type="password" value="${esc(d.telegram_bot_token)}" placeholder="123456:ABC-DEF...">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Webhook Secret</label>
+                        <input class="form-input" name="telegram_webhook_secret" value="${esc(d.telegram_webhook_secret)}" placeholder="mi-secreto">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Webhook URL (configura con /setWebhook)</label>
+                    <div class="integ-webhook-url" onclick="navigator.clipboard.writeText(this.textContent);toast('Copiado','success')">${esc(d.webhook_telegram)}</div>
+                </div>
+                <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar</button>
+            </form>
+        </div>
+
+        <!-- Email / SMTP -->
+        <div class="integ-section">
+            <div class="integ-header">
+                <span class="integ-icon" style="background:#fef3c7;color:#92400e">${icon('mail',20)}</span>
+                <div>
+                    <h3>Email (SMTP)</h3>
+                    <p>Notificaciones y envio de cotizaciones por correo</p>
+                </div>
+            </div>
+            <form onsubmit="saveIntegrations(event,'smtp')">
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Host SMTP</label>
+                        <input class="form-input" name="smtp_host" value="${esc(d.smtp_host)}" placeholder="smtp.gmail.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Puerto</label>
+                        <input class="form-input" type="number" name="smtp_port" value="${d.smtp_port || 587}">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Email remitente</label>
+                        <input class="form-input" name="smtp_from" value="${esc(d.smtp_from)}" placeholder="noreply@tudominio.com">
+                    </div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Usuario SMTP</label>
+                        <input class="form-input" name="smtp_user" value="${esc(d.smtp_user)}" placeholder="tu@gmail.com">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Contrasena SMTP</label>
+                        <input class="form-input" type="password" name="smtp_password" value="${esc(d.smtp_password)}" placeholder="App password">
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px">
+                    <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar</button>
+                    <button type="button" class="btn btn-secondary" onclick="testEmail()">Probar Conexion</button>
+                </div>
+                <div id="smtp-test-result" style="margin-top:8px"></div>
+            </form>
+        </div>
+    `;
+}
+
+async function saveIntegrations(e, section) {
+    e.preventDefault();
+    const f = e.target;
+    const data = {};
+    new FormData(f).forEach((v, k) => { if (v) data[k] = v; });
+    const resp = await API.adminUpdateIntegrations(data);
+    if (resp.ok) { toast('Integracion guardada', 'success'); }
+    else { toast(resp.detail || 'Error', 'error'); }
+}
+
+async function testWhatsApp() {
+    const el = document.getElementById('wa-test-result');
+    el.innerHTML = '<span style="color:var(--gray-500);font-size:13px">Probando...</span>';
+    const resp = await API.adminTestWhatsApp();
+    if (resp.ok) {
+        el.innerHTML = `<span style="color:#16a34a;font-size:13px">${icon('check',14)} Conectado — Estado: ${esc(resp.data.state)} (${esc(resp.data.instance)})</span>`;
+    } else {
+        el.innerHTML = `<span style="color:#dc2626;font-size:13px">${icon('x',14)} ${esc(resp.error || 'Error de conexion')}</span>`;
+    }
+}
+
+async function testEmail() {
+    const el = document.getElementById('smtp-test-result');
+    el.innerHTML = '<span style="color:var(--gray-500);font-size:13px">Probando...</span>';
+    const resp = await API.adminTestEmail();
+    if (resp.ok) {
+        el.innerHTML = `<span style="color:#16a34a;font-size:13px">${icon('check',14)} SMTP conectado — ${esc(resp.data.host)}:${resp.data.port}</span>`;
+    } else {
+        el.innerHTML = `<span style="color:#dc2626;font-size:13px">${icon('x',14)} ${esc(resp.error || 'Error de conexion')}</span>`;
     }
 }
 

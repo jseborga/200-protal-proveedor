@@ -1565,3 +1565,138 @@ async def update_seo_config(
 
     await db.commit()
     return {"ok": True, "data": config}
+
+
+# ── Integrations config (WhatsApp / Telegram / SMTP) ──────────
+
+@router.get("/integrations")
+async def get_integrations(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Return current integration config (masking secrets)."""
+    setting = await db.get(SystemSetting, "integrations")
+    cfg = setting.value if setting and setting.value else {}
+
+    # Merge with env-based defaults
+    from app.core.config import settings as env
+    defaults = {
+        "evolution_api_url": env.evolution_api_url,
+        "evolution_api_key": env.evolution_api_key,
+        "evolution_instance_name": env.evolution_instance_name,
+        "telegram_bot_token": env.telegram_bot_token,
+        "telegram_webhook_secret": env.telegram_webhook_secret,
+        "smtp_host": env.smtp_host,
+        "smtp_port": env.smtp_port,
+        "smtp_user": env.smtp_user,
+        "smtp_password": env.smtp_password,
+        "smtp_from": env.smtp_from,
+    }
+    merged = {**defaults, **cfg}
+
+    # Mask secrets for display
+    display = dict(merged)
+    for k in ("evolution_api_key", "telegram_bot_token", "smtp_password"):
+        val = display.get(k, "")
+        if val and len(val) > 6:
+            display[k + "_masked"] = val[:3] + "***" + val[-3:]
+        else:
+            display[k + "_masked"] = "***" if val else ""
+
+    # Build webhook URLs
+    display["webhook_whatsapp"] = f"{env.app_url}/api/v1/webhook/whatsapp"
+    display["webhook_telegram"] = f"{env.app_url}/api/v1/webhook/telegram"
+    if merged.get("telegram_webhook_secret"):
+        display["webhook_telegram"] += f"?secret={merged['telegram_webhook_secret']}"
+
+    return {"ok": True, "data": display}
+
+
+@router.put("/integrations")
+async def update_integrations(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Update integration config."""
+    allowed_keys = {
+        "evolution_api_url", "evolution_api_key", "evolution_instance_name",
+        "telegram_bot_token", "telegram_webhook_secret",
+        "smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from",
+    }
+    config = {k: v for k, v in body.items() if k in allowed_keys and v != ""}
+
+    setting = await db.get(SystemSetting, "integrations")
+    if setting:
+        current = setting.value or {}
+        current.update(config)
+        setting.value = current
+    else:
+        setting = SystemSetting(key="integrations", value=config)
+        db.add(setting)
+
+    await db.commit()
+    return {"ok": True, "data": config}
+
+
+@router.post("/integrations/test-whatsapp")
+async def test_whatsapp_connection(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Test Evolution API connection by fetching instance status."""
+    import httpx
+    setting = await db.get(SystemSetting, "integrations")
+    cfg = setting.value if setting and setting.value else {}
+
+    from app.core.config import settings as env
+    url = cfg.get("evolution_api_url") or env.evolution_api_url
+    api_key = cfg.get("evolution_api_key") or env.evolution_api_key
+    instance = cfg.get("evolution_instance_name") or env.evolution_instance_name
+
+    if not url or not api_key:
+        return {"ok": False, "error": "URL y API Key son requeridos"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{url.rstrip('/')}/instance/connectionState/{instance}",
+                headers={"apikey": api_key},
+            )
+        if resp.status_code == 200:
+            data = resp.json()
+            state = data.get("instance", {}).get("state", data.get("state", "unknown"))
+            return {"ok": True, "data": {"state": state, "instance": instance}}
+        else:
+            return {"ok": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+@router.post("/integrations/test-email")
+async def test_email_connection(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Test SMTP connection."""
+    import aiosmtplib
+    setting = await db.get(SystemSetting, "integrations")
+    cfg = setting.value if setting and setting.value else {}
+
+    from app.core.config import settings as env
+    host = cfg.get("smtp_host") or env.smtp_host
+    port = cfg.get("smtp_port") or env.smtp_port
+    smtp_user = cfg.get("smtp_user") or env.smtp_user
+    smtp_pass = cfg.get("smtp_password") or env.smtp_password
+
+    if not smtp_user or not smtp_pass:
+        return {"ok": False, "error": "SMTP user y password son requeridos"}
+
+    try:
+        smtp = aiosmtplib.SMTP(hostname=host, port=port, use_tls=True)
+        await smtp.connect()
+        await smtp.login(smtp_user, smtp_pass)
+        await smtp.quit()
+        return {"ok": True, "data": {"host": host, "port": port, "user": smtp_user}}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
