@@ -195,7 +195,7 @@ async def upload_quotation(
         raise HTTPException(status_code=400, detail="Formato no soportado. Use Excel, PDF o imagen.")
 
     from app.services.ai_extract import extract_quotation_data
-    extracted = await extract_quotation_data(content, filename, source)
+    extracted = await extract_quotation_data(content, filename, source, company_id=user.company_id)
 
     if not extracted or not extracted.get("lines"):
         raise HTTPException(status_code=422, detail="No se pudieron extraer datos del archivo")

@@ -1395,3 +1395,173 @@ async def run_job_now(
 
     result = await execute_job(job_name)
     return {"ok": True, "data": result}
+
+
+# ── AI Config (System-wide) ─────────────────────────────────────
+from app.models.system_setting import SystemSetting
+from app.core.ai_providers import get_all_providers
+
+
+@router.get("/ai-config")
+async def get_ai_config(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Obtener config AI del sistema + lista de proveedores."""
+    setting = await db.get(SystemSetting, "ai_config")
+    current = setting.value if setting else None
+
+    return {
+        "ok": True,
+        "data": {
+            "config": current,
+            "providers": get_all_providers(),
+        },
+    }
+
+
+class AIConfigUpdate(BaseModel):
+    provider: str
+    api_key: str
+    model: str = ""
+
+
+@router.put("/ai-config")
+async def update_ai_config(
+    body: AIConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Guardar config AI del sistema."""
+    from app.core.ai_providers import get_provider_info
+    provider_info = get_provider_info(body.provider)
+    if not provider_info:
+        raise HTTPException(400, f"Proveedor no valido: {body.provider}")
+
+    config_data = {
+        "provider": body.provider,
+        "api_key": body.api_key,
+        "model": body.model or provider_info["default_model"],
+    }
+
+    setting = await db.get(SystemSetting, "ai_config")
+    if setting:
+        setting.value = config_data
+    else:
+        setting = SystemSetting(key="ai_config", value=config_data)
+        db.add(setting)
+
+    await db.commit()
+    return {"ok": True, "data": config_data}
+
+
+@router.post("/ai-config/test")
+async def test_ai_config(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Probar la config AI del sistema enviando un prompt simple."""
+    from app.services.ai_extract import resolve_ai_config
+    config = await resolve_ai_config()
+    if not config or not config.get("api_key"):
+        return {"ok": False, "error": "No hay config de IA configurada"}
+
+    try:
+        result = await _test_ai_call(config)
+        return {"ok": True, "data": result}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+async def _test_ai_call(config: dict) -> dict:
+    """Hace una llamada minima de prueba al proveedor AI."""
+    import httpx
+
+    prompt = "Responde solo con el JSON: {\"status\": \"ok\", \"model\": \"tu nombre de modelo\"}"
+
+    if config["api_format"] == "anthropic":
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                config["base_url"],
+                headers={
+                    "x-api-key": config["api_key"],
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": config["model"],
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 100,
+                },
+            )
+    else:
+        url = config["base_url"].rstrip("/")
+        if config["api_format"] == "openrouter":
+            endpoint = url
+        else:
+            endpoint = f"{url}/chat/completions" if not url.endswith("/chat/completions") else url
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                endpoint,
+                headers={
+                    "Authorization": f"Bearer {config['api_key']}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": config["model"],
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 100,
+                },
+            )
+
+    if resp.status_code != 200:
+        raise Exception(f"HTTP {resp.status_code}: {resp.text[:200]}")
+
+    return {
+        "provider": config["provider"],
+        "model": config["model"],
+        "status_code": resp.status_code,
+        "response_preview": resp.text[:300],
+    }
+
+
+# ── SEO / Site Config ───────────────────────────────────────────
+
+@router.get("/seo-config")
+async def get_seo_config(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Obtener config SEO del sitio con defaults."""
+    from app.main import SEO_DEFAULTS
+    setting = await db.get(SystemSetting, "seo_config")
+    config = dict(SEO_DEFAULTS)
+    if setting and setting.value:
+        config.update(setting.value)
+    return {"ok": True, "data": config}
+
+
+@router.put("/seo-config")
+async def update_seo_config(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Guardar config SEO del sitio."""
+    allowed_keys = {
+        "site_name", "site_title", "site_description", "site_keywords",
+        "og_image", "theme_color", "footer_text", "analytics_id",
+        "contact_email", "contact_whatsapp",
+    }
+    config = {k: v for k, v in body.items() if k in allowed_keys}
+
+    setting = await db.get(SystemSetting, "seo_config")
+    if setting:
+        setting.value = config
+    else:
+        setting = SystemSetting(key="seo_config", value=config)
+        db.add(setting)
+
+    await db.commit()
+    return {"ok": True, "data": config}

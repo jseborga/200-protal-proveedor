@@ -40,6 +40,7 @@ class InsumoUpdate(BaseModel):
     description: str | None = None
     ref_price: float | None = None
     is_active: bool | None = None
+    spec_url: str | None = None
 
 
 class RegionalPriceInput(BaseModel):
@@ -153,6 +154,7 @@ async def public_grouped_prices(
                     "uom": i.uom,
                     "ref_price": i.ref_price,
                     "ref_currency": i.ref_currency,
+                    "spec_url": getattr(i, "spec_url", None),
                 }
                 for i in sorted(active, key=lambda x: (x.ref_price or 0, x.name))
             ],
@@ -724,7 +726,7 @@ async def reject_review_item(
 
 # ── Helpers ─────────────────────────────────────────────────────
 def _insumo_to_dict(i: Insumo) -> dict:
-    return {
+    d = {
         "id": i.id,
         "name": i.name,
         "code": i.code,
@@ -735,3 +737,6 @@ def _insumo_to_dict(i: Insumo) -> dict:
         "ref_currency": i.ref_currency,
         "is_active": i.is_active,
     }
+    if hasattr(i, 'spec_url'):
+        d["spec_url"] = i.spec_url
+    return d

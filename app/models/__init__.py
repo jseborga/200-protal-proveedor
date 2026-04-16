@@ -14,6 +14,7 @@ from .pedido import Pedido, PedidoItem, PedidoPrecio
 from .supplier_suggestion import SupplierSuggestion
 from .notification import Notification
 from .task_log import TaskLog
+from .system_setting import SystemSetting
 
 __all__ = [
     "Base", "Plan", "Company", "Subscription",
@@ -24,4 +25,5 @@ __all__ = [
     "Category", "UnitOfMeasure", "PriceHistory",
     "Pedido", "PedidoItem", "PedidoPrecio",
     "SupplierSuggestion", "Notification", "TaskLog",
+    "SystemSetting",
 ]

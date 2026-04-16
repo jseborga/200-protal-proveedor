@@ -27,6 +27,9 @@ class Insumo(TimestampMixin, Base):
     ref_price: Mapped[float | None] = mapped_column(Float, nullable=True)
     ref_currency: Mapped[str] = mapped_column(String(3), default="BOB", nullable=False)
 
+    # Link to technical specs PDF/manual
+    spec_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
     # Matching helpers
     tokens: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # pre-computed tokens
 

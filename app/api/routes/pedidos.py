@@ -423,8 +423,18 @@ async def upload_document(
     content_type = file.content_type or ""
     filename = file.filename or "upload"
 
+    # Determine source type from content_type/filename
+    if "excel" in content_type or filename.endswith((".xlsx", ".xls")):
+        source = "excel"
+    elif "pdf" in content_type or filename.endswith(".pdf"):
+        source = "pdf"
+    elif content_type.startswith("image/") or filename.endswith((".png", ".jpg", ".jpeg", ".webp")):
+        source = "photo"
+    else:
+        source = "pdf"  # fallback
+
     try:
-        result = await extract_quotation_data(content, content_type, filename)
+        result = await extract_quotation_data(content, filename, source, company_id=user.company_id)
     except Exception as e:
         raise HTTPException(400, f"Error extrayendo datos: {str(e)}")
 

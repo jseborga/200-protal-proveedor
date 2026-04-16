@@ -52,6 +52,10 @@ async def _init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_mkt_pedido_company_id ON mkt_pedido(company_id)"
         ))
+        # spec_url for technical specs link on insumos
+        await conn.execute(text(
+            "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS spec_url VARCHAR(500)"
+        ))
 
 
 async def _ensure_superadmin():
@@ -206,6 +210,33 @@ app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["
 @app.get("/api/health")
 async def health():
     return {"ok": True, "app": settings.app_name, "env": settings.app_env}
+
+
+# ── Public site config (SEO, branding) ─────────────────────────
+SEO_DEFAULTS = {
+    "site_name": "APU Marketplace",
+    "site_title": "Precios de Construccion en Bolivia | APU Marketplace",
+    "site_description": "Portal de precios unitarios de materiales de construccion en Bolivia. Compara precios, contacta proveedores y cotiza para tus proyectos.",
+    "site_keywords": "precios construccion bolivia, materiales construccion, cemento, acero, ferreteria, proveedores, cotizacion, APU",
+    "og_image": "",
+    "theme_color": "#1e40af",
+    "footer_text": "APU Marketplace - Precios de construccion actualizados",
+    "analytics_id": "",
+    "contact_email": "",
+    "contact_whatsapp": "",
+}
+
+
+@app.get("/api/v1/site-config")
+async def site_config():
+    """Config publica del sitio (SEO, branding). No requiere auth."""
+    from app.models.system_setting import SystemSetting
+    async with async_session() as db:
+        setting = await db.get(SystemSetting, "seo_config")
+        config = dict(SEO_DEFAULTS)
+        if setting and setting.value:
+            config.update(setting.value)
+        return {"ok": True, "data": config}
 
 
 # ── Static / SPA ────────────────────────────────────────────────

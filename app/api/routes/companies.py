@@ -425,3 +425,97 @@ async def assign_pedido(
     await db.commit()
 
     return {"ok": True, "message": f"Pedido asignado a {assignee.full_name}"}
+
+
+# ── AI Config (per-company) ─────────────────────────────────────
+
+class CompanyAIConfig(BaseModel):
+    provider: str
+    api_key: str
+    model: str = ""
+
+
+@router.get("/{company_id}/ai-config")
+async def get_company_ai_config(
+    company_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Obtener config AI de la empresa + proveedores disponibles."""
+    _require_company_admin(user)
+    if user.company_id != company_id:
+        raise HTTPException(403, "No tienes acceso a esta empresa")
+
+    company = await db.get(Company, company_id)
+    if not company:
+        raise HTTPException(404, "Empresa no encontrada")
+
+    from app.core.ai_providers import get_all_providers
+    ai_config = (company.extra_data or {}).get("ai_config")
+
+    return {
+        "ok": True,
+        "data": {
+            "config": ai_config,
+            "providers": get_all_providers(),
+        },
+    }
+
+
+@router.put("/{company_id}/ai-config")
+async def update_company_ai_config(
+    company_id: int,
+    body: CompanyAIConfig,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Guardar config AI de la empresa (usa token propio)."""
+    _require_company_admin(user)
+    if user.company_id != company_id:
+        raise HTTPException(403, "No tienes acceso a esta empresa")
+
+    from app.core.ai_providers import get_provider_info
+    provider_info = get_provider_info(body.provider)
+    if not provider_info:
+        raise HTTPException(400, f"Proveedor no valido: {body.provider}")
+
+    company = await db.get(Company, company_id)
+    if not company:
+        raise HTTPException(404, "Empresa no encontrada")
+
+    ai_config = {
+        "provider": body.provider,
+        "api_key": body.api_key,
+        "model": body.model or provider_info["default_model"],
+    }
+
+    extra = dict(company.extra_data) if company.extra_data else {}
+    extra["ai_config"] = ai_config
+    company.extra_data = extra
+
+    await db.commit()
+    return {"ok": True, "data": ai_config}
+
+
+@router.delete("/{company_id}/ai-config")
+async def delete_company_ai_config(
+    company_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Eliminar config AI de la empresa (usara la del sistema)."""
+    _require_company_admin(user)
+    if user.company_id != company_id:
+        raise HTTPException(403, "No tienes acceso a esta empresa")
+
+    company = await db.get(Company, company_id)
+    if not company:
+        raise HTTPException(404, "Empresa no encontrada")
+
+    if company.extra_data and "ai_config" in company.extra_data:
+        extra = dict(company.extra_data)
+        del extra["ai_config"]
+        company.extra_data = extra
+        await db.commit()
+
+    return {"ok": True}

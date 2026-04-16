@@ -191,11 +191,28 @@ const API = {
     adminTaskLogs: (jobName = '', skip = 0, limit = 20) => API.get(`/admin/tasks/logs?job_name=${jobName}&skip=${skip}&limit=${limit}`),
     adminRunJob: (name) => API.post(`/admin/tasks/${name}/run`),
 
+    // Admin — AI config
+    adminAIConfig: () => API.get('/admin/ai-config'),
+    adminUpdateAIConfig: (data) => API.put('/admin/ai-config', data),
+    adminTestAI: () => API.post('/admin/ai-config/test'),
+
+    // Company — AI config
+    companyAIConfig: (companyId) => API.get(`/companies/${companyId}/ai-config`),
+    updateCompanyAIConfig: (companyId, data) => API.put(`/companies/${companyId}/ai-config`, data),
+    deleteCompanyAIConfig: (companyId) => API.del(`/companies/${companyId}/ai-config`),
+
     // Notifications
     notifications: (skip = 0, limit = 20) => API.get(`/notifications?skip=${skip}&limit=${limit}`),
     unreadCount: () => API.get('/notifications/unread-count'),
     markRead: (id) => API.put(`/notifications/${id}/read`),
     markAllRead: () => API.post('/notifications/mark-all-read'),
+
+    // Admin — SEO config
+    adminSeoConfig: () => API.get('/admin/seo-config'),
+    adminUpdateSeoConfig: (data) => API.put('/admin/seo-config', data),
+
+    // Public site config (no auth needed)
+    siteConfig: () => fetch(`${API_BASE}/site-config`).then(r => r.json()),
 
     // Public catalog
     catalogCategories: () => API.get('/admin/catalog/categories'),
@@ -269,6 +286,7 @@ const ICONS = {
     crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 20h20l-2-12-5 5-3-7-3 7-5-5z"/><line x1="2" y1="20" x2="22" y2="20"/></svg>',
     bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>',
+    menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -310,9 +328,24 @@ function renderApp() {
         <div class="app-container">
             <div class="page" id="page-content"></div>
         </div>
-        <div class="footer">
-            APU Marketplace &mdash; Portal de Precios de Construccion
+        <div class="footer" id="app-footer">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <svg width="24" height="24" viewBox="0 0 48 48" fill="none">
+                        <rect width="48" height="48" rx="10" fill="rgba(255,255,255,0.15)"/>
+                        <path d="M12 36V16l12-6 12 6v20" stroke="white" stroke-width="2.5" fill="none"/>
+                        <path d="M20 36V26h8v10" stroke="white" stroke-width="2"/>
+                    </svg>
+                    <span>${_siteConfig?.site_name || 'APU Marketplace'}</span>
+                </div>
+                <div class="footer-text">${_siteConfig?.footer_text || 'Precios de construccion actualizados'}</div>
+                <div class="footer-links">
+                    ${_siteConfig?.contact_email ? `<a href="mailto:${esc(_siteConfig.contact_email)}">${icon('mail',14)} ${esc(_siteConfig.contact_email)}</a>` : ''}
+                    ${_siteConfig?.contact_whatsapp ? `<a href="https://wa.me/${_siteConfig.contact_whatsapp.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener">${icon('whatsapp',14)} WhatsApp</a>` : ''}
+                </div>
+            </div>
         </div>
+        ${renderMobileNav()}
         <div id="toast-container" class="toast-container"></div>
     `;
 
@@ -359,8 +392,8 @@ function renderTopbar(publicPages, authPages) {
 
     const userActions = state.user
         ? `${cartBadge}${notifBell}
-           <span class="topbar-btn" style="cursor:default;font-size:13px">${esc(state.user.full_name)}</span>
-           <button class="topbar-btn" onclick="logout()" title="Cerrar sesion">${icon('logout', 16)}</button>`
+           <span class="topbar-btn topbar-username">${esc(state.user.full_name)}</span>
+           <button class="topbar-btn topbar-logout" onclick="logout()" title="Cerrar sesion">${icon('logout', 16)}</button>`
         : `<button class="topbar-btn-accent topbar-btn" onclick="showLoginModal()">
                ${icon('login', 16)} Ingresar
            </button>`;
@@ -386,42 +419,117 @@ function renderTopbar(publicPages, authPages) {
     `;
 }
 
+function renderMobileNav() {
+    const tabs = [
+        { key: 'home', label: 'Inicio', ico: 'home' },
+        { key: 'prices', label: 'Precios', ico: 'tag' },
+        { key: 'suppliers', label: 'Proveedores', ico: 'users' },
+    ];
+    if (state.user) {
+        tabs.push({ key: 'pedidos', label: 'Pedidos', ico: 'clipboard' });
+        tabs.push({ key: '_more', label: 'Mas', ico: 'menu' });
+    } else {
+        tabs.push({ key: '_login', label: 'Ingresar', ico: 'login' });
+    }
+
+    const items = tabs.map(t => `
+        <button class="mnav-item${state.currentPage === t.key ? ' active' : ''}"
+                onclick="${t.key === '_more' ? 'openMobileMenu()' : t.key === '_login' ? 'showLoginModal()' : `navigate('${t.key}')`}">
+            ${icon(t.ico, 22)}
+            <span>${t.label}</span>
+        </button>
+    `).join('');
+
+    return `<nav class="mobile-nav"><div class="mobile-nav-items">${items}</div></nav>`;
+}
+
+function openMobileMenu() {
+    const menuPages = [];
+    if (state.user) {
+        menuPages.push({ key: 'pedidos', label: 'Mis Pedidos', ico: 'clipboard' });
+        menuPages.push({ key: 'company', label: 'Mi Empresa', ico: 'building' });
+        menuPages.push({ key: 'quotations', label: 'Cotizaciones', ico: 'file-text' });
+        menuPages.push({ key: 'rfq', label: 'RFQ', ico: 'send' });
+    }
+    if (isStaff()) {
+        menuPages.push({ key: '_divider' });
+        menuPages.push({ key: 'admin', label: 'Admin', ico: 'settings' });
+    }
+    if (state.user) {
+        menuPages.push({ key: '_divider2' });
+        menuPages.push({ key: '_cart', label: 'Mi Carrito', ico: 'shopping-cart' });
+        menuPages.push({ key: '_logout', label: 'Cerrar Sesion', ico: 'logout' });
+    }
+
+    const items = menuPages.map(p => {
+        if (p.key.startsWith('_divider')) return '<div class="mobile-menu-divider"></div>';
+        const active = state.currentPage === p.key ? ' active' : '';
+        const action = p.key === '_cart' ? 'showCartModal();closeMobileMenu()'
+            : p.key === '_logout' ? 'logout();closeMobileMenu()'
+            : `navigate('${p.key}');closeMobileMenu()`;
+        return `<button class="mobile-menu-item${active}" onclick="${action}">${icon(p.ico, 20)} ${p.label}</button>`;
+    }).join('');
+
+    const overlay = document.createElement('div');
+    overlay.className = 'mobile-menu-overlay';
+    overlay.id = 'mobile-menu';
+    overlay.onclick = (e) => { if (e.target === overlay) closeMobileMenu(); };
+    overlay.innerHTML = `
+        <div class="mobile-menu-panel">
+            <div class="mobile-menu-handle"></div>
+            ${items}
+        </div>
+    `;
+    document.body.appendChild(overlay);
+}
+
+function closeMobileMenu() {
+    document.getElementById('mobile-menu')?.remove();
+}
+
 // ── Render: Home (public) ──────────────────────────────────────
 async function renderHome() {
     const page = document.getElementById('page-content');
     page.innerHTML = `
-        <div class="hero">
-            <h1 class="hero-title">Precios de Construccion en Bolivia</h1>
-            <p class="hero-subtitle">Busca materiales, compara precios y contacta proveedores directamente</p>
-            <div class="hero-search">
-                <input class="form-input" id="hero-search-input"
-                       placeholder="Buscar cemento, acero, arena, tuberias..."
-                       value="${esc(state.searchQuery)}"
-                       onkeydown="if(event.key==='Enter')heroSearch()">
-                <button class="btn btn-primary" onclick="heroSearch()">
-                    ${icon('search', 18)} Buscar
-                </button>
+        <div class="home-hero">
+            <div class="home-hero-inner">
+                <h1 class="home-title">Precios de Construccion</h1>
+                <p class="home-hint">Bolivia</p>
+                <div class="home-search-wrap">
+                    <div class="home-search">
+                        ${icon('search', 18)}
+                        <input id="hero-search-input" type="search"
+                               placeholder="Buscar materiales..."
+                               value="${esc(state.searchQuery)}"
+                               onkeydown="if(event.key==='Enter')heroSearch()">
+                    </div>
+                </div>
             </div>
         </div>
 
-        <div class="categories-bar" id="home-categories">
-            <span class="chip${!state.selectedCategory ? ' active' : ''}" onclick="selectCategory(null)">Todos</span>
+        <div class="home-cats" id="home-categories">
+            <span class="hcat${!state.selectedCategory ? ' active' : ''}" onclick="selectCategory(null)">Todos</span>
         </div>
 
-        <div id="home-stats" class="stats-grid" style="margin-top:16px"></div>
+        <div id="home-stats" class="home-stats"></div>
 
-        <h2 style="font-size:18px;font-weight:600;margin:20px 0 12px">Proveedores destacados</h2>
-        <div class="supplier-grid" id="home-suppliers">
-            <div class="empty-state"><p>Cargando proveedores...</p></div>
+        <div class="home-section" id="home-prices-section" style="display:none">
+            <div class="home-section-header">
+                <span class="home-section-title">Precios</span>
+                <button class="home-section-link" onclick="navigate('prices')">Ver todos &rarr;</button>
+            </div>
+            <div class="price-grid" id="home-prices"></div>
         </div>
 
-        <h2 style="font-size:18px;font-weight:600;margin:24px 0 12px">Precios recientes</h2>
-        <div class="price-grid" id="home-prices">
-            <div class="empty-state"><p>Cargando precios...</p></div>
+        <div class="home-section" id="home-suppliers-section" style="display:none">
+            <div class="home-section-header">
+                <span class="home-section-title">Proveedores</span>
+                <button class="home-section-link" onclick="navigate('suppliers')">Ver todos &rarr;</button>
+            </div>
+            <div class="supplier-grid" id="home-suppliers"></div>
         </div>
     `;
 
-    // Load all data in parallel
     loadHomeCategories();
     loadHomeSuppliers();
     loadHomePrices();
@@ -435,11 +543,11 @@ async function loadHomeCategories() {
             const container = document.getElementById('home-categories');
             const chips = resp.data.map(c => {
                 const meta = CATEGORY_META[c.name] || { label: c.name, icon: '' };
-                return `<span class="chip${state.selectedCategory === c.name ? ' active' : ''}"
-                              onclick="selectCategory('${esc(c.name)}')">${meta.icon} ${esc(meta.label || c.name)} <small>(${c.count})</small></span>`;
+                return `<span class="hcat${state.selectedCategory === c.name ? ' active' : ''}"
+                              onclick="selectCategory('${esc(c.name)}')">${meta.icon} ${esc(meta.label || c.name)}</span>`;
             }).join('');
             container.innerHTML = `
-                <span class="chip${!state.selectedCategory ? ' active' : ''}" onclick="selectCategory(null)">Todos</span>
+                <span class="hcat${!state.selectedCategory ? ' active' : ''}" onclick="selectCategory(null)">Todos</span>
                 ${chips}
             `;
         }
@@ -454,14 +562,12 @@ async function loadHomeSuppliers() {
     try {
         const resp = await API.publicSuppliers(params);
         const container = document.getElementById('home-suppliers');
+        const section = document.getElementById('home-suppliers-section');
         if (resp.ok && resp.data.length) {
             container.innerHTML = resp.data.map(renderSupplierCard).join('');
-        } else {
-            container.innerHTML = '<div class="empty-state"><p>No hay proveedores registrados aun. Estamos trabajando para traerte los mejores.</p></div>';
+            if (section) section.style.display = '';
         }
-    } catch {
-        document.getElementById('home-suppliers').innerHTML = '<div class="empty-state"><p>No se pudo cargar proveedores</p></div>';
-    }
+    } catch {}
 }
 
 async function loadHomePrices() {
@@ -471,14 +577,12 @@ async function loadHomePrices() {
     try {
         const resp = await API.publicPrices(params);
         const container = document.getElementById('home-prices');
+        const section = document.getElementById('home-prices-section');
         if (resp.ok && resp.data.length) {
             container.innerHTML = resp.data.map(renderPriceCard).join('');
-        } else {
-            container.innerHTML = '<div class="empty-state"><p>Pronto tendras precios actualizados aqui</p></div>';
+            if (section) section.style.display = '';
         }
-    } catch {
-        document.getElementById('home-prices').innerHTML = '';
-    }
+    } catch {}
 }
 
 async function loadHomeStats() {
@@ -492,10 +596,11 @@ async function loadHomeStats() {
         const totalSuppliers = suppliers.ok ? suppliers.total : 0;
         if (totalPrices > 0 || totalSuppliers > 0) {
             container.innerHTML = `
-                <div class="stat-card"><div class="stat-value">${totalSuppliers}</div><div class="stat-label">Proveedores</div></div>
-                <div class="stat-card"><div class="stat-value">${totalPrices}</div><div class="stat-label">Precios</div></div>
-                <div class="stat-card"><div class="stat-value">${DEPARTMENTS.length}</div><div class="stat-label">Departamentos</div></div>
-                <div class="stat-card"><div class="stat-value">${Object.keys(CATEGORY_META).length}+</div><div class="stat-label">Categorias</div></div>
+                <div class="hstat"><strong>${totalPrices}</strong> precios</div>
+                <span class="hstat-dot"></span>
+                <div class="hstat"><strong>${totalSuppliers}</strong> proveedores</div>
+                <span class="hstat-dot"></span>
+                <div class="hstat"><strong>${Object.keys(CATEGORY_META).length}+</strong> categorias</div>
             `;
         }
     } catch {}
@@ -565,11 +670,12 @@ function renderSupplierCard(s) {
 function renderPriceCard(p) {
     if (p.type === 'group') return renderGroupCard(p);
     const addBtn = state.user ? `<button class="btn-cart-add" onclick="event.stopPropagation();addToCart(${p.id || 'null'},'${esc(p.name).replace(/'/g,"\\'")}','${esc(p.uom||'')}',${p.ref_price||'null'})" title="Agregar al carrito">${icon('plus',14)}</button>` : '';
+    const specLink = p.spec_url ? `<a href="${esc(p.spec_url)}" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()" title="Ficha tecnica">${icon('file-text',13)} Ficha</a>` : '';
     return `
         <div class="price-card">
             <div class="price-info">
                 <div class="price-name">${esc(p.name)}</div>
-                <div class="price-detail">${p.category ? esc(p.category) : ''} ${p.uom ? '&middot; ' + esc(p.uom) : ''}</div>
+                <div class="price-detail">${p.category ? esc(p.category) : ''} ${p.uom ? '&middot; ' + esc(p.uom) : ''} ${specLink}</div>
             </div>
             <div style="display:flex;align-items:center;gap:8px">
                 <div class="price-value">
@@ -611,7 +717,7 @@ function renderGroupCard(g) {
                 <div class="group-variants" id="group-variants-${g.id}" style="display:none">
                     ${(g.insumos || []).map(i => `
                         <div class="variant-row">
-                            <span class="variant-name">${esc(i.name)}</span>
+                            <span class="variant-name">${esc(i.name)}${i.spec_url ? ` <a href="${esc(i.spec_url)}" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()" title="Ficha tecnica">${icon('file-text',12)}</a>` : ''}</span>
                             <span style="display:flex;align-items:center;gap:6px">
                                 <span class="variant-price">${i.ref_price ? i.ref_price.toFixed(2) : '--.--'} <span class="price-currency">${esc(i.ref_currency || 'BOB')}</span></span>
                                 ${state.user ? `<button class="btn-cart-add btn-cart-sm" onclick="event.stopPropagation();addToCart(${i.id || 'null'},'${esc(i.name).replace(/'/g,"\\'")}','${esc(i.uom||'')}',${i.ref_price||'null'})" title="Agregar al carrito">${icon('plus',12)}</button>` : ''}
@@ -1227,12 +1333,20 @@ async function renderAdmin() {
     if (isAdmin()) tabs.push({ key: 'companies', label: 'Empresas', icon: 'building' });
     if (isAdmin()) tabs.push({ key: 'subscriptions', label: 'Suscripciones', icon: 'crown' });
     if (isAdmin()) tabs.push({ key: 'tasks', label: 'Tareas', icon: 'clock' });
+    if (isAdmin()) tabs.push({ key: 'ai', label: 'IA', icon: 'globe' });
+    if (isAdmin()) tabs.push({ key: 'seo', label: 'SEO', icon: 'globe' });
+
+    const tabOptions = tabs.map(t =>
+        `<option value="${t.key}" ${_adminTab === t.key ? 'selected' : ''}>${t.label}</option>`
+    ).join('');
 
     page.innerHTML = `
         <div class="page-header">
-            <h1 class="page-title">${icon('settings', 24)} Panel de Administracion</h1>
-            <p class="page-subtitle">Gestion de datos para trabajo de campo</p>
+            <h1 class="page-title">${icon('settings', 24)} Admin</h1>
         </div>
+        <select class="admin-tab-select" onchange="switchAdminTab(this.value)">
+            ${tabOptions}
+        </select>
         <div class="admin-tabs">
             ${tabs.map(t => `
                 <button class="admin-tab${_adminTab === t.key ? ' active' : ''}"
@@ -1268,6 +1382,8 @@ function renderAdminTab() {
         case 'companies': renderAdminCompanies(); break;
         case 'subscriptions': renderAdminSubscriptions(); break;
         case 'tasks': renderAdminTasks(); break;
+        case 'ai': renderAdminAI(); break;
+        case 'seo': renderAdminSEO(); break;
     }
 }
 
@@ -2474,6 +2590,7 @@ function showAdminProductForm(editId) {
                 </div>
             </div>
             <div class="form-group"><label class="form-label">Descripcion</label><textarea class="form-input" name="description" placeholder="Descripcion adicional del producto..."></textarea></div>
+            <div class="form-group"><label class="form-label">Link ficha tecnica / especificaciones</label><input class="form-input" name="spec_url" placeholder="https://ejemplo.com/ficha-tecnica.pdf"></div>
             <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center;padding:10px">
                 ${editId ? 'Guardar Cambios' : 'Crear Producto'}
             </button>
@@ -2497,6 +2614,7 @@ async function loadProductIntoForm(id) {
         if (p.ref_price) f.ref_price.value = p.ref_price;
         if (p.ref_currency) f.ref_currency.value = p.ref_currency;
         if (p.description) f.description.value = p.description;
+        if (p.spec_url) f.spec_url.value = p.spec_url;
     } catch {}
 }
 
@@ -2511,6 +2629,7 @@ async function handleAdminProduct(e, editId) {
         ref_price: f.ref_price.value ? parseFloat(f.ref_price.value) : null,
         ref_currency: f.ref_currency.value,
         description: f.description.value || null,
+        spec_url: f.spec_url.value || null,
     };
 
     try {
@@ -4846,6 +4965,385 @@ async function runJobNow(jobName) {
     renderAdminTasks();
 }
 
+// ── Admin: AI Config ──────────────────────────────────────────
+async function renderAdminAI() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="loading">Cargando configuracion IA...</div>';
+
+    const resp = await API.adminAIConfig();
+    if (!resp.ok) { c.innerHTML = '<p>Error cargando config</p>'; return; }
+
+    const { config, providers } = resp.data;
+    const currentProvider = config ? config.provider : '';
+    const currentKey = config ? config.api_key : '';
+    const currentModel = config ? config.model : '';
+
+    const providerOptions = providers.map(p => `
+        <option value="${p.key}" ${p.key === currentProvider ? 'selected' : ''}>
+            ${esc(p.label)}${p.free_tier ? ' ★ GRATIS' : ''}
+        </option>
+    `).join('');
+
+    const providerCards = providers.map(p => `
+        <div class="ai-provider-card ${p.key === currentProvider ? 'active' : ''}" onclick="selectAIProvider('${p.key}')">
+            <div class="ai-provider-name">${esc(p.label)}</div>
+            <div class="ai-provider-hint">${esc(p.help_text)}</div>
+            ${p.free_tier ? '<span class="ai-free-badge">Gratis</span>' : ''}
+        </div>
+    `).join('');
+
+    // Build model options for the provider data attribute
+    const providersJson = JSON.stringify(providers.reduce((acc, p) => {
+        acc[p.key] = { models: p.models, default_model: p.default_model, help_url: p.help_url };
+        return acc;
+    }, {}));
+
+    c.innerHTML = `
+        <h2 style="margin-bottom:16px">${icon('globe', 20)} Configuracion de IA</h2>
+        <p style="color:var(--gray-500);margin-bottom:16px;font-size:14px">
+            Configura el proveedor de IA para extraccion de datos de cotizaciones (PDF, fotos).
+            Las empresas pueden usar su propio token desde su perfil.
+        </p>
+
+        <h3 style="margin-bottom:12px">Seleccionar Proveedor</h3>
+        <div class="ai-providers-grid">${providerCards}</div>
+
+        <div id="ai-config-form-wrap" style="margin-top:20px">
+            <form id="ai-config-form" onsubmit="handleSaveAIConfig(event)">
+                <input type="hidden" id="ai-providers-data" value='${providersJson.replace(/'/g, "&#39;")}'>
+                <div class="form-group">
+                    <label class="form-label">Proveedor</label>
+                    <select class="form-input" id="ai-provider-select" name="provider" onchange="onAIProviderChange()" required>
+                        <option value="">-- Seleccionar --</option>
+                        ${providerOptions}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input class="form-input" name="api_key" type="password" value="${esc(currentKey)}" placeholder="sk-..." required>
+                    <a id="ai-help-link" href="#" target="_blank" style="font-size:12px;color:var(--primary);display:${currentProvider ? 'inline' : 'none'}">Obtener API Key</a>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Modelo</label>
+                    <select class="form-input" id="ai-model-select" name="model">
+                        <option value="">Default del proveedor</option>
+                    </select>
+                </div>
+                <div style="display:flex;gap:8px;margin-top:16px">
+                    <button type="submit" class="btn btn-primary">${icon('check', 16)} Guardar</button>
+                    <button type="button" class="btn btn-secondary" onclick="testAIConfig()">Probar Conexion</button>
+                </div>
+            </form>
+            <div id="ai-test-result" style="margin-top:12px"></div>
+        </div>
+
+        ${config ? `
+            <div class="ai-current-config" style="margin-top:24px">
+                <h3>Config Actual</h3>
+                <div style="background:var(--gray-50);padding:12px;border-radius:8px;font-size:13px;margin-top:8px">
+                    <div><strong>Proveedor:</strong> ${esc(currentProvider)}</div>
+                    <div><strong>Modelo:</strong> ${esc(currentModel)}</div>
+                    <div><strong>API Key:</strong> ${currentKey ? '●●●●●●' + currentKey.slice(-4) : 'No configurada'}</div>
+                </div>
+            </div>
+        ` : ''}
+    `;
+
+    // Initialize model dropdown
+    if (currentProvider) onAIProviderChange();
+}
+
+function selectAIProvider(key) {
+    document.getElementById('ai-provider-select').value = key;
+    onAIProviderChange();
+    // Update active card
+    document.querySelectorAll('.ai-provider-card').forEach(c => c.classList.remove('active'));
+    const cards = document.querySelectorAll('.ai-provider-card');
+    cards.forEach(c => { if (c.onclick.toString().includes(key)) c.classList.add('active'); });
+}
+
+function onAIProviderChange() {
+    const sel = document.getElementById('ai-provider-select');
+    const provider = sel.value;
+    const dataEl = document.getElementById('ai-providers-data');
+    if (!dataEl || !provider) return;
+
+    let providers;
+    try { providers = JSON.parse(dataEl.value); } catch { return; }
+    const info = providers[provider];
+    if (!info) return;
+
+    // Update models dropdown
+    const modelSel = document.getElementById('ai-model-select');
+    const currentModel = modelSel.value;
+    modelSel.innerHTML = info.models.map(m =>
+        `<option value="${m}" ${m === info.default_model ? 'selected' : ''}>${m}</option>`
+    ).join('');
+    if (currentModel && info.models.includes(currentModel)) modelSel.value = currentModel;
+
+    // Update help link
+    const helpLink = document.getElementById('ai-help-link');
+    if (helpLink) {
+        helpLink.href = info.help_url;
+        helpLink.style.display = 'inline';
+    }
+
+    // Update active card visual
+    document.querySelectorAll('.ai-provider-card').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.ai-provider-card').forEach(c => {
+        if (c.querySelector('.ai-provider-name')?.textContent.includes(sel.options[sel.selectedIndex]?.text?.split('★')[0]?.trim())) {
+            c.classList.add('active');
+        }
+    });
+}
+
+async function handleSaveAIConfig(e) {
+    e.preventDefault();
+    const f = e.target;
+    const resp = await API.adminUpdateAIConfig({
+        provider: f.provider.value,
+        api_key: f.api_key.value,
+        model: f.model.value,
+    });
+    if (resp.ok) {
+        toast('Configuracion de IA guardada', 'success');
+        renderAdminAI();
+    } else {
+        toast(resp.detail || 'Error guardando', 'error');
+    }
+}
+
+async function testAIConfig() {
+    const resultEl = document.getElementById('ai-test-result');
+    resultEl.innerHTML = '<div class="loading" style="padding:8px">Probando conexion...</div>';
+
+    const resp = await API.adminTestAI();
+    if (resp.ok) {
+        resultEl.innerHTML = `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:8px;font-size:13px">
+            ${icon('check', 16)} Conexion exitosa — Proveedor: ${esc(resp.data.provider)}, Modelo: ${esc(resp.data.model)}
+        </div>`;
+    } else {
+        resultEl.innerHTML = `<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;font-size:13px">
+            ${icon('x', 16)} Error: ${esc(resp.error || resp.detail || 'Fallo desconocido')}
+        </div>`;
+    }
+}
+
+// ── Company AI Config (in company profile) ────────────────────
+async function renderCompanyAIConfig(companyId) {
+    const container = document.getElementById('company-ai-section');
+    if (!container) return;
+
+    const resp = await API.companyAIConfig(companyId);
+    if (!resp.ok) { container.innerHTML = '<p>Error cargando config IA</p>'; return; }
+
+    const { config, providers } = resp.data;
+    const hasConfig = config && config.api_key;
+
+    const providerOptions = providers.map(p => `
+        <option value="${p.key}" ${config && p.key === config.provider ? 'selected' : ''}>
+            ${esc(p.label)}${p.free_tier ? ' ★ GRATIS' : ''}
+        </option>
+    `).join('');
+
+    const providersJson = JSON.stringify(providers.reduce((acc, p) => {
+        acc[p.key] = { models: p.models, default_model: p.default_model, help_url: p.help_url };
+        return acc;
+    }, {}));
+
+    container.innerHTML = `
+        <div class="company-section">
+            <h3>${icon('globe', 18)} Configuracion de IA</h3>
+            <p style="color:var(--gray-500);font-size:13px;margin-bottom:12px">
+                Configura tu propia API key para extraccion de documentos. Si no configuras una, se usa la del sistema.
+            </p>
+            ${hasConfig ? `
+                <div style="background:var(--gray-50);padding:12px;border-radius:8px;font-size:13px;margin-bottom:12px">
+                    <div><strong>Proveedor:</strong> ${esc(config.provider)}</div>
+                    <div><strong>Modelo:</strong> ${esc(config.model)}</div>
+                    <div><strong>API Key:</strong> ●●●●●●${config.api_key.slice(-4)}</div>
+                    <button class="btn btn-sm btn-danger" style="margin-top:8px" onclick="removeCompanyAI(${companyId})">Eliminar (usar config del sistema)</button>
+                </div>
+            ` : '<p style="font-size:13px;color:var(--gray-400);margin-bottom:12px">Usando configuracion del sistema.</p>'}
+            <form onsubmit="handleSaveCompanyAI(event, ${companyId})">
+                <input type="hidden" id="company-ai-providers-data" value='${providersJson.replace(/'/g, "&#39;")}'>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Proveedor</label>
+                        <select class="form-input" id="company-ai-provider" name="provider" onchange="onCompanyAIProviderChange()" required>
+                            <option value="">-- Seleccionar --</option>
+                            ${providerOptions}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Modelo</label>
+                        <select class="form-input" id="company-ai-model" name="model">
+                            <option value="">Default</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">API Key</label>
+                    <input class="form-input" name="api_key" type="password" placeholder="sk-..." value="${hasConfig ? esc(config.api_key) : ''}" required>
+                    <a id="company-ai-help-link" href="#" target="_blank" style="font-size:12px;color:var(--primary)">Obtener API Key</a>
+                </div>
+                <button type="submit" class="btn btn-primary btn-sm">${icon('check', 14)} Guardar Config IA</button>
+            </form>
+        </div>
+    `;
+
+    if (config && config.provider) onCompanyAIProviderChange();
+}
+
+function onCompanyAIProviderChange() {
+    const sel = document.getElementById('company-ai-provider');
+    const provider = sel.value;
+    const dataEl = document.getElementById('company-ai-providers-data');
+    if (!dataEl || !provider) return;
+
+    let providers;
+    try { providers = JSON.parse(dataEl.value); } catch { return; }
+    const info = providers[provider];
+    if (!info) return;
+
+    const modelSel = document.getElementById('company-ai-model');
+    modelSel.innerHTML = info.models.map(m =>
+        `<option value="${m}" ${m === info.default_model ? 'selected' : ''}>${m}</option>`
+    ).join('');
+
+    const helpLink = document.getElementById('company-ai-help-link');
+    if (helpLink) helpLink.href = info.help_url;
+}
+
+async function handleSaveCompanyAI(e, companyId) {
+    e.preventDefault();
+    const f = e.target;
+    const resp = await API.updateCompanyAIConfig(companyId, {
+        provider: f.provider.value,
+        api_key: f.api_key.value,
+        model: f.model.value,
+    });
+    if (resp.ok) {
+        toast('Config IA de empresa guardada', 'success');
+        renderCompanyAIConfig(companyId);
+    } else {
+        toast(resp.detail || 'Error', 'error');
+    }
+}
+
+async function removeCompanyAI(companyId) {
+    if (!confirm('Eliminar config IA? Se usara la del sistema.')) return;
+    const resp = await API.deleteCompanyAIConfig(companyId);
+    if (resp.ok) {
+        toast('Config IA eliminada', 'success');
+        renderCompanyAIConfig(companyId);
+    } else {
+        toast(resp.detail || 'Error', 'error');
+    }
+}
+
+// ── Admin: SEO Config ────────────────────────────────────────
+async function renderAdminSEO() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="loading">Cargando configuracion SEO...</div>';
+
+    const resp = await API.adminSeoConfig();
+    if (!resp.ok) { c.innerHTML = '<p>Error cargando config SEO</p>'; return; }
+
+    const cfg = resp.data || {};
+
+    c.innerHTML = `
+        <h2 style="margin-bottom:8px">${icon('globe', 20)} Configuracion SEO y Branding</h2>
+        <p style="color:var(--gray-500);margin-bottom:20px;font-size:14px">
+            Configura el nombre, descripcion, imagen y datos de contacto de tu sitio. Estos datos se usan en metadatos SEO, Open Graph y el footer.
+        </p>
+        <form id="seo-form" onsubmit="handleSaveSEO(event)">
+            <div class="form-group">
+                <label class="form-label">Nombre del sitio</label>
+                <input class="form-input" name="site_name" value="${esc(cfg.site_name || '')}" placeholder="APU Marketplace">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Titulo de la pagina (title tag)</label>
+                <input class="form-input" name="site_title" value="${esc(cfg.site_title || '')}" placeholder="Precios de Construccion en Bolivia | APU Marketplace">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Meta descripcion</label>
+                <textarea class="form-input" name="site_description" rows="3" placeholder="Portal de precios unitarios de materiales de construccion...">${esc(cfg.site_description || '')}</textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Keywords (separadas por coma)</label>
+                <input class="form-input" name="site_keywords" value="${esc(cfg.site_keywords || '')}" placeholder="precios construccion bolivia, materiales, cemento...">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Imagen Open Graph (URL)</label>
+                    <input class="form-input" name="og_image" value="${esc(cfg.og_image || '')}" placeholder="https://ejemplo.com/og-image.jpg">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Color del tema</label>
+                    <div style="display:flex;gap:8px;align-items:center">
+                        <input type="color" id="seo-theme-color" value="${cfg.theme_color || '#1e40af'}" onchange="document.querySelector('[name=theme_color]').value=this.value" style="width:40px;height:36px;border:none;cursor:pointer">
+                        <input class="form-input" name="theme_color" value="${esc(cfg.theme_color || '#1e40af')}" placeholder="#1e40af" style="flex:1" onchange="document.getElementById('seo-theme-color').value=this.value">
+                    </div>
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Texto del footer</label>
+                <input class="form-input" name="footer_text" value="${esc(cfg.footer_text || '')}" placeholder="APU Marketplace - Precios de construccion actualizados">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                <div class="form-group">
+                    <label class="form-label">Email de contacto</label>
+                    <input class="form-input" type="email" name="contact_email" value="${esc(cfg.contact_email || '')}" placeholder="info@ejemplo.com">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">WhatsApp de contacto</label>
+                    <input class="form-input" name="contact_whatsapp" value="${esc(cfg.contact_whatsapp || '')}" placeholder="+591 70000000">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Google Analytics ID</label>
+                <input class="form-input" name="analytics_id" value="${esc(cfg.analytics_id || '')}" placeholder="G-XXXXXXXXXX">
+            </div>
+            <button type="submit" class="btn btn-primary" style="margin-top:8px;width:100%;justify-content:center;padding:10px">
+                ${icon('check', 16)} Guardar Configuracion SEO
+            </button>
+        </form>
+
+        <div style="margin-top:24px;padding:16px;background:var(--gray-50);border-radius:10px">
+            <h3 style="font-size:14px;margin-bottom:8px">Vista previa en buscadores</h3>
+            <div style="font-size:16px;color:#1a0dab;font-weight:500">${esc(cfg.site_title || 'Precios de Construccion en Bolivia | APU Marketplace')}</div>
+            <div style="font-size:13px;color:#006621;margin:2px 0">${window.location.origin}</div>
+            <div style="font-size:13px;color:#545454">${esc((cfg.site_description || 'Portal de precios unitarios de materiales de construccion en Bolivia.').substring(0, 160))}</div>
+        </div>
+    `;
+}
+
+async function handleSaveSEO(e) {
+    e.preventDefault();
+    const f = e.target;
+    const data = {
+        site_name: f.site_name.value,
+        site_title: f.site_title.value,
+        site_description: f.site_description.value,
+        site_keywords: f.site_keywords.value,
+        og_image: f.og_image.value,
+        theme_color: f.theme_color.value,
+        footer_text: f.footer_text.value,
+        contact_email: f.contact_email.value,
+        contact_whatsapp: f.contact_whatsapp.value,
+        analytics_id: f.analytics_id.value,
+    };
+    const resp = await API.adminUpdateSeoConfig(data);
+    if (resp.ok) {
+        toast('Configuracion SEO guardada', 'success');
+        applySiteConfig(data);
+        renderAdminSEO();
+    } else {
+        toast(resp.detail || 'Error guardando SEO', 'error');
+    }
+}
+
 // ── Cart (localStorage) ──────────────────────────────────────
 function loadCart() {
     try { state.cart = JSON.parse(localStorage.getItem('_mkt_cart')) || []; } catch { state.cart = []; }
@@ -5066,9 +5564,12 @@ async function renderCompany() {
             </div>
             <div id="company-members-list"><div class="empty-state"><p>Cargando...</p></div></div>
         </div>
+
+        ${isAdmin ? '<div id="company-ai-section"></div>' : ''}
     `;
 
     loadCompanyMembers(c.id, isAdmin);
+    if (isAdmin) renderCompanyAIConfig(c.id);
 }
 
 function renderCreateCompanyCTA(page) {
@@ -5882,6 +6383,47 @@ function esc(str) {
     return div.innerHTML;
 }
 
+// ── Site Config (SEO dynamic) ─────────────────────────────────
+let _siteConfig = null;
+
+async function loadSiteConfig() {
+    try {
+        const resp = await API.siteConfig();
+        if (resp.ok && resp.data) {
+            _siteConfig = resp.data;
+            applySiteConfig(resp.data);
+        }
+    } catch {}
+}
+
+function applySiteConfig(cfg) {
+    if (!cfg) return;
+    if (cfg.site_title) document.title = cfg.site_title;
+    const setMeta = (name, content) => {
+        if (!content) return;
+        let el = document.querySelector(`meta[name="${name}"]`);
+        if (!el) { el = document.createElement('meta'); el.name = name; document.head.appendChild(el); }
+        el.content = content;
+    };
+    const setOg = (prop, content) => {
+        if (!content) return;
+        let el = document.querySelector(`meta[property="${prop}"]`);
+        if (!el) { el = document.createElement('meta'); el.setAttribute('property', prop); document.head.appendChild(el); }
+        el.content = content;
+    };
+    setMeta('description', cfg.site_description);
+    setMeta('keywords', cfg.site_keywords);
+    setMeta('theme-color', cfg.theme_color);
+    setOg('og:title', cfg.site_title);
+    setOg('og:description', cfg.site_description);
+    setOg('og:site_name', cfg.site_name);
+    if (cfg.og_image) setOg('og:image', cfg.og_image);
+    setOg('og:type', 'website');
+    setOg('og:url', window.location.href);
+    // Store for footer/other components
+    _siteConfig = cfg;
+}
+
 // ── Init ───────────────────────────────────────────────────────
 async function init() {
     // Restore session (optional — app works without it)
@@ -5892,8 +6434,8 @@ async function init() {
     // Load cart from localStorage
     loadCart();
 
-    // Load catalog data (categories & UOMs) from API
-    await loadCatalogData();
+    // Load catalog data + site config in parallel
+    await Promise.all([loadCatalogData(), loadSiteConfig()]);
 
     // Hide loading screen
     const loading = document.getElementById('loading-screen');

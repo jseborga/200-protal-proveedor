@@ -1,7 +1,12 @@
 """Extraccion de datos de cotizacion desde Excel, PDF o foto usando IA.
 
-Soporta multiples proveedores de IA via OpenRouter (Claude, GPT, Gemini)
-o directamente Anthropic/OpenAI/Google.
+Soporta multiples proveedores de IA configurables desde admin y por empresa:
+- Google AI Studio (gratis)
+- OpenRouter (multi-modelo)
+- Anthropic (Claude)
+- OpenAI (GPT)
+
+Resolucion de config: empresa → sistema (admin) → .env fallback
 """
 
 import base64
@@ -12,16 +17,71 @@ import re
 import httpx
 
 from app.core.config import settings
+from app.core.ai_providers import AI_PROVIDERS, DEFAULT_PROVIDER, get_provider_info
+
+
+# ── Config resolution ──────────────────────────────────────────
+
+async def resolve_ai_config(company_id: int | None = None) -> dict | None:
+    """Resuelve la config de IA a usar: empresa → sistema → .env fallback.
+
+    Returns dict con keys: provider, api_key, model, base_url, api_format
+    o None si no hay config disponible.
+    """
+    from app.core.database import async_session
+    from app.models.system_setting import SystemSetting
+
+    # 1. Company config (si tiene company_id)
+    if company_id:
+        from app.models.company import Company
+        async with async_session() as db:
+            company = await db.get(Company, company_id)
+            if company and company.extra_data:
+                ai = company.extra_data.get("ai_config")
+                if ai and ai.get("api_key"):
+                    return _build_config(ai)
+
+    # 2. System config (admin panel)
+    async with async_session() as db:
+        setting = await db.get(SystemSetting, "ai_config")
+        if setting and setting.value and setting.value.get("api_key"):
+            return _build_config(setting.value)
+
+    # 3. Fallback to .env
+    if settings.ai_api_key:
+        return _build_config({
+            "provider": settings.ai_provider,
+            "api_key": settings.ai_api_key,
+            "model": settings.ai_model,
+        })
+
+    return None
+
+
+def _build_config(raw: dict) -> dict:
+    """Normaliza la config raw a un dict consistente con provider info."""
+    provider_key = raw.get("provider", DEFAULT_PROVIDER)
+    provider = get_provider_info(provider_key) or get_provider_info(DEFAULT_PROVIDER)
+
+    return {
+        "provider": provider_key,
+        "api_key": raw.get("api_key", ""),
+        "model": raw.get("model") or provider["default_model"],
+        "base_url": provider["base_url"],
+        "api_format": provider["api_format"],
+    }
+
 
 # ── Excel extraction (no AI needed) ────────────────────────────
 async def extract_quotation_data(
-    content: bytes, filename: str, source: str
+    content: bytes, filename: str, source: str,
+    company_id: int | None = None,
 ) -> dict | None:
     """Extract quotation lines from uploaded file."""
     if source == "excel":
         return _extract_from_excel(content, filename)
     elif source in ("pdf", "photo"):
-        return await _extract_with_ai(content, filename, source)
+        return await _extract_with_ai(content, filename, source, company_id)
     return None
 
 
@@ -126,32 +186,31 @@ Si no puedes extraer datos, devuelve [].
 No incluyas texto adicional, solo el JSON array."""
 
 
-async def _extract_with_ai(content: bytes, filename: str, source: str) -> dict | None:
+async def _extract_with_ai(
+    content: bytes, filename: str, source: str,
+    company_id: int | None = None,
+) -> dict | None:
     """Use AI to extract quotation data from PDF or image."""
-    provider = settings.ai_provider
-    api_key = settings.ai_api_key
-    model = settings.ai_model
-
-    if not api_key:
+    config = await resolve_ai_config(company_id)
+    if not config or not config.get("api_key"):
         return None
 
-    if provider == "openrouter":
-        return await _call_openrouter(content, filename, source, api_key, model)
-    elif provider == "anthropic":
-        return await _call_anthropic(content, filename, source, api_key, model)
-    elif provider in ("openai", "gemini"):
-        return await _call_openai_compatible(content, filename, source, api_key, model, provider)
+    api_format = config["api_format"]
+
+    if api_format == "openrouter":
+        return await _call_openrouter(content, filename, source, config)
+    elif api_format == "anthropic":
+        return await _call_anthropic(content, filename, source, config)
+    elif api_format == "openai":
+        return await _call_openai_compatible(content, filename, source, config)
 
     return None
 
 
 async def _call_openrouter(
-    content: bytes, filename: str, source: str, api_key: str, model: str
+    content: bytes, filename: str, source: str, config: dict,
 ) -> dict | None:
-    """Call OpenRouter API (compatible with OpenAI format, routes to any model)."""
-    if not model:
-        model = "anthropic/claude-sonnet-4"
-
+    """Call OpenRouter API."""
     b64 = base64.b64encode(content).decode()
     media_type = "application/pdf" if source == "pdf" else "image/jpeg"
 
@@ -170,12 +229,12 @@ async def _call_openrouter(
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
-            "https://openrouter.ai/api/v1/chat/completions",
+            config["base_url"],
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {config['api_key']}",
                 "Content-Type": "application/json",
             },
-            json={"model": model, "messages": messages, "max_tokens": 4096},
+            json={"model": config["model"], "messages": messages, "max_tokens": 4096},
         )
 
     if resp.status_code != 200:
@@ -183,16 +242,13 @@ async def _call_openrouter(
 
     data = resp.json()
     text_content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return _parse_ai_response(text_content, filename, source)
+    return _parse_ai_response(text_content, filename, source, config)
 
 
 async def _call_anthropic(
-    content: bytes, filename: str, source: str, api_key: str, model: str
+    content: bytes, filename: str, source: str, config: dict,
 ) -> dict | None:
     """Call Anthropic Messages API directly."""
-    if not model:
-        model = "claude-sonnet-4-20250514"
-
     b64 = base64.b64encode(content).decode()
     media_type = "application/pdf" if source == "pdf" else "image/jpeg"
 
@@ -211,13 +267,13 @@ async def _call_anthropic(
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
-            "https://api.anthropic.com/v1/messages",
+            config["base_url"],
             headers={
-                "x-api-key": api_key,
+                "x-api-key": config["api_key"],
                 "anthropic-version": "2023-06-01",
                 "Content-Type": "application/json",
             },
-            json={"model": model, "messages": messages, "max_tokens": 4096},
+            json={"model": config["model"], "messages": messages, "max_tokens": 4096},
         )
 
     if resp.status_code != 200:
@@ -229,20 +285,13 @@ async def _call_anthropic(
         if block.get("type") == "text":
             text_content += block.get("text", "")
 
-    return _parse_ai_response(text_content, filename, source)
+    return _parse_ai_response(text_content, filename, source, config)
 
 
 async def _call_openai_compatible(
-    content: bytes, filename: str, source: str, api_key: str, model: str, provider: str
+    content: bytes, filename: str, source: str, config: dict,
 ) -> dict | None:
-    """Call OpenAI or Gemini (OpenAI-compatible) API."""
-    if provider == "gemini":
-        base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
-        model = model or "gemini-2.0-flash"
-    else:
-        base_url = "https://api.openai.com/v1"
-        model = model or "gpt-4o"
-
+    """Call OpenAI-compatible API (OpenAI, Google AI Studio)."""
     b64 = base64.b64encode(content).decode()
     media_type = "application/pdf" if source == "pdf" else "image/jpeg"
 
@@ -259,14 +308,17 @@ async def _call_openai_compatible(
         }
     ]
 
+    base_url = config["base_url"].rstrip("/")
+    endpoint = f"{base_url}/chat/completions" if not base_url.endswith("/chat/completions") else base_url
+
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
-            f"{base_url}/chat/completions",
+            endpoint,
             headers={
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {config['api_key']}",
                 "Content-Type": "application/json",
             },
-            json={"model": model, "messages": messages, "max_tokens": 4096},
+            json={"model": config["model"], "messages": messages, "max_tokens": 4096},
         )
 
     if resp.status_code != 200:
@@ -274,21 +326,18 @@ async def _call_openai_compatible(
 
     data = resp.json()
     text_content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-    return _parse_ai_response(text_content, filename, source)
+    return _parse_ai_response(text_content, filename, source, config)
 
 
-def _parse_ai_response(text: str, filename: str, source: str) -> dict | None:
+def _parse_ai_response(text: str, filename: str, source: str, config: dict) -> dict | None:
     """Parse AI response text into structured data."""
-    # Clean up common AI response quirks
     text = text.strip()
-    # Remove markdown code fences
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
 
     try:
         lines = json.loads(text)
     except json.JSONDecodeError:
-        # Try to extract JSON array from mixed text
         match = re.search(r"\[.*\]", text, re.DOTALL)
         if match:
             try:
@@ -306,8 +355,8 @@ def _parse_ai_response(text: str, filename: str, source: str) -> dict | None:
         "metadata": {
             "source": source,
             "filename": filename,
-            "ai_provider": settings.ai_provider,
-            "ai_model": settings.ai_model,
+            "ai_provider": config.get("provider", "unknown"),
+            "ai_model": config.get("model", "unknown"),
             "items_extracted": len(lines),
         },
     }
