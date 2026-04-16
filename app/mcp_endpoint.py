@@ -169,11 +169,14 @@ async def create_product(
 ) -> str:
     """Create a new product/material. Required: name, uom."""
     from app.models.insumo import Insumo
+    from app.services.matching import normalize_text, normalize_uom
 
     async with async_session() as db:
         product = Insumo(
-            name=name, uom=uom, category=category,
-            code=code, ref_price=ref_price or None,
+            name=name, name_normalized=normalize_text(name),
+            uom=uom, uom_normalized=normalize_uom(uom),
+            category=category, code=code,
+            ref_price=ref_price or None,
             description=description, is_active=True,
         )
         db.add(product)
@@ -187,20 +190,24 @@ async def create_product(
 async def create_products_bulk(products: list[dict]) -> str:
     """Create multiple products at once. Each dict: name (required), uom, category, ref_price, code."""
     from app.models.insumo import Insumo
+    from app.services.matching import normalize_text, normalize_uom
 
     created = []
     async with async_session() as db:
         for p in products:
             if not p.get("name"):
                 continue
+            name = p["name"]
+            uom = p.get("uom", "pza")
             product = Insumo(
-                name=p["name"], uom=p.get("uom", "pza"),
+                name=name, name_normalized=normalize_text(name),
+                uom=uom, uom_normalized=normalize_uom(uom),
                 category=p.get("category", ""), code=p.get("code", ""),
                 ref_price=p.get("ref_price") or None,
                 description=p.get("description", ""), is_active=True,
             )
             db.add(product)
-            created.append(p["name"])
+            created.append(name)
         await db.commit()
 
     return json.dumps({"ok": True, "created": len(created), "names": created}, ensure_ascii=False)
@@ -210,6 +217,7 @@ async def create_products_bulk(products: list[dict]) -> str:
 async def update_product(product_id: int, name: str = "", uom: str = "", category: str = "", ref_price: float = 0) -> str:
     """Update a product by ID. Only provided fields are updated."""
     from app.models.insumo import Insumo
+    from app.services.matching import normalize_text, normalize_uom
 
     async with async_session() as db:
         product = await db.get(Insumo, product_id)
@@ -217,8 +225,10 @@ async def update_product(product_id: int, name: str = "", uom: str = "", categor
             return json.dumps({"ok": False, "error": f"Product {product_id} not found"})
         if name:
             product.name = name
+            product.name_normalized = normalize_text(name)
         if uom:
             product.uom = uom
+            product.uom_normalized = normalize_uom(uom)
         if category:
             product.category = category
         if ref_price:
