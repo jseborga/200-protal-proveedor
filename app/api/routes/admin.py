@@ -1662,7 +1662,8 @@ async def get_integrations(
     display["webhook_whatsapp"] = f"{public_url}/api/v1/webhook/whatsapp"
     display["webhook_telegram"] = f"{public_url}/api/v1/webhook/telegram"
     if merged.get("telegram_webhook_secret"):
-        display["webhook_telegram"] += f"?secret={merged['telegram_webhook_secret']}"
+        from urllib.parse import quote
+        display["webhook_telegram"] += f"?secret={quote(merged['telegram_webhook_secret'], safe='')}"
 
     # Bot authorized users
     bot_setting = await db.get(SystemSetting, "bot_authorized_users")
@@ -1860,9 +1861,10 @@ async def setup_telegram_webhook(
     if not app_url.startswith("https://"):
         return {"ok": False, "error": f"Telegram requiere HTTPS. URL actual: {app_url}"}
 
+    from urllib.parse import quote
     webhook_url = f"{app_url}/api/v1/webhook/telegram"
     if secret:
-        webhook_url += f"?secret={secret}"
+        webhook_url += f"?secret={quote(secret, safe='')}"
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
