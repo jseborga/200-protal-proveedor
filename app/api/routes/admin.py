@@ -15,6 +15,7 @@ from app.models.rfq import RFQ
 from app.models.user import User
 from app.models.api_key import ApiKey
 from app.models.catalog import Category, UnitOfMeasure
+from app.models.ai_agent import AIAgent
 
 router = APIRouter()
 
@@ -1442,6 +1443,8 @@ async def update_ai_config(
         "provider": body.provider,
         "api_key": body.api_key,
         "model": body.model or provider_info["default_model"],
+        "api_format": provider_info["api_format"],
+        "base_url": provider_info["base_url"],
     }
 
     setting = await db.get(SystemSetting, "ai_config")
@@ -1700,3 +1703,211 @@ async def test_email_connection(
         return {"ok": True, "data": {"host": host, "port": port, "user": smtp_user}}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+
+
+# ── AI Agents ──────────────────────────────────────────────────
+
+class AgentCreate(BaseModel):
+    name: str
+    agent_type: str
+    provider: str = ""
+    model: str = ""
+    api_key: str = ""
+    system_prompt: str = ""
+    channels: dict | None = None
+    triggers: dict | None = None
+    config: dict | None = None
+    is_active: bool = True
+
+
+class AgentUpdate(BaseModel):
+    name: str | None = None
+    agent_type: str | None = None
+    provider: str | None = None
+    model: str | None = None
+    api_key: str | None = None
+    system_prompt: str | None = None
+    channels: dict | None = None
+    triggers: dict | None = None
+    config: dict | None = None
+    is_active: bool | None = None
+
+
+@router.get("/agents")
+async def list_agents(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Listar todos los agentes AI configurados + tipos disponibles."""
+    from app.core.ai_providers import get_all_agent_types, get_all_providers
+    result = await db.execute(select(AIAgent).order_by(AIAgent.id))
+    agents = result.scalars().all()
+
+    agents_data = []
+    for a in agents:
+        agents_data.append({
+            "id": a.id,
+            "name": a.name,
+            "agent_type": a.agent_type,
+            "provider": a.provider or "",
+            "model": a.model or "",
+            "api_key_set": bool(a.api_key),
+            "system_prompt": a.system_prompt or "",
+            "channels": a.channels or {},
+            "triggers": a.triggers or {},
+            "config": a.config or {},
+            "is_active": a.is_active,
+        })
+
+    return {
+        "ok": True,
+        "data": {
+            "agents": agents_data,
+            "agent_types": get_all_agent_types(),
+            "providers": get_all_providers(),
+        },
+    }
+
+
+@router.post("/agents")
+async def create_agent(
+    body: AgentCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Crear un nuevo agente AI."""
+    from app.core.ai_providers import get_agent_type
+    if not get_agent_type(body.agent_type):
+        raise HTTPException(400, f"Tipo de agente no valido: {body.agent_type}")
+
+    agent = AIAgent(
+        name=body.name,
+        agent_type=body.agent_type,
+        provider=body.provider or None,
+        model=body.model or None,
+        api_key=body.api_key or None,
+        system_prompt=body.system_prompt or None,
+        channels=body.channels,
+        triggers=body.triggers,
+        config=body.config,
+        is_active=body.is_active,
+    )
+    db.add(agent)
+    await db.commit()
+    await db.refresh(agent)
+
+    return {"ok": True, "data": {"id": agent.id, "name": agent.name}}
+
+
+@router.put("/agents/{agent_id}")
+async def update_agent(
+    agent_id: int,
+    body: AgentUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Actualizar un agente AI."""
+    agent = await db.get(AIAgent, agent_id)
+    if not agent:
+        raise HTTPException(404, "Agente no encontrado")
+
+    for field in ("name", "agent_type", "provider", "model", "system_prompt",
+                  "channels", "triggers", "config", "is_active"):
+        val = getattr(body, field, None)
+        if val is not None:
+            setattr(agent, field, val)
+
+    if body.api_key is not None:
+        agent.api_key = body.api_key or None
+
+    await db.commit()
+    return {"ok": True, "data": {"id": agent.id, "name": agent.name}}
+
+
+@router.delete("/agents/{agent_id}")
+async def delete_agent(
+    agent_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Eliminar un agente AI."""
+    agent = await db.get(AIAgent, agent_id)
+    if not agent:
+        raise HTTPException(404, "Agente no encontrado")
+
+    await db.delete(agent)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/agents/{agent_id}/toggle")
+async def toggle_agent(
+    agent_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Activar/desactivar un agente."""
+    agent = await db.get(AIAgent, agent_id)
+    if not agent:
+        raise HTTPException(404, "Agente no encontrado")
+
+    agent.is_active = not agent.is_active
+    await db.commit()
+    return {"ok": True, "data": {"id": agent.id, "is_active": agent.is_active}}
+
+
+@router.post("/agents/{agent_id}/test")
+async def test_agent(
+    agent_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Enviar un prompt de prueba al agente para verificar que funciona."""
+    agent = await db.get(AIAgent, agent_id)
+    if not agent:
+        raise HTTPException(404, "Agente no encontrado")
+
+    # Resolve AI config: agent-specific > global
+    from app.core.ai_providers import get_provider_info
+    from app.models.system_setting import SystemSetting
+
+    provider_key = agent.provider
+    api_key = agent.api_key
+    model = agent.model
+
+    # Fallback to global config
+    if not provider_key or not api_key:
+        global_setting = await db.get(SystemSetting, "ai_config")
+        if global_setting and global_setting.value:
+            gc = global_setting.value
+            if not provider_key:
+                provider_key = gc.get("provider", "")
+            if not api_key:
+                api_key = gc.get("api_key", "")
+            if not model:
+                model = gc.get("model", "")
+
+    if not provider_key or not api_key:
+        return {"ok": False, "error": "Agente sin proveedor/key configurado y sin config global"}
+
+    provider_info = get_provider_info(provider_key)
+    if not provider_info:
+        return {"ok": False, "error": f"Proveedor no valido: {provider_key}"}
+
+    config = {
+        "api_format": provider_info["api_format"],
+        "base_url": provider_info["base_url"],
+        "api_key": api_key,
+        "model": model or provider_info["default_model"],
+    }
+
+    try:
+        result = await _test_ai_call(config)
+        return {"ok": True, "data": {
+            "provider": provider_key,
+            "model": config["model"],
+            "agent": agent.name,
+            **result,
+        }}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:300]}

@@ -900,6 +900,60 @@ textarea.form-input { resize: vertical; min-height: 80px; }
     .adm-stats { grid-template-columns: 1fr 1fr; }
 }
 
+/* ── AI Agents ─────────────────────────────────────────────── */
+.agent-types-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px;
+}
+.agent-type-card {
+    display: flex; align-items: flex-start; gap: 12px;
+    background: white; border: 1.5px solid var(--gray-200); border-radius: 10px;
+    padding: 14px; cursor: pointer; transition: all .15s; text-align: left;
+    width: 100%;
+}
+.agent-type-card:hover { border-color: var(--primary); box-shadow: 0 2px 8px rgba(37,99,235,.1); }
+.agent-type-card strong { font-size: 14px; display: block; margin-bottom: 2px; color: var(--gray-800); }
+.agent-type-card p { font-size: 12px; color: var(--gray-500); margin: 0; line-height: 1.3; }
+.agent-type-ico {
+    width: 36px; height: 36px; border-radius: 8px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+}
+
+.agent-list { display: flex; flex-direction: column; gap: 10px; }
+.agent-card {
+    background: white; border: 1px solid var(--gray-200); border-radius: 10px;
+    padding: 14px; transition: box-shadow .15s;
+}
+.agent-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+.agent-card.agent-inactive { opacity: .6; }
+.agent-card-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 8px;
+}
+.agent-card-info { flex: 1; min-width: 0; }
+.agent-card-name { font-size: 15px; font-weight: 600; color: var(--gray-800); }
+.agent-card-type { font-size: 12px; color: var(--gray-500); }
+.agent-card-status {
+    font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 12px;
+    text-transform: uppercase; letter-spacing: .3px;
+}
+.agent-card-status.active { background: #dcfce7; color: #166534; }
+.agent-card-status.inactive { background: var(--gray-100); color: var(--gray-500); }
+.agent-channels { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+.agent-channel-tag {
+    font-size: 11px; padding: 2px 8px; border-radius: 4px;
+    background: #eff6ff; color: var(--primary); font-weight: 500;
+}
+.agent-card-actions {
+    display: flex; gap: 6px; flex-wrap: wrap;
+    padding-top: 8px; border-top: 1px solid var(--gray-100);
+}
+
+@media (max-width: 768px) {
+    .agent-types-grid { grid-template-columns: 1fr; }
+    .agent-card-header { flex-wrap: wrap; }
+    .agent-card-actions { gap: 4px; }
+    .agent-card-actions .btn { padding: 4px 8px; font-size: 12px; }
+}
+
 /* ── Spec Link ─────────────────────────────────────────────── */
 .spec-link {
     display: inline-flex; align-items: center; gap: 3px;

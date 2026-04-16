@@ -196,6 +196,14 @@ const API = {
     adminUpdateAIConfig: (data) => API.put('/admin/ai-config', data),
     adminTestAI: () => API.post('/admin/ai-config/test'),
 
+    // Admin — AI Agents
+    adminAgents: () => API.get('/admin/agents'),
+    adminCreateAgent: (data) => API.post('/admin/agents', data),
+    adminUpdateAgent: (id, data) => API.put(`/admin/agents/${id}`, data),
+    adminDeleteAgent: (id) => API.del(`/admin/agents/${id}`),
+    adminToggleAgent: (id) => API.post(`/admin/agents/${id}/toggle`),
+    adminTestAgent: (id) => API.post(`/admin/agents/${id}/test`),
+
     // Company — AI config
     companyAIConfig: (companyId) => API.get(`/companies/${companyId}/ai-config`),
     updateCompanyAIConfig: (companyId, data) => API.put(`/companies/${companyId}/ai-config`, data),
@@ -293,6 +301,10 @@ const ICONS = {
     bell: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>',
     menu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>',
+    code: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16,18 22,12 16,6"/><polyline points="8,6 2,12 8,18"/></svg>',
+    cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>',
+    zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13,2 3,14 12,14 11,22 21,10 12,10"/></svg>',
+    play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -1346,6 +1358,7 @@ async function renderAdmin() {
 
     const configGroup = [];
     if (isAdmin()) configGroup.push({ key: 'ai', label: 'Inteligencia AI', icon: 'globe' });
+    if (isAdmin()) configGroup.push({ key: 'agents', label: 'Agentes AI', icon: 'cpu' });
     if (isAdmin()) configGroup.push({ key: 'integrations', label: 'Integraciones', icon: 'whatsapp' });
     if (isAdmin()) configGroup.push({ key: 'tasks', label: 'Tareas Auto', icon: 'clock' });
     if (isAdmin()) configGroup.push({ key: 'apikeys', label: 'API Keys', icon: 'key' });
@@ -1412,6 +1425,7 @@ function renderAdminTab() {
         case 'subscriptions': renderAdminSubscriptions(); break;
         case 'tasks': renderAdminTasks(); break;
         case 'ai': renderAdminAI(); break;
+        case 'agents': renderAdminAgents(); break;
         case 'seo': renderAdminSEO(); break;
         case 'integrations': renderAdminIntegrations(); break;
     }
@@ -5074,10 +5088,9 @@ async function renderAdminAI() {
                         </select>
                     </div>
                     <div class="form-group">
-                        <label class="form-label">Modelo</label>
-                        <select class="form-input" id="ai-model-select" name="model">
-                            <option value="">Default del proveedor</option>
-                        </select>
+                        <label class="form-label">Modelo <small style="font-weight:400;color:var(--gray-400)">(elegir o escribir custom)</small></label>
+                        <input class="form-input" id="ai-model-input" name="model" list="ai-model-list" value="${esc(currentModel)}" placeholder="Modelo por defecto del proveedor">
+                        <datalist id="ai-model-list"></datalist>
                     </div>
                 </div>
                 <div class="form-group">
@@ -5130,13 +5143,18 @@ function onAIProviderChange() {
     const info = providers[provider];
     if (!info) return;
 
-    // Update models dropdown
-    const modelSel = document.getElementById('ai-model-select');
-    const currentModel = modelSel.value;
-    modelSel.innerHTML = info.models.map(m =>
-        `<option value="${m}" ${m === info.default_model ? 'selected' : ''}>${m}</option>`
-    ).join('');
-    if (currentModel && info.models.includes(currentModel)) modelSel.value = currentModel;
+    // Update models datalist (suggestions, user can still type custom)
+    const modelInput = document.getElementById('ai-model-input');
+    const datalist = document.getElementById('ai-model-list');
+    if (datalist) {
+        datalist.innerHTML = info.models.map(m =>
+            `<option value="${m}">${m}${m === info.default_model ? ' (default)' : ''}</option>`
+        ).join('');
+    }
+    // Set default model if input is empty
+    if (modelInput && !modelInput.value) {
+        modelInput.placeholder = info.default_model;
+    }
 
     // Update help link
     const helpLink = document.getElementById('ai-help-link');
@@ -5160,7 +5178,7 @@ async function handleSaveAIConfig(e) {
     const resp = await API.adminUpdateAIConfig({
         provider: f.provider.value,
         api_key: f.api_key.value,
-        model: f.model.value,
+        model: f.model.value.trim(),
     });
     if (resp.ok) {
         toast('Configuracion de IA guardada', 'success');
@@ -5294,6 +5312,260 @@ async function removeCompanyAI(companyId) {
     if (resp.ok) {
         toast('Config IA eliminada', 'success');
         renderCompanyAIConfig(companyId);
+    } else {
+        toast(resp.detail || 'Error', 'error');
+    }
+}
+
+// ── Admin: AI Agents ─────────────────────────────────────────
+async function renderAdminAgents() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="loading">Cargando agentes...</div>';
+
+    const resp = await API.adminAgents();
+    if (!resp.ok) { c.innerHTML = '<p>Error cargando agentes</p>'; return; }
+
+    const { agents, agent_types, providers } = resp.data;
+
+    // Type info map
+    const typeMap = {};
+    agent_types.forEach(t => { typeMap[t.key] = t; });
+
+    // Agent type cards to create new ones
+    const typeCards = agent_types.map(t => `
+        <button class="agent-type-card" onclick="showAgentForm('${t.key}')">
+            <span class="agent-type-ico" style="background:${t.bg};color:${t.color}">${icon(t.icon, 20)}</span>
+            <div>
+                <strong>${esc(t.label)}</strong>
+                <p>${esc(t.description)}</p>
+            </div>
+        </button>
+    `).join('');
+
+    // Existing agents
+    const agentCards = agents.length ? agents.map(a => {
+        const t = typeMap[a.agent_type] || { label: a.agent_type, icon: 'cpu', color: '#64748b', bg: '#f1f5f9' };
+        const channelTags = Object.entries(a.channels || {})
+            .filter(([, v]) => v)
+            .map(([k]) => `<span class="agent-channel-tag">${esc(k)}</span>`)
+            .join('');
+        return `
+        <div class="agent-card ${a.is_active ? '' : 'agent-inactive'}">
+            <div class="agent-card-header">
+                <span class="agent-type-ico" style="background:${t.bg};color:${t.color}">${icon(t.icon, 18)}</span>
+                <div class="agent-card-info">
+                    <div class="agent-card-name">${esc(a.name)}</div>
+                    <div class="agent-card-type">${esc(t.label)}${a.model ? ' — ' + esc(a.model) : a.provider ? ' — ' + esc(a.provider) : ' — Config global'}</div>
+                </div>
+                <div class="agent-card-status ${a.is_active ? 'active' : 'inactive'}">${a.is_active ? 'Activo' : 'Inactivo'}</div>
+            </div>
+            ${channelTags ? '<div class="agent-channels">' + channelTags + '</div>' : ''}
+            <div class="agent-card-actions">
+                <button class="btn btn-sm btn-secondary" onclick="showAgentForm('${a.agent_type}', ${a.id})">${icon('edit',14)} Editar</button>
+                <button class="btn btn-sm btn-secondary" onclick="toggleAgent(${a.id})">${a.is_active ? icon('x',14) + ' Desactivar' : icon('zap',14) + ' Activar'}</button>
+                <button class="btn btn-sm btn-secondary" onclick="testAgent(${a.id})">${icon('play',14)} Probar</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteAgent(${a.id})">${icon('trash',14)}</button>
+            </div>
+            <div id="agent-test-${a.id}" style="margin-top:6px"></div>
+        </div>`;
+    }).join('') : '<div class="empty-state"><p>No hay agentes configurados. Crea uno eligiendo un tipo arriba.</p></div>';
+
+    c.innerHTML = `
+        <h2 class="adm-title">${icon('cpu', 22)} Agentes AI</h2>
+        <p style="color:var(--gray-500);font-size:14px;margin:-12px 0 16px">
+            Configura trabajadores inteligentes que buscan, actualizan, detectan coincidencias
+            y se comunican con proveedores via WhatsApp, Telegram y redes sociales.
+        </p>
+
+        <div class="integ-section">
+            <h3 style="margin-bottom:12px">Crear Agente</h3>
+            <div class="agent-types-grid">${typeCards}</div>
+        </div>
+
+        <div class="integ-section">
+            <h3 style="margin-bottom:12px">Agentes Configurados (${agents.length})</h3>
+            <div class="agent-list">${agentCards}</div>
+        </div>
+    `;
+}
+
+async function showAgentForm(agentType, agentId) {
+    // Load providers and existing agent data if editing
+    const resp = await API.adminAgents();
+    if (!resp.ok) return;
+
+    const { agent_types, providers } = resp.data;
+    const typeInfo = agent_types.find(t => t.key === agentType) || {};
+    let agent = null;
+
+    if (agentId) {
+        agent = resp.data.agents.find(a => a.id === agentId);
+    }
+
+    const providerOptions = providers.map(p =>
+        `<option value="${p.key}" ${(agent?.provider || '') === p.key ? 'selected' : ''}>${esc(p.label)}</option>`
+    ).join('');
+
+    // Build model suggestions from all providers
+    const allModels = providers.flatMap(p => p.models);
+    const modelDatalist = allModels.map(m => `<option value="${m}">`).join('');
+
+    const channelChecks = ['whatsapp', 'telegram', 'facebook', 'webhook', 'email'].map(ch => {
+        const checked = agent?.channels?.[ch] ? 'checked' : '';
+        return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" name="channel_${ch}" ${checked}> ${ch.charAt(0).toUpperCase() + ch.slice(1)}
+        </label>`;
+    }).join('');
+
+    const triggerChecks = [
+        ['on_new_quotation', 'Nueva cotizacion recibida'],
+        ['on_price_update', 'Precio actualizado'],
+        ['on_new_supplier', 'Nuevo proveedor registrado'],
+        ['on_message', 'Mensaje entrante (webhook)'],
+        ['cron_daily', 'Ejecucion diaria (cron)'],
+    ].map(([key, label]) => {
+        const checked = agent?.triggers?.[key] ? 'checked' : '';
+        return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" name="trigger_${key}" ${checked}> ${label}
+        </label>`;
+    }).join('');
+
+    const html = `
+        <div class="modal-header">
+            <h3 class="modal-title">${agentId ? 'Editar' : 'Crear'} Agente: ${esc(typeInfo.label || agentType)}</h3>
+            <button class="modal-close" onclick="closeModal()">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="agent-form" onsubmit="handleSaveAgent(event, ${agentId || 'null'}, '${agentType}')">
+                <div class="form-group">
+                    <label class="form-label">Nombre del agente</label>
+                    <input class="form-input" name="name" value="${esc(agent?.name || typeInfo.label || '')}" required placeholder="Ej: Buscador Principal">
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Proveedor <small style="font-weight:400;color:var(--gray-400)">(vacio = config global)</small></label>
+                        <select class="form-input" name="provider">
+                            <option value="">Usar config global</option>
+                            ${providerOptions}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Modelo <small style="font-weight:400;color:var(--gray-400)">(escribir custom OK)</small></label>
+                        <input class="form-input" name="model" list="agent-model-list" value="${esc(agent?.model || '')}" placeholder="Default del proveedor">
+                        <datalist id="agent-model-list">${modelDatalist}</datalist>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">API Key <small style="font-weight:400;color:var(--gray-400)">(vacio = key global)</small></label>
+                    <input class="form-input" type="password" name="api_key" value="" placeholder="${agent?.api_key_set ? '●●● (ya configurada, dejar vacio para mantener)' : 'sk-...'}">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">System Prompt</label>
+                    <textarea class="form-input" name="system_prompt" rows="4" placeholder="Instrucciones para el agente...">${esc(agent?.system_prompt || typeInfo.default_prompt || '')}</textarea>
+                </div>
+
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:14px">
+                    <div>
+                        <label class="form-label">Canales</label>
+                        <div style="display:flex;flex-wrap:wrap;gap:8px 16px">${channelChecks}</div>
+                    </div>
+                    <div>
+                        <label class="form-label">Triggers</label>
+                        <div style="display:flex;flex-direction:column;gap:6px">${triggerChecks}</div>
+                    </div>
+                </div>
+
+                <div class="modal-footer" style="padding:0;border:none;margin-top:16px">
+                    <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">${icon('check', 16)} ${agentId ? 'Guardar' : 'Crear Agente'}</button>
+                </div>
+            </form>
+        </div>
+    `;
+
+    openModal(html);
+}
+
+async function handleSaveAgent(e, agentId, agentType) {
+    e.preventDefault();
+    const f = e.target;
+
+    const channels = {};
+    ['whatsapp', 'telegram', 'facebook', 'webhook', 'email'].forEach(ch => {
+        const cb = f.querySelector(`[name="channel_${ch}"]`);
+        if (cb) channels[ch] = cb.checked;
+    });
+
+    const triggers = {};
+    ['on_new_quotation', 'on_price_update', 'on_new_supplier', 'on_message', 'cron_daily'].forEach(key => {
+        const cb = f.querySelector(`[name="trigger_${key}"]`);
+        if (cb) triggers[key] = cb.checked;
+    });
+
+    const data = {
+        name: f.name.value.trim(),
+        agent_type: agentType,
+        provider: f.provider.value,
+        model: f.model.value.trim(),
+        system_prompt: f.system_prompt.value.trim(),
+        channels,
+        triggers,
+    };
+
+    // Only send api_key if user entered something
+    if (f.api_key.value) {
+        data.api_key = f.api_key.value;
+    }
+
+    let resp;
+    if (agentId) {
+        resp = await API.adminUpdateAgent(agentId, data);
+    } else {
+        resp = await API.adminCreateAgent(data);
+    }
+
+    if (resp.ok) {
+        toast(agentId ? 'Agente actualizado' : 'Agente creado', 'success');
+        closeModal();
+        renderAdminAgents();
+    } else {
+        toast(resp.detail || resp.error || 'Error', 'error');
+    }
+}
+
+async function toggleAgent(id) {
+    const resp = await API.adminToggleAgent(id);
+    if (resp.ok) {
+        toast(resp.data.is_active ? 'Agente activado' : 'Agente desactivado', 'success');
+        renderAdminAgents();
+    } else {
+        toast(resp.detail || 'Error', 'error');
+    }
+}
+
+async function testAgent(id) {
+    const el = document.getElementById(`agent-test-${id}`);
+    if (el) el.innerHTML = '<small style="color:var(--gray-400)">Probando...</small>';
+
+    const resp = await API.adminTestAgent(id);
+    if (!el) return;
+
+    if (resp.ok) {
+        el.innerHTML = `<small style="color:#166534">${icon('check',12)} OK — ${esc(resp.data.model)}</small>`;
+    } else {
+        el.innerHTML = `<small style="color:#991b1b">${icon('x',12)} ${esc(resp.error || 'Error')}</small>`;
+    }
+}
+
+async function deleteAgent(id) {
+    if (!confirm('Eliminar este agente?')) return;
+    const resp = await API.adminDeleteAgent(id);
+    if (resp.ok) {
+        toast('Agente eliminado', 'success');
+        renderAdminAgents();
     } else {
         toast(resp.detail || 'Error', 'error');
     }
@@ -6562,6 +6834,16 @@ function showModal(title, bodyHtml) {
             <div class="modal-body">${bodyHtml}</div>
         </div>
     `;
+    document.body.appendChild(overlay);
+}
+
+function openModal(innerHtml) {
+    const existing = document.querySelector('.modal-overlay');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+    overlay.innerHTML = `<div class="modal">${innerHtml}</div>`;
     document.body.appendChild(overlay);
 }
 
