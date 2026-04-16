@@ -117,6 +117,41 @@ AGENT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "registrar_cotizacion",
+            "description": "Registra items de una cotizacion extraida de foto/PDF. Crea o busca el proveedor, crea o busca productos, y registra precios en el historial. Usa esta herramienta cuando recibes items extraidos de una cotizacion.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "proveedor": {
+                        "type": "string",
+                        "description": "Nombre del proveedor (si se conoce). Si no se conoce, usa 'Desconocido'.",
+                    },
+                    "ciudad": {
+                        "type": "string",
+                        "description": "Ciudad del proveedor (default: La Paz)",
+                    },
+                    "items": {
+                        "type": "array",
+                        "description": "Lista de items con name, uom, price, brand (opcionales)",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "uom": {"type": "string"},
+                                "price": {"type": "number"},
+                                "brand": {"type": "string"},
+                            },
+                            "required": ["name", "price"],
+                        },
+                    },
+                },
+                "required": ["items"],
+            },
+        },
+    },
 ]
 
 # Anthropic tool format (different from OpenAI)
@@ -140,6 +175,8 @@ Reglas:
 - Si no puedes hacer algo, dilo claramente
 - Formatea numeros con 2 decimales y moneda Bs (bolivianos)
 - Si te piden ejecutar una tarea, confirma el resultado
+- Cuando recibas items de una cotizacion (foto/PDF), usa registrar_cotizacion para guardarlos
+- Para registrar_cotizacion: pasa todos los items extraidos. Si el usuario menciono proveedor, incluyelo. Si no, usa 'Cotizacion Telegram' como nombre.
 """
 
 
@@ -150,8 +187,13 @@ async def execute_agent_message(
     message: str,
     ai_config: dict,
     agent_prompt: str | None = None,
+    extracted_items: list[dict] | None = None,
 ) -> str:
-    """Procesa un mensaje del usuario, usa AI + tools, devuelve respuesta texto."""
+    """Procesa un mensaje del usuario, usa AI + tools, devuelve respuesta texto.
+
+    extracted_items: si viene de una foto/PDF, los items ya extraidos se inyectan
+    como contexto para que el agente pueda registrarlos sin re-extraer.
+    """
 
     system = agent_prompt or SYSTEM_PROMPT
     messages = [{"role": "user", "content": message}]
@@ -330,6 +372,8 @@ async def _execute_tool(db: AsyncSession, name: str, args: dict) -> dict:
             return await _tool_ejecutar_tarea(db, **args)
         elif name == "tarea_compleja":
             return await _tool_tarea_compleja(db, **args)
+        elif name == "registrar_cotizacion":
+            return await _tool_registrar_cotizacion(db, **args)
         else:
             return {"error": f"Herramienta no encontrada: {name}"}
     except Exception as e:
@@ -589,3 +633,134 @@ async def fire_routine(db: AsyncSession, task_text: str) -> dict:
             }
     except Exception as e:
         return {"estado": "error", "error": str(e)[:300]}
+
+
+# ── Registrar cotizacion completa ────────────────────────────
+
+async def _tool_registrar_cotizacion(
+    db: AsyncSession,
+    items: list[dict],
+    proveedor: str = "",
+    ciudad: str = "La Paz",
+) -> dict:
+    """Registra items de una cotizacion: busca/crea proveedor, busca/crea productos, registra precios."""
+    from datetime import date as date_type
+
+    from app.models.supplier import Supplier
+    from app.models.insumo import Insumo
+    from app.models.price_history import PriceHistory
+    from app.services.matching import normalize_text, normalize_uom
+
+    if not items:
+        return {"error": "No hay items para registrar"}
+
+    # 1. Resolve or create supplier
+    supplier_name = (proveedor or "").strip() or "Cotizacion Telegram"
+    supplier_id = None
+
+    result = await db.execute(
+        select(Supplier).where(Supplier.name.ilike(f"%{supplier_name}%")).limit(1)
+    )
+    existing_supplier = result.scalar_one_or_none()
+
+    if existing_supplier:
+        supplier_id = existing_supplier.id
+        supplier_name = existing_supplier.name
+    else:
+        new_supplier = Supplier(
+            name=supplier_name,
+            city=ciudad,
+            department=ciudad,
+            verification_state="pending",
+        )
+        db.add(new_supplier)
+        await db.flush()
+        supplier_id = new_supplier.id
+
+    # 2. Process each item
+    created_products = 0
+    existing_products = 0
+    prices_registered = 0
+    registered_items = []
+    today = date_type.today()
+
+    for item in items:
+        name = (item.get("name") or "").strip()
+        if not name:
+            continue
+
+        price = item.get("price", 0)
+        uom = item.get("uom", "pza") or "pza"
+        brand = item.get("brand")
+
+        name_norm = normalize_text(name)
+        uom_norm = normalize_uom(uom)
+
+        # Search for existing product by normalized name
+        result = await db.execute(
+            select(Insumo).where(Insumo.name_normalized == name_norm).limit(1)
+        )
+        insumo = result.scalar_one_or_none()
+
+        if not insumo:
+            # Try fuzzy match via ilike
+            result = await db.execute(
+                select(Insumo).where(Insumo.name.ilike(f"%{name}%")).limit(1)
+            )
+            insumo = result.scalar_one_or_none()
+
+        if insumo:
+            existing_products += 1
+        else:
+            # Create new product
+            insumo = Insumo(
+                name=name,
+                name_normalized=name_norm,
+                uom=uom,
+                uom_normalized=uom_norm,
+                ref_price=price if price > 0 else None,
+                ref_currency="BOB",
+            )
+            db.add(insumo)
+            await db.flush()
+            created_products += 1
+
+        # Register price in history
+        if price and price > 0:
+            ph = PriceHistory(
+                insumo_id=insumo.id,
+                supplier_id=supplier_id,
+                unit_price=price,
+                currency="BOB",
+                uom=uom,
+                observed_date=today,
+                source="telegram",
+                source_ref=f"foto-{today.isoformat()}",
+                notes=f"Marca: {brand}" if brand else None,
+            )
+            db.add(ph)
+            prices_registered += 1
+
+            # Update ref_price if this is a new observation
+            if insumo.ref_price is None or insumo.ref_price == 0:
+                insumo.ref_price = price
+
+        registered_items.append({
+            "nombre": name,
+            "precio": price,
+            "unidad": uom,
+            "estado": "existente" if existing_products > created_products else "nuevo",
+        })
+
+    await db.commit()
+
+    return {
+        "ok": True,
+        "proveedor": supplier_name,
+        "proveedor_id": supplier_id,
+        "productos_nuevos": created_products,
+        "productos_existentes": existing_products,
+        "precios_registrados": prices_registered,
+        "items": registered_items[:10],  # limit response size
+        "total_items": len(registered_items),
+    }

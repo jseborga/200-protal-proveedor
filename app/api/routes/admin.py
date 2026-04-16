@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import attributes as sa_attrs
 
 from app.core.database import get_db
 from app.core.security import hash_password, verify_api_key, pwd_context
@@ -1450,6 +1451,7 @@ async def update_ai_config(
     setting = await db.get(SystemSetting, "ai_config")
     if setting:
         setting.value = config_data
+        sa_attrs.flag_modified(setting, "value")
     else:
         setting = SystemSetting(key="ai_config", value=config_data)
         db.add(setting)
@@ -1562,6 +1564,7 @@ async def update_seo_config(
     setting = await db.get(SystemSetting, "seo_config")
     if setting:
         setting.value = config
+        sa_attrs.flag_modified(setting, "value")
     else:
         setting = SystemSetting(key="seo_config", value=config)
         db.add(setting)
@@ -1605,6 +1608,19 @@ async def get_integrations(
             display[k + "_masked"] = val[:3] + "***" + val[-3:]
         else:
             display[k + "_masked"] = "***" if val else ""
+
+    # Evolution instances (multi-instance support)
+    instances = cfg.get("evolution_instances", [])
+    display_instances = []
+    for inst in instances:
+        di = dict(inst)
+        ak = di.get("api_key", "")
+        if ak and len(ak) > 6:
+            di["api_key_masked"] = ak[:3] + "***" + ak[-3:]
+        else:
+            di["api_key_masked"] = "***" if ak else ""
+        display_instances.append(di)
+    display["evolution_instances"] = display_instances
 
     # Build webhook URLs
     display["webhook_whatsapp"] = f"{env.app_url}/api/v1/webhook/whatsapp"
@@ -1650,9 +1666,36 @@ async def update_integrations(
     if setting:
         current = setting.value or {}
         current.update(config)
-        setting.value = current
     else:
-        setting = SystemSetting(key="integrations", value=config)
+        current = config
+
+    # Handle evolution_instances array
+    if "evolution_instances" in body and isinstance(body["evolution_instances"], list):
+        import uuid as _uuid
+        instances = []
+        for inst in body["evolution_instances"]:
+            if not isinstance(inst, dict):
+                continue
+            entry = {
+                "id": inst.get("id") or str(_uuid.uuid4())[:8],
+                "label": inst.get("label", "").strip(),
+                "url": inst.get("url", "").strip().rstrip("/"),
+                "api_key": inst.get("api_key", "").strip(),
+                "instance_name": inst.get("instance_name", "default").strip(),
+                "is_default": bool(inst.get("is_default", False)),
+            }
+            if entry["url"] and entry["api_key"]:
+                instances.append(entry)
+        # Ensure exactly one default
+        if instances and not any(i["is_default"] for i in instances):
+            instances[0]["is_default"] = True
+        current["evolution_instances"] = instances
+
+    if setting:
+        setting.value = current
+        sa_attrs.flag_modified(setting, "value")
+    else:
+        setting = SystemSetting(key="integrations", value=current)
         db.add(setting)
 
     # Handle routine config
@@ -1666,6 +1709,7 @@ async def update_integrations(
         routine_data["token_set"] = bool(routine_data.get("token"))
         if routine_setting:
             routine_setting.value = routine_data
+            sa_attrs.flag_modified(routine_setting, "value")
         else:
             routine_setting = SystemSetting(key="routine_config", value=routine_data)
             db.add(routine_setting)
@@ -1679,6 +1723,7 @@ async def update_integrations(
         bot_setting = await db.get(SystemSetting, "bot_authorized_users")
         if bot_setting:
             bot_setting.value = bot_data
+            sa_attrs.flag_modified(bot_setting, "value")
         else:
             bot_setting = SystemSetting(key="bot_authorized_users", value=bot_data)
             db.add(bot_setting)
@@ -1689,18 +1734,33 @@ async def update_integrations(
 
 @router.post("/integrations/test-whatsapp")
 async def test_whatsapp_connection(
+    body: dict | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
     """Test Evolution API connection by fetching instance status."""
     import httpx
+    body = body or {}
     setting = await db.get(SystemSetting, "integrations")
     cfg = setting.value if setting and setting.value else {}
 
     from app.core.config import settings as env
-    url = cfg.get("evolution_api_url") or env.evolution_api_url
-    api_key = cfg.get("evolution_api_key") or env.evolution_api_key
-    instance = cfg.get("evolution_instance_name") or env.evolution_instance_name
+
+    # Support testing a specific instance by id
+    instance_id = body.get("instance_id")
+    instances = cfg.get("evolution_instances", [])
+    if instance_id and instances:
+        inst = next((i for i in instances if i.get("id") == instance_id), None)
+        if inst:
+            url = inst.get("url", "").rstrip("/")
+            api_key = inst.get("api_key", "")
+            instance = inst.get("instance_name", "default")
+        else:
+            return {"ok": False, "error": f"Instancia '{instance_id}' no encontrada"}
+    else:
+        url = cfg.get("evolution_api_url") or env.evolution_api_url
+        api_key = cfg.get("evolution_api_key") or env.evolution_api_key
+        instance = cfg.get("evolution_instance_name") or env.evolution_instance_name
 
     if not url or not api_key:
         return {"ok": False, "error": "URL y API Key son requeridos"}

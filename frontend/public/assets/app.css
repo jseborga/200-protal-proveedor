@@ -866,6 +866,29 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 }
 .integ-webhook-url:hover { background: var(--gray-100); }
 
+/* ── WhatsApp multi-instance cards ─────────────────────────── */
+.wa-instance-card {
+    background: var(--gray-50); border: 1px solid var(--gray-200);
+    border-radius: 10px; padding: 14px; margin-bottom: 10px;
+    transition: border-color .15s;
+}
+.wa-instance-card:hover { border-color: var(--gray-300); }
+.wa-instance-header {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 8px;
+}
+.wa-instance-label {
+    font-weight: 600; font-size: 14px; color: var(--gray-800);
+    display: flex; align-items: center; gap: 8px;
+}
+.wa-instance-details {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    font-size: 12px; color: var(--gray-500);
+}
+.wa-instance-details span {
+    display: flex; align-items: center; gap: 4px;
+}
+
 /* ── Admin: AI features grid ───────────────────────────────── */
 .ai-features-grid {
     display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

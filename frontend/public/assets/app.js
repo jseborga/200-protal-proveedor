@@ -222,7 +222,7 @@ const API = {
     // Admin — Integrations
     adminIntegrations: () => API.get('/admin/integrations'),
     adminUpdateIntegrations: (data) => API.put('/admin/integrations', data),
-    adminTestWhatsApp: () => API.post('/admin/integrations/test-whatsapp'),
+    adminTestWhatsApp: (data) => API.post('/admin/integrations/test-whatsapp', data || {}),
     adminTestEmail: () => API.post('/admin/integrations/test-email'),
 
     // Public site config (no auth needed)
@@ -305,6 +305,8 @@ const ICONS = {
     cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>',
     zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13,2 3,14 12,14 11,22 21,10 12,10"/></svg>',
     play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21"/></svg>',
+    server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
+    lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -5685,41 +5687,46 @@ async function renderAdminIntegrations() {
     c.innerHTML = `
         <h2 class="adm-title">${icon('whatsapp',22)} Integraciones</h2>
 
-        <!-- WhatsApp / Evolution API -->
+        <!-- WhatsApp / Evolution API — Multi-instance -->
         <div class="integ-section">
             <div class="integ-header">
                 <span class="integ-icon" style="background:#dcfce7;color:#16a34a">${icon('whatsapp',20)}</span>
                 <div>
                     <h3>WhatsApp (Evolution API)</h3>
-                    <p>Envia cotizaciones y recibe respuestas por WhatsApp</p>
+                    <p>Multiples instancias de Evolution API para diferentes numeros o servidores</p>
                 </div>
             </div>
-            <form onsubmit="saveIntegrations(event,'whatsapp')">
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                    <div class="form-group">
-                        <label class="form-label">URL Evolution API</label>
-                        <input class="form-input" name="evolution_api_url" value="${esc(d.evolution_api_url)}" placeholder="http://localhost:8080">
+            <div class="form-group">
+                <label class="form-label">Webhook URL (configura esto en cada instancia de Evolution API)</label>
+                <div class="integ-webhook-url" onclick="navigator.clipboard.writeText(this.textContent);toast('Copiado','success')">${esc(d.webhook_whatsapp)}</div>
+            </div>
+            <div id="wa-instances-list">
+                ${(d.evolution_instances && d.evolution_instances.length > 0) ? d.evolution_instances.map((inst, idx) => `
+                    <div class="wa-instance-card" data-id="${esc(inst.id)}">
+                        <div class="wa-instance-header">
+                            <span class="wa-instance-label">${esc(inst.label || 'Instancia ' + (idx+1))}${inst.is_default ? ' <span class="badge badge-success" style="font-size:10px">Default</span>' : ''}</span>
+                            <div style="display:flex;gap:4px">
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="testWaInstance('${esc(inst.id)}')" title="Probar">${icon('play',14)}</button>
+                                ${!inst.is_default ? `<button type="button" class="btn btn-sm btn-secondary" onclick="setDefaultWaInstance('${esc(inst.id)}')" title="Hacer default">${icon('check',14)}</button>` : ''}
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="editWaInstance('${esc(inst.id)}')" title="Editar">${icon('edit',14)}</button>
+                                <button type="button" class="btn btn-sm" style="color:var(--red-500)" onclick="removeWaInstance('${esc(inst.id)}')" title="Eliminar">${icon('x',14)}</button>
+                            </div>
+                        </div>
+                        <div class="wa-instance-details">
+                            <span>${icon('globe',12)} ${esc(inst.url)}</span>
+                            <span>${icon('server',12)} ${esc(inst.instance_name)}</span>
+                            <span>${icon('lock',12)} ${esc(inst.api_key_masked || '***')}</span>
+                        </div>
                     </div>
-                    <div class="form-group">
-                        <label class="form-label">Nombre de Instancia</label>
-                        <input class="form-input" name="evolution_instance_name" value="${esc(d.evolution_instance_name)}" placeholder="apu-marketplace">
+                `).join('') : `
+                    <div style="text-align:center;padding:20px;color:var(--gray-400)">
+                        <p>No hay instancias configuradas</p>
+                        <p style="font-size:12px">La configuracion legacy (URL/Key/Instance del .env) se usara como fallback</p>
                     </div>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">API Key</label>
-                    <input class="form-input" name="evolution_api_key" type="password" value="${esc(d.evolution_api_key)}" placeholder="Tu API key de Evolution">
-                    ${d.evolution_api_key_masked ? `<small style="color:var(--gray-400)">Actual: ${esc(d.evolution_api_key_masked)}</small>` : ''}
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Webhook URL (configura esto en Evolution API)</label>
-                    <div class="integ-webhook-url" onclick="navigator.clipboard.writeText(this.textContent);toast('Copiado','success')">${esc(d.webhook_whatsapp)}</div>
-                </div>
-                <div style="display:flex;gap:8px">
-                    <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar</button>
-                    <button type="button" class="btn btn-secondary" onclick="testWhatsApp()">Probar Conexion</button>
-                </div>
-                <div id="wa-test-result" style="margin-top:8px"></div>
-            </form>
+                `}
+            </div>
+            <button type="button" class="btn btn-primary" onclick="addWaInstance()" style="margin-top:12px">${icon('plus',16)} Agregar Instancia</button>
+            <div id="wa-test-result" style="margin-top:8px"></div>
         </div>
 
         <!-- Telegram -->
@@ -5955,6 +5962,148 @@ async function testWhatsApp() {
     const el = document.getElementById('wa-test-result');
     el.innerHTML = '<span style="color:var(--gray-500);font-size:13px">Probando...</span>';
     const resp = await API.adminTestWhatsApp();
+    if (resp.ok) {
+        el.innerHTML = `<span style="color:#16a34a;font-size:13px">${icon('check',14)} Conectado — Estado: ${esc(resp.data.state)} (${esc(resp.data.instance)})</span>`;
+    } else {
+        el.innerHTML = `<span style="color:#dc2626;font-size:13px">${icon('x',14)} ${esc(resp.error || 'Error de conexion')}</span>`;
+    }
+}
+
+// ── WhatsApp Multi-Instance Management ──────────────────────
+let _waInstances = []; // in-memory cache for editing
+
+async function _loadWaInstances() {
+    const resp = await API.adminIntegrations();
+    if (resp.ok) _waInstances = resp.data.evolution_instances || [];
+    return _waInstances;
+}
+
+async function _saveWaInstances() {
+    const resp = await API.adminUpdateIntegrations({ evolution_instances: _waInstances });
+    if (resp.ok) {
+        toast('Instancias WhatsApp guardadas', 'success');
+        renderAdminIntegrations();
+    } else {
+        toast(resp.detail || 'Error guardando instancias', 'error');
+    }
+}
+
+function addWaInstance() {
+    _showWaInstanceForm(null);
+}
+
+function editWaInstance(id) {
+    _showWaInstanceForm(id);
+}
+
+async function _showWaInstanceForm(editId) {
+    await _loadWaInstances();
+    const inst = editId ? _waInstances.find(i => i.id === editId) : null;
+
+    const html = `
+        <div class="modal-overlay" onclick="if(event.target===this)this.remove()">
+            <div class="modal" style="max-width:500px">
+                <div class="modal-header">
+                    <h3>${inst ? 'Editar' : 'Nueva'} Instancia Evolution API</h3>
+                    <button class="btn btn-sm" onclick="this.closest('.modal-overlay').remove()">${icon('x',18)}</button>
+                </div>
+                <form onsubmit="handleSaveWaInstance(event, '${editId || ''}')" style="padding:20px">
+                    <div class="form-group">
+                        <label class="form-label">Etiqueta</label>
+                        <input class="form-input" name="label" value="${esc(inst?.label || '')}" placeholder="Ej: Numero principal, Soporte, Ventas...">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">URL del servidor Evolution API</label>
+                        <input class="form-input" name="url" value="${esc(inst?.url || '')}" placeholder="https://evolution.miservidor.com" required>
+                    </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                        <div class="form-group">
+                            <label class="form-label">Nombre de Instancia</label>
+                            <input class="form-input" name="instance_name" value="${esc(inst?.instance_name || '')}" placeholder="apu-marketplace">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">API Key</label>
+                            <input class="form-input" name="api_key" type="password" value="${esc(inst?.api_key || '')}" placeholder="Tu API key" required>
+                            ${inst?.api_key_masked ? `<small style="color:var(--gray-400)">Actual: ${esc(inst.api_key_masked)}</small>` : ''}
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+                            <input type="checkbox" name="is_default" ${inst?.is_default ? 'checked' : ''}>
+                            <span>Instancia por defecto (se usa para envio automatico)</span>
+                        </label>
+                    </div>
+                    <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+                        <button type="button" class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">${icon('check',16)} ${inst ? 'Actualizar' : 'Agregar'}</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    `;
+    document.body.insertAdjacentHTML('beforeend', html);
+}
+
+async function handleSaveWaInstance(e, editId) {
+    e.preventDefault();
+    const f = e.target;
+    await _loadWaInstances();
+
+    const entry = {
+        id: editId || (Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
+        label: f.label.value.trim(),
+        url: f.url.value.trim().replace(/\/+$/, ''),
+        instance_name: f.instance_name.value.trim() || 'default',
+        api_key: f.api_key.value.trim(),
+        is_default: f.is_default.checked,
+    };
+
+    if (!entry.url || !entry.api_key) {
+        toast('URL y API Key son requeridos', 'error');
+        return;
+    }
+
+    if (editId) {
+        const idx = _waInstances.findIndex(i => i.id === editId);
+        if (idx >= 0) {
+            // Keep existing api_key if field is empty (not changed)
+            if (!entry.api_key && _waInstances[idx].api_key) entry.api_key = _waInstances[idx].api_key;
+            _waInstances[idx] = entry;
+        }
+    } else {
+        _waInstances.push(entry);
+    }
+
+    // Ensure only one default
+    if (entry.is_default) {
+        _waInstances.forEach(i => { if (i.id !== entry.id) i.is_default = false; });
+    }
+
+    f.closest('.modal-overlay').remove();
+    await _saveWaInstances();
+}
+
+async function removeWaInstance(id) {
+    if (!confirm('Eliminar esta instancia de Evolution API?')) return;
+    await _loadWaInstances();
+    _waInstances = _waInstances.filter(i => i.id !== id);
+    // If removed was default, make first one default
+    if (_waInstances.length > 0 && !_waInstances.some(i => i.is_default)) {
+        _waInstances[0].is_default = true;
+    }
+    await _saveWaInstances();
+}
+
+async function setDefaultWaInstance(id) {
+    await _loadWaInstances();
+    _waInstances.forEach(i => { i.is_default = (i.id === id); });
+    await _saveWaInstances();
+}
+
+async function testWaInstance(id) {
+    const el = document.getElementById('wa-test-result');
+    el.innerHTML = '<span style="color:var(--gray-500);font-size:13px">Probando instancia...</span>';
+    const resp = await API.adminTestWhatsApp({ instance_id: id });
     if (resp.ok) {
         el.innerHTML = `<span style="color:#16a34a;font-size:13px">${icon('check',14)} Conectado — Estado: ${esc(resp.data.state)} (${esc(resp.data.instance)})</span>`;
     } else {
