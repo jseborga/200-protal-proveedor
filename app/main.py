@@ -231,17 +231,17 @@ async def purge_data_direct(secret: str):
         "mkt_category", "mkt_unit_of_measure", "mkt_task_log",
     ]
     counts = {}
-    async with async_session() as db:
-        for table in tables:
-            try:
+    for table in tables:
+        try:
+            async with async_session() as db:
                 r = await db.execute(sql_text(f"SELECT COUNT(*) FROM {table}"))
                 c = r.scalar() or 0
                 if c > 0:
                     await db.execute(sql_text(f"DELETE FROM {table}"))
+                    await db.commit()
                     counts[table] = c
-            except Exception as e:
-                counts[f"{table}_error"] = str(e)[:80]
-        await db.commit()
+        except Exception as e:
+            counts[f"{table}_skip"] = str(e)[:60]
     return {"ok": True, "purged": sum(v for v in counts.values() if isinstance(v, int)), "details": counts}
 
 
