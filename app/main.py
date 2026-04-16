@@ -231,17 +231,18 @@ async def purge_data_direct(secret: str):
         "mkt_category", "mkt_unit_of_measure", "mkt_task_log",
     ]
     counts = {}
-    async with engine.begin() as conn:
+    async with async_session() as db:
         for table in tables:
             try:
-                r = await conn.execute(sql_text(f"SELECT COUNT(*) FROM {table}"))
+                r = await db.execute(sql_text(f"SELECT COUNT(*) FROM {table}"))
                 c = r.scalar() or 0
                 if c > 0:
-                    await conn.execute(sql_text(f"TRUNCATE TABLE {table} CASCADE"))
+                    await db.execute(sql_text(f"DELETE FROM {table}"))
                     counts[table] = c
-            except Exception:
-                pass
-    return {"ok": True, "purged": sum(counts.values()), "details": counts}
+            except Exception as e:
+                counts[f"{table}_error"] = str(e)[:80]
+        await db.commit()
+    return {"ok": True, "purged": sum(v for v in counts.values() if isinstance(v, int)), "details": counts}
 
 
 # ── Public site config (SEO, branding) ─────────────────────────
