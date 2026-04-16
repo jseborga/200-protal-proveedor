@@ -131,6 +131,52 @@ async def create_suppliers_bulk(suppliers: list[dict]) -> str:
     return json.dumps({"ok": True, "created": len(created), "names": created}, ensure_ascii=False)
 
 
+@mcp.tool()
+async def update_supplier(
+    supplier_id: int,
+    name: str = "",
+    trade_name: str = "",
+    city: str = "",
+    department: str = "",
+    categories: list[str] | None = None,
+    whatsapp: str = "",
+    phone: str = "",
+    email: str = "",
+    nit: str = "",
+    address: str = "",
+) -> str:
+    """Update a supplier by ID. Only provided (non-empty) fields are updated."""
+    from app.models.supplier import Supplier
+
+    async with async_session() as db:
+        supplier = await db.get(Supplier, supplier_id)
+        if not supplier:
+            return json.dumps({"ok": False, "error": f"Supplier {supplier_id} not found"})
+        if name:
+            supplier.name = name
+        if trade_name:
+            supplier.trade_name = trade_name
+        if city:
+            supplier.city = city
+        if department:
+            supplier.department = department
+        if categories is not None:
+            supplier.categories = categories
+        if whatsapp:
+            supplier.whatsapp = whatsapp
+        if phone:
+            supplier.phone = phone
+        if email:
+            supplier.email = email
+        if nit:
+            supplier.nit = nit
+        if address:
+            supplier.address = address
+        await db.commit()
+
+    return json.dumps({"ok": True, "id": supplier_id, "name": supplier.name}, ensure_ascii=False)
+
+
 # ── Products ──────────────────────────────────────────────────
 @mcp.tool()
 async def list_products(
