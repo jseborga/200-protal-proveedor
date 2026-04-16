@@ -2182,13 +2182,13 @@ async def test_agent(
 @router.post("/purge-data")
 async def purge_all_data(
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_admin),
+    _api_key: str = Depends(verify_api_key),
     confirm: str = Query(..., description="Must be 'CONFIRMAR' to proceed"),
 ):
     """Purge ALL marketplace data (suppliers, products, prices, etc.).
 
     Keeps: users, system settings, AI agents config.
-    Requires admin role and confirmation string.
+    Requires API key and confirmation string.
     """
     if confirm != "CONFIRMAR":
         raise HTTPException(400, "Debes enviar confirm=CONFIRMAR para borrar datos")
