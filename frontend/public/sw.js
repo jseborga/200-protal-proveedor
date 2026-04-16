@@ -1,4 +1,4 @@
-const CACHE_NAME = 'apu-mkt-v4';
+const CACHE_NAME = 'apu-mkt-v5';
 const PRECACHE = [
     '/',
     '/assets/app.js',
@@ -31,7 +31,22 @@ self.addEventListener('fetch', (e) => {
         return;
     }
 
-    // Static assets: cache first, then network
+    // App assets (JS/CSS/HTML): network first, fall back to cache
+    // This ensures users always get the latest version after deploy
+    if (url.pathname === '/' || url.pathname.startsWith('/assets/')) {
+        e.respondWith(
+            fetch(e.request).then(response => {
+                if (response.ok) {
+                    const clone = response.clone();
+                    caches.open(CACHE_NAME).then(cache => cache.put(e.request, clone));
+                }
+                return response;
+            }).catch(() => caches.match(e.request).then(cached => cached || caches.match('/')))
+        );
+        return;
+    }
+
+    // Other static assets (icons, images): cache first
     e.respondWith(
         caches.match(e.request).then(cached => {
             if (cached) return cached;

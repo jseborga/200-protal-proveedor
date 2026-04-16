@@ -251,6 +251,26 @@ except Exception as e:
     print(f"[MCP] Failed to mount: {e}")
 
 # ── Static / SPA ────────────────────────────────────────────────
+# Middleware: prevent browser caching of critical assets (sw.js, app.js, app.css)
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request as StarletteRequest
+
+
+class NoCacheAssetsMiddleware(BaseHTTPMiddleware):
+    """Add no-cache headers to critical frontend assets so browsers always check for updates."""
+
+    NO_CACHE_PATHS = {"/sw.js", "/assets/app.js", "/assets/app.css", "/"}
+
+    async def dispatch(self, request: StarletteRequest, call_next):
+        response = await call_next(request)
+        if request.url.path in self.NO_CACHE_PATHS:
+            response.headers["Cache-Control"] = "no-cache, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+        return response
+
+
+app.add_middleware(NoCacheAssetsMiddleware)
+
 # Mount frontend (after API routes so /api/* takes priority)
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "public")
 if os.path.isdir(frontend_dir):

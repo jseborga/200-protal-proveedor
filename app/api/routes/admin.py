@@ -2175,3 +2175,63 @@ async def test_agent(
         }}
     except Exception as e:
         return {"ok": False, "error": str(e)[:300]}
+
+
+# ── Data purge ───��────────────────────────────────────────────
+
+@router.post("/purge-data")
+async def purge_all_data(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+    confirm: str = Query(..., description="Must be 'CONFIRMAR' to proceed"),
+):
+    """Purge ALL marketplace data (suppliers, products, prices, etc.).
+
+    Keeps: users, system settings, AI agents config.
+    Requires admin role and confirmation string.
+    """
+    if confirm != "CONFIRMAR":
+        raise HTTPException(400, "Debes enviar confirm=CONFIRMAR para borrar datos")
+
+    # Order matters: delete children first to respect FK constraints
+    tables_to_truncate = [
+        "mkt_pedido_precio",
+        "mkt_pedido_item",
+        "mkt_pedido",
+        "mkt_notification",
+        "mkt_supplier_suggestion",
+        "mkt_product_match",
+        "mkt_price_history",
+        "mkt_insumo_regional_price",
+        "mkt_quotation_line",
+        "mkt_quotation",
+        "mkt_rfq",
+        "mkt_supplier_branch",
+        "mkt_supplier",
+        "mkt_insumo",
+        "mkt_insumo_group",
+        "mkt_category",
+        "mkt_unit_of_measure",
+        "mkt_task_log",
+    ]
+
+    counts = {}
+    for table in tables_to_truncate:
+        try:
+            result = await db.execute(text(f"SELECT COUNT(*) FROM {table}"))
+            count = result.scalar() or 0
+            if count > 0:
+                await db.execute(text(f"TRUNCATE TABLE {table} CASCADE"))
+                counts[table] = count
+        except Exception:
+            # Table might not exist yet
+            pass
+
+    await db.commit()
+
+    total = sum(counts.values())
+    return {
+        "ok": True,
+        "message": f"Datos purgados: {total} registros eliminados",
+        "details": counts,
+    }
