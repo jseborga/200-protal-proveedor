@@ -1872,7 +1872,7 @@ async def setup_telegram_webhook(
                 f"https://api.telegram.org/bot{token}/setWebhook",
                 json={
                     "url": webhook_url,
-                    "allowed_updates": ["message"],
+                    "allowed_updates": ["message", "callback_query"],
                 },
             )
         data = resp.json()

@@ -151,20 +151,46 @@ async def _resolve_telegram_token() -> str | None:
     return settings.telegram_bot_token or None
 
 
-async def send_telegram(chat_id: str, message: str) -> bool:
-    """Send Telegram message."""
+async def send_telegram(
+    chat_id: str,
+    message: str,
+    buttons: list[list[dict]] | None = None,
+) -> bool:
+    """Send Telegram message with optional inline keyboard buttons.
+
+    buttons format: [[{"text": "Label", "callback_data": "cmd"}], ...]
+    Each inner list is a row of buttons.
+    """
     token = await _resolve_telegram_token()
     if not token:
         return False
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+
+    if buttons:
+        payload["reply_markup"] = {"inline_keyboard": buttons}
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
-            resp = await client.post(
-                url,
-                json={"chat_id": chat_id, "text": message, "parse_mode": "HTML"},
-            )
+            resp = await client.post(url, json=payload)
+        return resp.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+async def _answer_callback(callback_query_id: str, text: str = "") -> bool:
+    """Answer a Telegram callback query (dismiss the loading spinner)."""
+    token = await _resolve_telegram_token()
+    if not token:
+        return False
+    url = f"https://api.telegram.org/bot{token}/answerCallbackQuery"
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(url, json={
+                "callback_query_id": callback_query_id,
+                "text": text,
+            })
         return resp.status_code == 200
     except httpx.HTTPError:
         return False
@@ -381,26 +407,29 @@ async def handle_telegram_message(db, msg: dict):
     media_label = "foto" if has_photo else ("documento" if has_document else "texto")
     print(f"[TG] {chat_id} (@{username}): [{media_label}] {text[:80]}")
 
-    # /start and /chatid commands — always respond (no auth needed)
+    # /start, /chatid, /help — always respond (no auth needed)
     if text.strip() in ("/start", "/chatid", "/help"):
         await send_telegram(chat_id, (
             "Hola! Soy el asistente de APU Marketplace.\n\n"
             f"Tu Chat ID: <code>{chat_id}</code>\n"
             "(Comparte este ID con el admin para autorizar tu acceso)\n\n"
-            "<b>Envio directo</b> (1 archivo = procesa al instante):\n"
-            "- FOTO de cotizacion o factura\n"
-            "- PDF, Excel con lista de precios\n\n"
-            "<b>Modo lote</b> (varios archivos juntos):\n"
-            "/lote [descripcion] — inicia recoleccion\n"
-            "  Envia fotos, PDFs, notas de texto...\n"
-            "/procesar — procesa todo el lote junto\n"
-            "/estado — ver que hay acumulado\n"
-            "/cancelar — descartar el lote\n\n"
-            "Preguntas de ejemplo:\n"
-            "- cuantos productos hay?\n"
-            "- busca cemento en Santa Cruz\n"
-            "- precios de fierro corrugado"
-        ))
+            "<b>Envio directo</b> — envia 1 foto/PDF y se procesa al instante\n\n"
+            "<b>Modo lote</b> — acumula varios archivos y procesa juntos\n\n"
+            "<b>Comandos:</b>\n"
+            "/lote [desc] — iniciar lote\n"
+            "/procesar — procesar lote\n"
+            "/diagnostico — probar IA\n"
+            "/help — ver esta ayuda"
+        ), buttons=[
+            [
+                {"text": "Iniciar Lote", "callback_data": "cmd_lote"},
+                {"text": "Diagnostico IA", "callback_data": "cmd_diagnostico"},
+            ],
+            [
+                {"text": "Estadisticas", "callback_data": "cmd_stats"},
+                {"text": "Buscar Producto", "callback_data": "cmd_buscar"},
+            ],
+        ])
         return
 
     # Authorization check
@@ -425,6 +454,10 @@ async def handle_telegram_message(db, msg: dict):
 
     # Clean expired sessions
     _cleanup_expired_batches()
+
+    if cmd == "/diagnostico":
+        await _run_diagnostics(db, chat_id)
+        return
 
     if cmd == "/lote":
         desc = text.strip()[len("/lote"):].strip()
@@ -519,7 +552,17 @@ async def handle_telegram_message(db, msg: dict):
             if texts_n:
                 parts.append(f"{texts_n} nota{'s' if texts_n > 1 else ''}")
 
-            await send_telegram(chat_id, f"Agregado al lote ({', '.join(parts)}). /procesar cuando estes listo.")
+            await send_telegram(
+                chat_id,
+                f"Agregado al lote ({', '.join(parts)}).",
+                buttons=[
+                    [
+                        {"text": "Procesar Lote", "callback_data": "cmd_procesar"},
+                        {"text": "Ver Estado", "callback_data": "cmd_estado"},
+                    ],
+                    [{"text": "Cancelar", "callback_data": "cmd_cancelar"}],
+                ],
+            )
         return
 
     # ── Regular processing (no batch) ───────────────────────────
@@ -573,12 +616,35 @@ async def handle_telegram_message(db, msg: dict):
             content, file_path = dl
             print(f"[TG] Downloaded {len(content)} bytes: {file_path}")
 
-            # Extract with AI
-            from app.services.ai_extract import extract_quotation_data
+            # Check AI config before extraction
+            from app.services.ai_extract import extract_quotation_data, resolve_all_ai_configs
+            ai_configs = await resolve_all_ai_configs()
+            if not ai_configs:
+                await send_telegram(
+                    chat_id,
+                    "No hay proveedor de IA configurado.\n"
+                    "Configura Google AI Studio u otro en Admin > IA.",
+                    buttons=[[{"text": "Diagnostico IA", "callback_data": "cmd_diagnostico"}]],
+                )
+                return
+
             extraction = await extract_quotation_data(content, filename, source_type)
 
             if not extraction or not extraction.get("lines"):
-                await send_telegram(chat_id, "No pude extraer datos de este archivo. Asegurate de que sea una cotizacion/lista de precios legible.")
+                provider = ai_configs[0].get("provider", "?")
+                model = ai_configs[0].get("model", "?")
+                await send_telegram(
+                    chat_id,
+                    f"No pude extraer datos de este archivo.\n\n"
+                    f"<b>IA usada:</b> {provider} / {model}\n"
+                    f"<b>Tipo:</b> {source_type} ({len(content)} bytes)\n\n"
+                    f"Posibles causas:\n"
+                    f"- La imagen no es legible o esta borrosa\n"
+                    f"- No es una cotizacion/factura/lista de precios\n"
+                    f"- Error en el proveedor de IA\n\n"
+                    f"Usa /diagnostico para verificar que la IA funciona.",
+                    buttons=[[{"text": "Diagnostico IA", "callback_data": "cmd_diagnostico"}]],
+                )
                 return
 
             lines = extraction["lines"]
@@ -1015,3 +1081,248 @@ async def _process_batch(db, chat_id: str, session: dict):
 
         # Last resort: just send the summary
         await send_telegram(chat_id, summary)
+
+
+# ── Callback handler (inline button clicks) ──────────────────
+
+async def handle_telegram_callback(db, callback: dict):
+    """Handle inline keyboard button presses."""
+    callback_id = callback.get("id", "")
+    chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
+    data = callback.get("data", "")
+    username = callback.get("from", {}).get("username", "")
+
+    print(f"[TG-CB] {chat_id} (@{username}): {data}")
+
+    # Always acknowledge the callback to dismiss the loading spinner
+    await _answer_callback(callback_id)
+
+    if not chat_id:
+        return
+
+    # Authorization check (except for start/help)
+    if data not in ("cmd_start", "cmd_help"):
+        try:
+            authorized = await _is_authorized_bot_user(db, "telegram", chat_id)
+        except Exception:
+            authorized = False
+        if not authorized:
+            await send_telegram(
+                chat_id,
+                f"No estas autorizado.\nTu Chat ID: <code>{chat_id}</code>"
+            )
+            return
+
+    # Route callback commands
+    if data == "cmd_lote":
+        _cleanup_expired_batches()
+        _batch_sessions[chat_id] = {
+            "description": "",
+            "started_at": datetime.utcnow(),
+            "items": [],
+        }
+        await send_telegram(
+            chat_id,
+            f"Lote iniciado.\n\nEnvia fotos, PDFs, Excel o texto (max {_BATCH_MAX_ITEMS})."
+            "\nCada mensaje se acumula en el lote.",
+            buttons=[
+                [{"text": "Cancelar", "callback_data": "cmd_cancelar"}],
+            ],
+        )
+
+    elif data == "cmd_procesar":
+        _cleanup_expired_batches()
+        if chat_id not in _batch_sessions:
+            await send_telegram(chat_id, "No hay lote activo.")
+            return
+        session = _batch_sessions.pop(chat_id)
+        if not session["items"]:
+            await send_telegram(chat_id, "El lote esta vacio.")
+            return
+        await _process_batch(db, chat_id, session)
+
+    elif data == "cmd_estado":
+        _cleanup_expired_batches()
+        if chat_id in _batch_sessions:
+            await send_telegram(chat_id, _build_batch_status(_batch_sessions[chat_id]))
+        else:
+            await send_telegram(chat_id, "No hay lote activo.")
+
+    elif data == "cmd_cancelar":
+        if chat_id in _batch_sessions:
+            count = len(_batch_sessions[chat_id]["items"])
+            del _batch_sessions[chat_id]
+            await send_telegram(chat_id, f"Lote cancelado ({count} items descartados).")
+        else:
+            await send_telegram(chat_id, "No hay lote activo.")
+
+    elif data == "cmd_diagnostico":
+        await _run_diagnostics(db, chat_id)
+
+    elif data == "cmd_stats":
+        # Quick stats via agent
+        try:
+            from app.services.agent_executor import execute_agent_message, resolve_agent_config
+            result = await resolve_agent_config(db, "communicator")
+            if result and result[0]:
+                ai_config, agent_prompt = result
+                response = await execute_agent_message(db, "dame las estadisticas del sistema", ai_config, agent_prompt)
+                if response:
+                    await send_telegram(chat_id, response)
+                    return
+        except Exception as e:
+            print(f"[TG-CB] Stats error: {e}")
+        await send_telegram(chat_id, "No pude obtener estadisticas.")
+
+    elif data == "cmd_buscar":
+        await send_telegram(
+            chat_id,
+            "Escribe el nombre del producto que buscas.\nEjemplo: <i>cemento portland</i>"
+        )
+
+    elif data == "cmd_help":
+        # Re-trigger /start
+        await send_telegram(chat_id, (
+            "<b>Comandos disponibles:</b>\n\n"
+            "/lote [desc] — iniciar lote\n"
+            "/procesar — procesar lote\n"
+            "/estado — ver lote actual\n"
+            "/cancelar — cancelar lote\n"
+            "/diagnostico — probar IA\n"
+            "/chatid — ver tu Chat ID\n"
+            "/help — esta ayuda"
+        ), buttons=[
+            [
+                {"text": "Iniciar Lote", "callback_data": "cmd_lote"},
+                {"text": "Diagnostico IA", "callback_data": "cmd_diagnostico"},
+            ],
+            [
+                {"text": "Estadisticas", "callback_data": "cmd_stats"},
+                {"text": "Buscar Producto", "callback_data": "cmd_buscar"},
+            ],
+        ])
+
+
+# ── Diagnostics ───────────────────────────────────────────────
+
+async def _run_diagnostics(db, chat_id: str):
+    """Run AI diagnostic checks and report to user."""
+    await send_telegram(chat_id, "Ejecutando diagnostico...")
+
+    lines = ["<b>Diagnostico del Bot AI</b>\n"]
+
+    # 1. Check AI configs
+    from app.services.ai_extract import resolve_all_ai_configs
+    configs = await resolve_all_ai_configs()
+    if not configs:
+        lines.append("AI Config: NO CONFIGURADO")
+        lines.append("→ Configura un proveedor de IA en Admin > IA")
+        await send_telegram(chat_id, "\n".join(lines))
+        return
+
+    for i, c in enumerate(configs, 1):
+        priority = "Principal" if i == 1 else f"Fallback {i-1}"
+        lines.append(f"\n<b>{priority}:</b> {c['provider']} / {c['model']}")
+        lines.append(f"  Formato: {c['api_format']}")
+        lines.append(f"  Key: {c['api_key'][:8]}...{c['api_key'][-4:]}")
+
+        # 2. Test API call
+        try:
+            import httpx
+            if c["api_format"] == "google":
+                base = c["base_url"].rstrip("/")
+                url = f"{base}/models/{c['model']}:generateContent?key={c['api_key']}"
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(
+                        url,
+                        headers={"Content-Type": "application/json"},
+                        json={
+                            "contents": [{"parts": [{"text": "Responde SOLO: ok"}]}],
+                            "generationConfig": {"maxOutputTokens": 10},
+                        },
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    text = ""
+                    for cand in data.get("candidates", []):
+                        for part in cand.get("content", {}).get("parts", []):
+                            text += part.get("text", "")
+                    lines.append(f"  Test: OK — respuesta: \"{text.strip()[:50]}\"")
+                else:
+                    lines.append(f"  Test: ERROR {resp.status_code}")
+                    lines.append(f"  {resp.text[:100]}")
+
+            elif c["api_format"] == "anthropic":
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(
+                        c["base_url"],
+                        headers={
+                            "x-api-key": c["api_key"],
+                            "anthropic-version": "2023-06-01",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": c["model"],
+                            "messages": [{"role": "user", "content": "Responde SOLO: ok"}],
+                            "max_tokens": 10,
+                        },
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    text = data.get("content", [{}])[0].get("text", "")
+                    lines.append(f"  Test: OK — respuesta: \"{text.strip()[:50]}\"")
+                else:
+                    lines.append(f"  Test: ERROR {resp.status_code}")
+                    lines.append(f"  {resp.text[:100]}")
+
+            else:  # openai / openrouter
+                base_url = c["base_url"].rstrip("/")
+                endpoint = f"{base_url}/chat/completions" if not base_url.endswith("/chat/completions") else base_url
+                headers = {
+                    "Authorization": f"Bearer {c['api_key']}",
+                    "Content-Type": "application/json",
+                }
+                if c["api_format"] == "openrouter":
+                    headers["HTTP-Referer"] = "https://apu-marketplace.com"
+                async with httpx.AsyncClient(timeout=15) as client:
+                    resp = await client.post(
+                        endpoint,
+                        headers=headers,
+                        json={
+                            "model": c["model"],
+                            "messages": [{"role": "user", "content": "Responde SOLO: ok"}],
+                            "max_tokens": 10,
+                        },
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    lines.append(f"  Test: OK — respuesta: \"{text.strip()[:50]}\"")
+                else:
+                    lines.append(f"  Test: ERROR {resp.status_code}")
+                    lines.append(f"  {resp.text[:100]}")
+
+        except Exception as e:
+            lines.append(f"  Test: EXCEPCION — {str(e)[:100]}")
+
+    # 3. Check Routine config
+    from app.models.system_setting import SystemSetting
+    routine_setting = await db.get(SystemSetting, "routine_config")
+    if routine_setting and routine_setting.value and routine_setting.value.get("token"):
+        lines.append(f"\nClaude Routine: Configurada (ID: {routine_setting.value.get('routine_id', '?')[:20]})")
+    else:
+        lines.append("\nClaude Routine: No configurada")
+
+    # 4. Check bot auth
+    bot_setting = await db.get(SystemSetting, "bot_authorized_users")
+    if bot_setting and bot_setting.value:
+        tg_list = bot_setting.value.get("telegram", [])
+        lines.append(f"Usuarios TG autorizados: {len(tg_list)}")
+        if chat_id in [str(x) for x in tg_list]:
+            lines.append(f"Tu acceso: AUTORIZADO")
+        else:
+            lines.append(f"Tu acceso: NO (tu ID: {chat_id})")
+    else:
+        lines.append("Usuarios autorizados: No configurado")
+
+    await send_telegram(chat_id, "\n".join(lines))
