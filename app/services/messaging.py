@@ -197,9 +197,22 @@ def _build_rfq_html(rfq) -> str:
     """
 
 
+# ── Authorized users check ─────────────────────────────────────
+async def _is_authorized_bot_user(db, channel: str, user_id: str) -> bool:
+    """Verifica si el user_id esta autorizado para usar el bot AI."""
+    from app.models.system_setting import SystemSetting
+    setting = await db.get(SystemSetting, "bot_authorized_users")
+    if not setting or not setting.value:
+        return False
+
+    authorized = setting.value.get(channel, [])
+    # Support both exact match and prefix match (for phone numbers)
+    return any(user_id == a or user_id.endswith(a) or a.endswith(user_id) for a in authorized)
+
+
 # ── Webhook handlers ───────────────────────────────────────────
 async def handle_whatsapp_message(db, msg: dict):
-    """Process incoming WhatsApp message (could be a quotation response)."""
+    """Process incoming WhatsApp message — if authorized, route to AI agent."""
     remote_jid = msg.get("key", {}).get("remoteJid", "")
     phone = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
     text = msg.get("message", {}).get("conversation") or msg.get("message", {}).get("extendedTextMessage", {}).get("text", "")
@@ -207,18 +220,62 @@ async def handle_whatsapp_message(db, msg: dict):
     if not text:
         return
 
-    # TODO: match phone to supplier, parse response as quotation items
-    # For now, log the message
     print(f"[WA] {phone}: {text}")
+
+    # Check if user is authorized for bot
+    if not await _is_authorized_bot_user(db, "whatsapp", phone):
+        return  # Silently ignore unauthorized messages
+
+    # Route to AI agent
+    try:
+        from app.services.agent_executor import execute_agent_message, resolve_agent_config
+        result = await resolve_agent_config(db, "communicator")
+        if result is None or result[0] is None:
+            await send_whatsapp(phone, "Bot AI no configurado. Configura un proveedor de IA en el admin.")
+            return
+
+        ai_config, agent_prompt = result
+        response = await execute_agent_message(db, text, ai_config, agent_prompt)
+        if response:
+            await send_whatsapp(phone, response)
+    except Exception as e:
+        print(f"[WA] Agent error: {e}")
+        await send_whatsapp(phone, f"Error procesando tu mensaje. Intenta de nuevo.")
 
 
 async def handle_telegram_message(db, msg: dict):
-    """Process incoming Telegram message."""
+    """Process incoming Telegram message — if authorized, route to AI agent."""
     chat_id = str(msg.get("chat", {}).get("id", ""))
     text = msg.get("text", "")
+    username = msg.get("from", {}).get("username", "")
 
     if not text:
         return
 
-    # TODO: match chat_id to supplier, parse response
-    print(f"[TG] {chat_id}: {text}")
+    print(f"[TG] {chat_id} (@{username}): {text}")
+
+    # Ignore /start command, respond with welcome
+    if text.strip() == "/start":
+        await send_telegram(chat_id, "Hola! Soy el asistente de APU Marketplace.\n\nPreguntame sobre productos, precios, proveedores o pideme ejecutar tareas.\n\nEjemplos:\n- cuantos productos hay?\n- busca cemento en Santa Cruz\n- precios de fierro corrugado\n- ejecuta curacion de materiales")
+        return
+
+    # Check if user is authorized for bot
+    if not await _is_authorized_bot_user(db, "telegram", chat_id):
+        await send_telegram(chat_id, "No estas autorizado para usar este bot. Contacta al administrador.")
+        return
+
+    # Route to AI agent
+    try:
+        from app.services.agent_executor import execute_agent_message, resolve_agent_config
+        result = await resolve_agent_config(db, "communicator")
+        if result is None or result[0] is None:
+            await send_telegram(chat_id, "Bot AI no configurado. Configura un proveedor de IA en el panel de administracion.")
+            return
+
+        ai_config, agent_prompt = result
+        response = await execute_agent_message(db, text, ai_config, agent_prompt)
+        if response:
+            await send_telegram(chat_id, response)
+    except Exception as e:
+        print(f"[TG] Agent error: {e}")
+        await send_telegram(chat_id, "Error procesando tu mensaje. Intenta de nuevo.")

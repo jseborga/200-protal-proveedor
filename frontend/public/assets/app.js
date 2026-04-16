@@ -5791,7 +5791,50 @@ async function renderAdminIntegrations() {
                 <div id="smtp-test-result" style="margin-top:8px"></div>
             </form>
         </div>
+
+        <!-- Bot: Usuarios autorizados -->
+        <div class="integ-section">
+            <div class="integ-header">
+                <span class="integ-icon" style="background:#ede9fe;color:#6d28d9">${icon('cpu',20)}</span>
+                <div>
+                    <h3>Bot AI — Usuarios Autorizados</h3>
+                    <p>Define quien puede enviar comandos al bot por Telegram y WhatsApp</p>
+                </div>
+            </div>
+            <form onsubmit="saveBotAuthorized(event)">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Telegram Chat IDs <small style="font-weight:400;color:var(--gray-400)">(uno por linea)</small></label>
+                        <textarea class="form-input" name="telegram_ids" rows="3" placeholder="123456789&#10;987654321">${(d.bot_authorized?.telegram || []).join('\n')}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">WhatsApp Numeros <small style="font-weight:400;color:var(--gray-400)">(con codigo pais, uno por linea)</small></label>
+                        <textarea class="form-input" name="whatsapp_numbers" rows="3" placeholder="59171234567&#10;59178901234">${(d.bot_authorized?.whatsapp || []).join('\n')}</textarea>
+                    </div>
+                </div>
+                <p style="font-size:12px;color:var(--gray-400);margin-bottom:10px">
+                    Para obtener tu Telegram Chat ID, envia /start al bot y revisa los logs del servidor.
+                </p>
+                <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar Autorizados</button>
+            </form>
+        </div>
     `;
+}
+
+async function saveBotAuthorized(e) {
+    e.preventDefault();
+    const f = e.target;
+    const telegramIds = f.telegram_ids.value.split('\n').map(s => s.trim()).filter(Boolean);
+    const whatsappNums = f.whatsapp_numbers.value.split('\n').map(s => s.trim()).filter(Boolean);
+
+    const resp = await API.adminUpdateIntegrations({
+        bot_authorized: { telegram: telegramIds, whatsapp: whatsappNums }
+    });
+    if (resp.ok) {
+        toast('Usuarios autorizados guardados', 'success');
+    } else {
+        toast(resp.detail || 'Error guardando', 'error');
+    }
 }
 
 async function saveIntegrations(e, section) {

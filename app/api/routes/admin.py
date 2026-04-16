@@ -1612,6 +1612,12 @@ async def get_integrations(
     if merged.get("telegram_webhook_secret"):
         display["webhook_telegram"] += f"?secret={merged['telegram_webhook_secret']}"
 
+    # Bot authorized users
+    bot_setting = await db.get(SystemSetting, "bot_authorized_users")
+    display["bot_authorized"] = bot_setting.value if bot_setting and bot_setting.value else {
+        "telegram": [], "whatsapp": []
+    }
+
     return {"ok": True, "data": display}
 
 
@@ -1637,6 +1643,19 @@ async def update_integrations(
     else:
         setting = SystemSetting(key="integrations", value=config)
         db.add(setting)
+
+    # Handle bot authorized users separately
+    if "bot_authorized" in body and isinstance(body["bot_authorized"], dict):
+        bot_data = {
+            "telegram": [s.strip() for s in body["bot_authorized"].get("telegram", []) if s.strip()],
+            "whatsapp": [s.strip() for s in body["bot_authorized"].get("whatsapp", []) if s.strip()],
+        }
+        bot_setting = await db.get(SystemSetting, "bot_authorized_users")
+        if bot_setting:
+            bot_setting.value = bot_data
+        else:
+            bot_setting = SystemSetting(key="bot_authorized_users", value=bot_data)
+            db.add(bot_setting)
 
     await db.commit()
     return {"ok": True, "data": config}
