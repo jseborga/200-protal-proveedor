@@ -45,7 +45,13 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
     body = await request.json()
 
     if "message" in body:
-        from app.services.messaging import handle_telegram_message
-        await handle_telegram_message(db, body["message"])
+        try:
+            from app.services.messaging import handle_telegram_message
+            await handle_telegram_message(db, body["message"])
+        except Exception as e:
+            # Log but don't raise — always return 200 to Telegram so it doesn't retry
+            import traceback
+            print(f"[TG-Webhook] Error processing message: {e}")
+            traceback.print_exc()
 
     return {"ok": True}

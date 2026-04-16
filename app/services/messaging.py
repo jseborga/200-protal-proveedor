@@ -301,11 +301,26 @@ async def _is_authorized_bot_user(db, channel: str, user_id: str) -> bool:
     from app.models.system_setting import SystemSetting
     setting = await db.get(SystemSetting, "bot_authorized_users")
     if not setting or not setting.value:
+        print(f"[Auth] No bot_authorized_users setting found — rejecting {channel}:{user_id}")
         return False
 
     authorized = setting.value.get(channel, [])
+    if not authorized:
+        print(f"[Auth] No authorized users for channel '{channel}' — rejecting {user_id}")
+        return False
+
+    # Ensure all values are strings for comparison
+    authorized_str = [str(a).strip() for a in authorized]
+    user_id_str = str(user_id).strip()
+
     # Support both exact match and prefix match (for phone numbers)
-    return any(user_id == a or user_id.endswith(a) or a.endswith(user_id) for a in authorized)
+    is_auth = any(
+        user_id_str == a or user_id_str.endswith(a) or a.endswith(user_id_str)
+        for a in authorized_str
+    )
+    if not is_auth:
+        print(f"[Auth] {channel}:{user_id} not in authorized list: {authorized_str}")
+    return is_auth
 
 
 # ── Webhook handlers ───────────────────────────────────────────
@@ -358,11 +373,12 @@ async def handle_telegram_message(db, msg: dict):
     media_label = "foto" if has_photo else ("documento" if has_document else "texto")
     print(f"[TG] {chat_id} (@{username}): [{media_label}] {text[:80]}")
 
-    # /start command
-    if text.strip() == "/start":
+    # /start and /chatid commands — always respond (no auth needed)
+    if text.strip() in ("/start", "/chatid"):
         await send_telegram(chat_id, (
             "Hola! Soy el asistente de APU Marketplace.\n\n"
-            "Preguntame sobre productos, precios, proveedores o pideme ejecutar tareas.\n\n"
+            f"Tu Chat ID: <code>{chat_id}</code>\n"
+            "(Comparte este ID con el admin para autorizar tu acceso)\n\n"
             "Puedes enviarme:\n"
             "- FOTO de una cotizacion o factura\n"
             "- PDF de cotizacion, factura o lista de precios\n"
@@ -377,14 +393,33 @@ async def handle_telegram_message(db, msg: dict):
         return
 
     # Authorization check
-    if not await _is_authorized_bot_user(db, "telegram", chat_id):
-        await send_telegram(chat_id, "No estas autorizado para usar este bot. Contacta al administrador.")
+    try:
+        authorized = await _is_authorized_bot_user(db, "telegram", chat_id)
+    except Exception as e:
+        print(f"[TG] Auth check error for {chat_id}: {e}")
+        authorized = False
+
+    if not authorized:
+        print(f"[TG] Unauthorized: chat_id={chat_id} @{username}")
+        await send_telegram(
+            chat_id,
+            f"No estas autorizado para usar este bot.\n\n"
+            f"Tu Chat ID: <code>{chat_id}</code>\n"
+            f"Envia este ID al administrador para que te autorice en el panel."
+        )
         return
 
     # Resolve AI config
-    from app.services.agent_executor import execute_agent_message, resolve_agent_config
-    result = await resolve_agent_config(db, "communicator")
+    try:
+        from app.services.agent_executor import execute_agent_message, resolve_agent_config
+        result = await resolve_agent_config(db, "communicator")
+    except Exception as e:
+        print(f"[TG] Error resolving AI config: {e}")
+        await send_telegram(chat_id, "Error interno al configurar el bot. Contacta al administrador.")
+        return
+
     if result is None or result[0] is None:
+        print("[TG] No AI config found")
         await send_telegram(chat_id, "Bot AI no configurado. Configura un proveedor de IA en el panel de administracion.")
         return
     ai_config, agent_prompt = result
