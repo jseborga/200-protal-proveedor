@@ -212,6 +212,38 @@ async def health():
     return {"ok": True, "app": settings.app_name, "env": settings.app_env}
 
 
+# ── One-time data purge (remove after use) ─────────────────────
+@app.post("/api/v1/purge/{secret}")
+async def purge_data_direct(secret: str):
+    """Emergency purge — validates secret against app_secret_key."""
+    if secret != settings.app_secret_key:
+        from fastapi import HTTPException
+        raise HTTPException(403, "Invalid secret")
+
+    from sqlalchemy import text as sql_text
+    tables = [
+        "mkt_pedido_precio", "mkt_pedido_item", "mkt_pedido",
+        "mkt_notification", "mkt_supplier_suggestion", "mkt_product_match",
+        "mkt_price_history", "mkt_insumo_regional_price",
+        "mkt_quotation_line", "mkt_quotation", "mkt_rfq",
+        "mkt_supplier_branch", "mkt_supplier",
+        "mkt_insumo", "mkt_insumo_group",
+        "mkt_category", "mkt_unit_of_measure", "mkt_task_log",
+    ]
+    counts = {}
+    async with engine.begin() as conn:
+        for table in tables:
+            try:
+                r = await conn.execute(sql_text(f"SELECT COUNT(*) FROM {table}"))
+                c = r.scalar() or 0
+                if c > 0:
+                    await conn.execute(sql_text(f"TRUNCATE TABLE {table} CASCADE"))
+                    counts[table] = c
+            except Exception:
+                pass
+    return {"ok": True, "purged": sum(counts.values()), "details": counts}
+
+
 # ── Public site config (SEO, branding) ─────────────────────────
 SEO_DEFAULTS = {
     "site_name": "APU Marketplace",
