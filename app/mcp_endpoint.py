@@ -241,7 +241,7 @@ async def update_product(product_id: int, name: str = "", uom: str = "", categor
 # ── Price History ─────────────────────────────────────────────
 @mcp.tool()
 async def create_price_history_bulk(records: list[dict]) -> str:
-    """Register price records in bulk.
+    """Register price records in bulk. Also creates supplier↔product links (ProductMatch).
 
     Each record dict:
     - product_name (str) or insumo_id (int): identifies the product
@@ -250,27 +250,32 @@ async def create_price_history_bulk(records: list[dict]) -> str:
     - supplier_name (str) or supplier_id (int): optional
     - currency (str): default BOB
     - source (str): default 'import'
+    - notes (str): optional notes (brand, etc.)
     """
     from app.models.price_history import PriceHistory
     from app.models.insumo import Insumo
     from app.models.supplier import Supplier
+    from app.models.match import ProductMatch
+    from app.services.matching import normalize_text
 
     created = 0
+    matched = 0
     errors = []
     async with async_session() as db:
         for r in records:
             # Resolve product
             insumo_id = r.get("insumo_id")
-            if not insumo_id and r.get("product_name"):
+            product_name = r.get("product_name", "")
+            if not insumo_id and product_name:
                 result = await db.execute(
-                    select(Insumo.id).where(Insumo.name.ilike(f"%{r['product_name']}%")).limit(1)
+                    select(Insumo.id).where(Insumo.name.ilike(f"%{product_name}%")).limit(1)
                 )
                 row = result.first()
                 if row:
                     insumo_id = row[0]
 
             if not insumo_id:
-                errors.append(f"Product not found: {r.get('product_name', '?')}")
+                errors.append(f"Product not found: {product_name or '?'}")
                 continue
 
             # Resolve supplier
@@ -294,45 +299,82 @@ async def create_price_history_bulk(records: list[dict]) -> str:
             else:
                 obs_date = date.today()
 
+            # Build notes from supplier_name + brand + explicit notes
+            notes_parts = []
+            if supplier_name and not supplier_id:
+                notes_parts.append(f"Proveedor: {supplier_name}")
+            if r.get("brand"):
+                notes_parts.append(f"Marca: {r['brand']}")
+            if r.get("notes"):
+                notes_parts.append(r["notes"])
+            notes = "; ".join(notes_parts) or None
+
             price = PriceHistory(
                 insumo_id=insumo_id,
                 supplier_id=supplier_id,
-                supplier_name_text=supplier_name or None,
                 unit_price=float(r.get("unit_price", 0)),
                 currency=r.get("currency", "BOB"),
                 observed_date=obs_date,
                 source=r.get("source", "import"),
                 source_ref=r.get("source_ref"),
+                notes=notes,
             )
             db.add(price)
             created += 1
 
+            # Auto-create ProductMatch if supplier and product are known
+            if supplier_id and insumo_id and product_name:
+                name_norm = normalize_text(product_name)
+                existing = await db.execute(
+                    select(ProductMatch.id).where(
+                        ProductMatch.supplier_id == supplier_id,
+                        ProductMatch.insumo_id == insumo_id,
+                        ProductMatch.product_name_normalized == name_norm,
+                    ).limit(1)
+                )
+                if not existing.first():
+                    pm = ProductMatch(
+                        supplier_id=supplier_id,
+                        insumo_id=insumo_id,
+                        product_name=product_name,
+                        product_name_normalized=name_norm,
+                        uom_original=r.get("uom"),
+                        method="auto",
+                        confidence=0.8,
+                        usage_count=1,
+                    )
+                    db.add(pm)
+                    matched += 1
+
         await db.commit()
 
     return json.dumps({
-        "ok": True, "created": created, "errors": errors[:10],
+        "ok": True, "created": created, "matched": matched, "errors": errors[:10],
     }, ensure_ascii=False)
 
 
 @mcp.tool()
 async def get_price_history(insumo_id: int, limit: int = 50) -> str:
-    """Get price history for a product by insumo_id."""
+    """Get price history for a product by insumo_id. Includes supplier name."""
     from app.models.price_history import PriceHistory
+    from app.models.supplier import Supplier
 
     async with async_session() as db:
         result = await db.execute(
-            select(PriceHistory)
+            select(PriceHistory, Supplier.name.label("sup_name"))
+            .outerjoin(Supplier, PriceHistory.supplier_id == Supplier.id)
             .where(PriceHistory.insumo_id == insumo_id)
             .order_by(PriceHistory.observed_date.desc())
             .limit(min(limit, 200))
         )
-        items = result.scalars().all()
+        rows = result.all()
 
     return json.dumps([{
         "id": p.id, "unit_price": p.unit_price, "currency": p.currency,
         "observed_date": p.observed_date.isoformat() if p.observed_date else None,
-        "supplier_name": p.supplier_name_text, "source": p.source,
-    } for p in items], ensure_ascii=False)
+        "supplier_id": p.supplier_id, "supplier_name": sup_name,
+        "source": p.source, "notes": p.notes,
+    } for p, sup_name in rows], ensure_ascii=False)
 
 
 @mcp.tool()
@@ -362,6 +404,108 @@ async def get_price_evolution(insumo_id: int) -> str:
         "max": float(r[3]) if r[3] else 0,
         "count": r[4],
     } for r in rows], ensure_ascii=False)
+
+
+# ── Supplier-Product Matching ────────────────────────────────
+@mcp.tool()
+async def search_product_fuzzy(query: str, limit: int = 10) -> str:
+    """Fuzzy search for products using trigram similarity (pg_trgm).
+    Better than ilike for matching variations like 'Cemento IP30' vs 'CEMENTO PORTLAND IP-30'.
+    Returns products sorted by similarity score."""
+    from app.models.insumo import Insumo
+    from sqlalchemy import text as sql_text
+
+    async with async_session() as db:
+        result = await db.execute(
+            sql_text("""
+                SELECT id, name, uom, category, ref_price,
+                       similarity(name, :q) AS score
+                FROM mkt_insumo
+                WHERE name % :q AND is_active = true
+                ORDER BY score DESC
+                LIMIT :lim
+            """),
+            {"q": query, "lim": min(limit, 20)},
+        )
+        rows = result.all()
+
+    return json.dumps([{
+        "id": r[0], "name": r[1], "uom": r[2], "category": r[3],
+        "ref_price": r[4], "similarity": round(r[5], 3),
+    } for r in rows], ensure_ascii=False)
+
+
+@mcp.tool()
+async def link_supplier_product(
+    supplier_id: int,
+    insumo_id: int,
+    product_name: str,
+    uom_original: str = "",
+    confidence: float = 0.9,
+) -> str:
+    """Link a supplier to a product (ProductMatch). Records that this supplier
+    sells this product under this name. Prevents duplicates."""
+    from app.models.match import ProductMatch
+    from app.services.matching import normalize_text
+
+    name_norm = normalize_text(product_name)
+
+    async with async_session() as db:
+        # Check existing
+        existing = await db.execute(
+            select(ProductMatch).where(
+                ProductMatch.supplier_id == supplier_id,
+                ProductMatch.insumo_id == insumo_id,
+                ProductMatch.product_name_normalized == name_norm,
+            ).limit(1)
+        )
+        pm = existing.scalar_one_or_none()
+
+        if pm:
+            pm.usage_count += 1
+            if confidence > pm.confidence:
+                pm.confidence = confidence
+            await db.commit()
+            return json.dumps({"ok": True, "action": "updated", "id": pm.id, "usage_count": pm.usage_count})
+
+        pm = ProductMatch(
+            supplier_id=supplier_id,
+            insumo_id=insumo_id,
+            product_name=product_name,
+            product_name_normalized=name_norm,
+            uom_original=uom_original or None,
+            method="routine",
+            confidence=confidence,
+            usage_count=1,
+        )
+        db.add(pm)
+        await db.commit()
+        await db.refresh(pm)
+
+    return json.dumps({"ok": True, "action": "created", "id": pm.id})
+
+
+@mcp.tool()
+async def get_supplier_products(supplier_id: int) -> str:
+    """Get all products linked to a supplier (via ProductMatch)."""
+    from app.models.match import ProductMatch
+    from app.models.insumo import Insumo
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(ProductMatch, Insumo.name.label("catalog_name"), Insumo.category)
+            .join(Insumo, ProductMatch.insumo_id == Insumo.id)
+            .where(ProductMatch.supplier_id == supplier_id)
+            .order_by(ProductMatch.usage_count.desc())
+        )
+        rows = result.all()
+
+    return json.dumps([{
+        "match_id": pm.id, "insumo_id": pm.insumo_id,
+        "supplier_name": pm.product_name, "catalog_name": cat_name,
+        "category": cat, "confidence": pm.confidence,
+        "usage_count": pm.usage_count, "validated": pm.is_validated,
+    } for pm, cat_name, cat in rows], ensure_ascii=False)
 
 
 def get_mcp_sse_app():
