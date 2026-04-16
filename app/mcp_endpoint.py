@@ -353,3 +353,8 @@ async def get_price_evolution(insumo_id: int) -> str:
 def get_mcp_sse_app():
     """Return the MCP SSE Starlette app ready to mount in FastAPI."""
     return mcp.sse_app()
+
+
+def get_mcp_http_app():
+    """Return the MCP Streamable HTTP Starlette app (proxy-friendly, no long-lived connections)."""
+    return mcp.streamable_http_app()

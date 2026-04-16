@@ -239,12 +239,15 @@ async def site_config():
         return {"ok": True, "data": config}
 
 
-# ── MCP Server (SSE transport for Claude Code Routines) ────────
-# Mounted at /mcp-sse — Claude Code Routines connect here via SSE
+# ── MCP Server (for Claude Code Routines) ──────────────────────
+# Two transports: SSE at /mcp-sse and Streamable HTTP at /mcp
 try:
-    from app.mcp_endpoint import get_mcp_sse_app
-    mcp_sse = get_mcp_sse_app()
-    app.mount("/mcp-sse", mcp_sse)
+    from app.mcp_endpoint import get_mcp_sse_app, get_mcp_http_app
+    # Streamable HTTP — proxy-friendly (recommended for cloud)
+    app.mount("/mcp", get_mcp_http_app())
+    print("[MCP] Streamable HTTP endpoint mounted at /mcp")
+    # SSE — for clients that prefer SSE transport
+    app.mount("/mcp-sse", get_mcp_sse_app())
     print("[MCP] SSE endpoint mounted at /mcp-sse/sse")
 except ImportError as e:
     print(f"[MCP] Not available (missing dependency): {e}")
