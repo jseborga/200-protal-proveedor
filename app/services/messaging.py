@@ -432,38 +432,80 @@ async def handle_telegram_message(db, msg: dict):
             meta = extraction.get("metadata", {})
             print(f"[TG] Extracted {len(lines)} items from {filename}")
 
-            # Build summary message for the agent to process
-            items_text = "\n".join(
-                f"- {l.get('name','?')} | {l.get('uom','pza')} | {l.get('price',0)} Bs"
-                + (f" | marca: {l['brand']}" if l.get('brand') else "")
-                for l in lines
-            )
-
+            # Show extraction summary to user
             supplier_hint = text.strip() if text.strip() else ""
-            agent_msg = (
-                f"COTIZACION RECIBIDA POR FOTO ({len(lines)} items extraidos).\n"
-                f"{'Proveedor/contexto: ' + supplier_hint + chr(10) if supplier_hint else ''}"
-                f"Items:\n{items_text}\n\n"
-                f"Registra estos items: crea el proveedor si se menciono, busca/crea los productos "
-                f"y registra los precios. Responde con un resumen de lo registrado."
+            summary = f"Extraidos {len(lines)} items"
+            if supplier_hint:
+                summary += f" (contexto: {supplier_hint})"
+            summary += ":\n\n"
+            for i, l in enumerate(lines[:10], 1):
+                summary += f"{i}. {l.get('name','?')} — {l.get('price',0)} Bs/{l.get('uom','pza')}"
+                if l.get('brand'):
+                    summary += f" ({l['brand']})"
+                summary += "\n"
+            if len(lines) > 10:
+                summary += f"... y {len(lines)-10} mas\n"
+
+            # ── Try Claude Code Routine first (full intelligence) ──
+            from app.services.agent_executor import fire_routine
+            import json as _json
+
+            items_json = _json.dumps(lines, ensure_ascii=False)
+            routine_task = (
+                f"PROCESAR COTIZACION recibida por Telegram.\n\n"
+                f"{'Proveedor/contexto mencionado: ' + supplier_hint + chr(10) if supplier_hint else ''}"
+                f"Se extrajeron {len(lines)} items de una {media_label}.\n\n"
+                f"DATOS EXTRAIDOS (JSON):\n{items_json}\n\n"
+                f"INSTRUCCIONES:\n"
+                f"1. Si se menciona un proveedor, busca con list_suppliers si ya existe. "
+                f"Si no existe, crealo con create_supplier (ciudad: La Paz, department: La Paz, categories segun los items).\n"
+                f"2. Para cada item, busca con list_products si el producto ya existe en el catalogo. "
+                f"Considera variaciones de nombre (ej: 'Cemento IP-30' vs 'CEMENTO PORTLAND IP-30').\n"
+                f"3. Clasifica cada item en la categoria correcta: "
+                f"ferreteria, agregados, acero, electrico, sanitario, madera, cemento, pintura, ceramica, herramientas, techos, plomeria, vidrios, prefabricados.\n"
+                f"4. Los productos que NO existan, crealos con create_products_bulk (nombre limpio, unidad correcta, categoria, precio como ref_price).\n"
+                f"5. Registra TODOS los precios con create_price_history_bulk "
+                f"(source: 'telegram', observed_date: hoy, supplier_name si se conoce).\n"
+                f"6. Al final, reporta un resumen: cuantos productos nuevos, existentes, precios registrados.\n"
             )
 
-            # Pass extracted data as context for the agent
-            response = await execute_agent_message(
-                db, agent_msg, ai_config, agent_prompt,
-                extracted_items=lines,
-            )
-            if response:
-                await send_telegram(chat_id, response)
-            else:
-                # Fallback: just report extraction results
-                summary = f"Extraidos {len(lines)} items:\n\n"
-                for i, l in enumerate(lines[:15], 1):
-                    summary += f"{i}. {l.get('name','?')} — {l.get('price',0)} Bs/{l.get('uom','pza')}\n"
-                if len(lines) > 15:
-                    summary += f"... y {len(lines)-15} mas\n"
-                summary += f"\nFuente: {meta.get('ai_provider','AI')} / {meta.get('ai_model','')}"
+            routine_result = await fire_routine(db, routine_task)
+
+            if routine_result.get("estado") == "iniciada":
+                session_url = routine_result.get("url", "")
+                summary += (
+                    f"\nDelegado a Claude Code para procesar inteligentemente.\n"
+                    f"(verificar proveedores, clasificar, registrar precios)\n"
+                )
+                if session_url:
+                    summary += f"\nSesion: {session_url}"
                 await send_telegram(chat_id, summary)
+            else:
+                # Routine not configured or failed — fallback to simple agent
+                routine_error = routine_result.get("error", "")
+                print(f"[TG] Routine unavailable ({routine_error}), falling back to agent")
+
+                items_text = "\n".join(
+                    f"- {l.get('name','?')} | {l.get('uom','pza')} | {l.get('price',0)} Bs"
+                    + (f" | marca: {l['brand']}" if l.get('brand') else "")
+                    for l in lines
+                )
+                agent_msg = (
+                    f"COTIZACION RECIBIDA POR FOTO ({len(lines)} items extraidos).\n"
+                    f"{'Proveedor/contexto: ' + supplier_hint + chr(10) if supplier_hint else ''}"
+                    f"Items:\n{items_text}\n\n"
+                    f"Registra estos items usando registrar_cotizacion: busca/crea el proveedor, "
+                    f"busca/crea los productos y registra los precios."
+                )
+
+                response = await execute_agent_message(
+                    db, agent_msg, ai_config, agent_prompt,
+                    extracted_items=lines,
+                )
+                if response:
+                    await send_telegram(chat_id, response)
+                else:
+                    await send_telegram(chat_id, summary)
 
         except Exception as e:
             print(f"[TG] Photo processing error: {e}")
