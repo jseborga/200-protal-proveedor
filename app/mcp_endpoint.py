@@ -351,10 +351,28 @@ async def get_price_evolution(insumo_id: int) -> str:
 
 
 def get_mcp_sse_app():
-    """Return the MCP SSE Starlette app ready to mount in FastAPI."""
-    return mcp.sse_app()
+    """Return the MCP SSE Starlette app with proxy-friendly headers.
 
+    Adds X-Accel-Buffering: no and Cache-Control headers so reverse proxies
+    (Nginx, Traefik, EasyPanel) don't buffer SSE responses.
+    """
+    sse_app = mcp.sse_app()
 
-def get_mcp_http_app():
-    """Return the MCP Streamable HTTP Starlette app (proxy-friendly, no long-lived connections)."""
-    return mcp.streamable_http_app()
+    async def sse_with_proxy_headers(scope, receive, send):
+        if scope["type"] == "http":
+            original_send = send
+
+            async def patched_send(message):
+                if message["type"] == "http.response.start":
+                    headers = list(message.get("headers", []))
+                    headers.append((b"x-accel-buffering", b"no"))
+                    headers.append((b"cache-control", b"no-cache, no-transform"))
+                    headers.append((b"connection", b"keep-alive"))
+                    message = {**message, "headers": headers}
+                await original_send(message)
+
+            await sse_app(scope, receive, patched_send)
+        else:
+            await sse_app(scope, receive, send)
+
+    return sse_with_proxy_headers
