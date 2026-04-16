@@ -5818,6 +5818,38 @@ async function renderAdminIntegrations() {
                 <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar Autorizados</button>
             </form>
         </div>
+
+        <!-- Claude Code Routine -->
+        <div class="integ-section">
+            <div class="integ-header">
+                <span class="integ-icon" style="background:#fee2e2;color:#dc2626">${icon('code',20)}</span>
+                <div>
+                    <h3>Claude Code Routine (Tareas Complejas)</h3>
+                    <p>Conecta con una Routine de Claude Code para analisis profundo, clasificacion masiva y tareas que requieren acceso al codigo</p>
+                </div>
+            </div>
+            <form onsubmit="saveRoutineConfig(event)">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Routine ID</label>
+                        <input class="form-input" name="routine_id" value="${esc(d.routine_config?.routine_id || '')}" placeholder="routine_XXXXX">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Bearer Token</label>
+                        <input class="form-input" type="password" name="routine_token" value="" placeholder="${d.routine_config?.token_set ? '●●● (configurado)' : 'sk-ant-oat01-...'}">
+                    </div>
+                </div>
+                <p style="font-size:12px;color:var(--gray-400);margin-bottom:10px">
+                    Crea la routine en <a href="https://claude.ai/code/routines" target="_blank">claude.ai/code/routines</a>, agrega trigger API y pega el token aqui.
+                    Cuando el bot reciba una tarea compleja, la delegara automaticamente a esta Routine.
+                </p>
+                <div style="display:flex;gap:8px">
+                    <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar</button>
+                    <button type="button" class="btn btn-secondary" onclick="testRoutine()">Probar Routine</button>
+                </div>
+                <div id="routine-test-result" style="margin-top:8px"></div>
+            </form>
+        </div>
     `;
 }
 
@@ -5834,6 +5866,38 @@ async function saveBotAuthorized(e) {
         toast('Usuarios autorizados guardados', 'success');
     } else {
         toast(resp.detail || 'Error guardando', 'error');
+    }
+}
+
+async function saveRoutineConfig(e) {
+    e.preventDefault();
+    const f = e.target;
+    const data = { routine_id: f.routine_id.value.trim() };
+    if (f.routine_token.value) data.routine_token = f.routine_token.value.trim();
+
+    const resp = await API.adminUpdateIntegrations(data);
+    if (resp.ok) {
+        toast('Routine configurada', 'success');
+        renderAdminIntegrations();
+    } else {
+        toast(resp.detail || 'Error guardando', 'error');
+    }
+}
+
+async function testRoutine() {
+    const el = document.getElementById('routine-test-result');
+    el.innerHTML = '<small style="color:var(--gray-400)">Disparando routine de prueba...</small>';
+
+    const resp = await API.post('/admin/integrations/test-routine');
+    if (resp.ok) {
+        el.innerHTML = `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:8px;font-size:13px">
+            ${icon('check',16)} Routine disparada! Session: ${esc(resp.data?.session_id || 'OK')}
+            ${resp.data?.url ? `<br><a href="${esc(resp.data.url)}" target="_blank">Ver sesion</a>` : ''}
+        </div>`;
+    } else {
+        el.innerHTML = `<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;font-size:13px">
+            ${icon('x',16)} Error: ${esc(resp.error || resp.detail || 'Fallo')}
+        </div>`;
     }
 }
 

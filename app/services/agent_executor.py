@@ -100,6 +100,23 @@ AGENT_TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "tarea_compleja",
+            "description": "Delega una tarea compleja a Claude Code Routine (analisis profundo, clasificacion masiva, scraping, reorganizar catalogo, generar reportes). Usa esto cuando la tarea requiere mucho procesamiento o acceso a codigo/archivos.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "descripcion": {
+                        "type": "string",
+                        "description": "Descripcion detallada de la tarea a ejecutar",
+                    },
+                },
+                "required": ["descripcion"],
+            },
+        },
+    },
 ]
 
 # Anthropic tool format (different from OpenAI)
@@ -311,6 +328,8 @@ async def _execute_tool(db: AsyncSession, name: str, args: dict) -> dict:
             return await _tool_ultimas_cotizaciones(db, **args)
         elif name == "ejecutar_tarea":
             return await _tool_ejecutar_tarea(db, **args)
+        elif name == "tarea_compleja":
+            return await _tool_tarea_compleja(db, **args)
         else:
             return {"error": f"Herramienta no encontrada: {name}"}
     except Exception as e:
@@ -510,3 +529,63 @@ async def resolve_agent_config(db: AsyncSession, agent_type: str | None = None) 
         return config, agent_prompt
 
     return None, agent_prompt
+
+
+# ── Claude Code Routine (tareas complejas) ────────────────────
+
+async def _tool_tarea_compleja(db: AsyncSession, descripcion: str) -> dict:
+    """Delega una tarea compleja a Claude Code Routine."""
+    result = await fire_routine(db, descripcion)
+    return result
+
+
+async def fire_routine(db: AsyncSession, task_text: str) -> dict:
+    """Dispara una Claude Code Routine via API.
+
+    La config (routine_id + bearer token) se lee de SystemSetting 'routine_config'.
+    """
+    from app.models.system_setting import SystemSetting
+
+    setting = await db.get(SystemSetting, "routine_config")
+    if not setting or not setting.value:
+        return {"error": "Routine no configurada. Configura routine_id y token en Admin > Integraciones."}
+
+    cfg = setting.value
+    routine_id = cfg.get("routine_id", "")
+    token = cfg.get("token", "")
+
+    if not routine_id or not token:
+        return {"error": "Falta routine_id o token en la configuracion."}
+
+    url = f"https://api.anthropic.com/v1/claude_code/routines/{routine_id}/fire"
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "anthropic-beta": "experimental-cc-routine-2026-04-01",
+                    "anthropic-version": "2023-06-01",
+                    "Content-Type": "application/json",
+                },
+                json={"text": task_text},
+            )
+
+        if resp.status_code == 200:
+            data = resp.json()
+            session_url = data.get("claude_code_session_url", "")
+            session_id = data.get("claude_code_session_id", "")
+            return {
+                "estado": "iniciada",
+                "mensaje": f"Tarea delegada a Claude Code. Session: {session_id}",
+                "url": session_url,
+            }
+        else:
+            return {
+                "estado": "error",
+                "codigo": resp.status_code,
+                "error": resp.text[:300],
+            }
+    except Exception as e:
+        return {"estado": "error", "error": str(e)[:300]}

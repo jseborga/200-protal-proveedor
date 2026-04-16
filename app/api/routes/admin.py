@@ -1618,6 +1618,17 @@ async def get_integrations(
         "telegram": [], "whatsapp": []
     }
 
+    # Routine config (mask token)
+    routine_setting = await db.get(SystemSetting, "routine_config")
+    if routine_setting and routine_setting.value:
+        rc = routine_setting.value
+        display["routine_config"] = {
+            "routine_id": rc.get("routine_id", ""),
+            "token_set": bool(rc.get("token")),
+        }
+    else:
+        display["routine_config"] = {"routine_id": "", "token_set": False}
+
     return {"ok": True, "data": display}
 
 
@@ -1643,6 +1654,21 @@ async def update_integrations(
     else:
         setting = SystemSetting(key="integrations", value=config)
         db.add(setting)
+
+    # Handle routine config
+    if "routine_id" in body or "routine_token" in body:
+        routine_setting = await db.get(SystemSetting, "routine_config")
+        routine_data = routine_setting.value if routine_setting and routine_setting.value else {}
+        if body.get("routine_id"):
+            routine_data["routine_id"] = body["routine_id"]
+        if body.get("routine_token"):
+            routine_data["token"] = body["routine_token"]
+        routine_data["token_set"] = bool(routine_data.get("token"))
+        if routine_setting:
+            routine_setting.value = routine_data
+        else:
+            routine_setting = SystemSetting(key="routine_config", value=routine_data)
+            db.add(routine_setting)
 
     # Handle bot authorized users separately
     if "bot_authorized" in body and isinstance(body["bot_authorized"], dict):
@@ -1722,6 +1748,23 @@ async def test_email_connection(
         return {"ok": True, "data": {"host": host, "port": port, "user": smtp_user}}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
+
+
+@router.post("/integrations/test-routine")
+async def test_routine(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Test Claude Code Routine connection."""
+    from app.services.agent_executor import fire_routine
+    result = await fire_routine(db, "Tarea de prueba: responde 'OK' y lista las herramientas disponibles.")
+    if result.get("estado") == "iniciada":
+        return {"ok": True, "data": {
+            "session_id": result.get("mensaje", ""),
+            "url": result.get("url", ""),
+        }}
+    else:
+        return {"ok": False, "error": result.get("error", "Error desconocido")}
 
 
 # ── AI Agents ──────────────────────────────────────────────────
