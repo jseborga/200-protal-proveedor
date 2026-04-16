@@ -282,17 +282,10 @@ async def _call_openai_compat(config: dict, system: str, messages: list) -> dict
     else:
         endpoint = f"{url}/chat/completions" if not url.endswith("/chat/completions") else url
 
-    # Google AI Studio uses ?key= query param, not Bearer token
-    is_google = "generativelanguage.googleapis.com" in url
-    if is_google:
-        separator = "&" if "?" in endpoint else "?"
-        endpoint = f"{endpoint}{separator}key={config['api_key']}"
-        headers = {"Content-Type": "application/json"}
-    else:
-        headers = {
-            "Authorization": f"Bearer {config['api_key']}",
-            "Content-Type": "application/json",
-        }
+    headers = {
+        "Authorization": f"Bearer {config['api_key']}",
+        "Content-Type": "application/json",
+    }
     if config["api_format"] == "openrouter":
         headers["HTTP-Referer"] = "https://apu-marketplace.com"
 

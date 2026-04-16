@@ -1506,17 +1506,10 @@ async def _test_ai_call(config: dict) -> dict:
         else:
             endpoint = f"{url}/chat/completions" if not url.endswith("/chat/completions") else url
 
-        # Google AI Studio uses ?key= query param, not Bearer token
-        is_google = "generativelanguage.googleapis.com" in url
-        if is_google:
-            sep = "&" if "?" in endpoint else "?"
-            endpoint = f"{endpoint}{sep}key={config['api_key']}"
-            headers = {"Content-Type": "application/json"}
-        else:
-            headers = {
-                "Authorization": f"Bearer {config['api_key']}",
-                "Content-Type": "application/json",
-            }
+        headers = {
+            "Authorization": f"Bearer {config['api_key']}",
+            "Content-Type": "application/json",
+        }
 
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(

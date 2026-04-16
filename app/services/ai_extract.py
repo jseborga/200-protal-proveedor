@@ -327,17 +327,10 @@ async def _call_openai_compatible(
     base_url = config["base_url"].rstrip("/")
     endpoint = f"{base_url}/chat/completions" if not base_url.endswith("/chat/completions") else base_url
 
-    # Google AI Studio uses ?key= query param, not Bearer token
-    is_google = "generativelanguage.googleapis.com" in base_url
-    if is_google:
-        separator = "&" if "?" in endpoint else "?"
-        endpoint = f"{endpoint}{separator}key={config['api_key']}"
-        headers = {"Content-Type": "application/json"}
-    else:
-        headers = {
-            "Authorization": f"Bearer {config['api_key']}",
-            "Content-Type": "application/json",
-        }
+    headers = {
+        "Authorization": f"Bearer {config['api_key']}",
+        "Content-Type": "application/json",
+    }
 
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
