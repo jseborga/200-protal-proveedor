@@ -197,24 +197,94 @@ Si no puedes extraer datos, devuelve {"supplier": null, "document": null, "items
 No incluyas texto adicional, SOLO el JSON."""
 
 
+async def resolve_all_ai_configs(company_id: int | None = None) -> list[dict]:
+    """Return all available AI configs in priority order for fallback."""
+    from app.core.database import async_session
+    from app.models.system_setting import SystemSetting
+
+    configs = []
+    seen_keys = set()
+
+    # 1. Company config
+    if company_id:
+        from app.models.company import Company
+        async with async_session() as db:
+            company = await db.get(Company, company_id)
+            if company and company.extra_data:
+                ai = company.extra_data.get("ai_config")
+                if ai and ai.get("api_key"):
+                    c = _build_config(ai)
+                    key = (c["provider"], c["api_key"][:8])
+                    if key not in seen_keys:
+                        configs.append(c)
+                        seen_keys.add(key)
+
+    # 2. System config (admin panel)
+    async with async_session() as db:
+        setting = await db.get(SystemSetting, "ai_config")
+        if setting and setting.value and setting.value.get("api_key"):
+            c = _build_config(setting.value)
+            key = (c["provider"], c["api_key"][:8])
+            if key not in seen_keys:
+                configs.append(c)
+                seen_keys.add(key)
+
+    # 3. .env fallback
+    if settings.ai_api_key:
+        c = _build_config({
+            "provider": settings.ai_provider,
+            "api_key": settings.ai_api_key,
+            "model": settings.ai_model,
+        })
+        key = (c["provider"], c["api_key"][:8])
+        if key not in seen_keys:
+            configs.append(c)
+            seen_keys.add(key)
+
+    return configs
+
+
+def _call_provider(
+    content: bytes, filename: str, source: str, config: dict,
+):
+    """Route to the correct provider-specific function."""
+    fmt = config["api_format"]
+    if fmt == "google":
+        return _call_google(content, filename, source, config)
+    elif fmt == "openrouter":
+        return _call_openrouter(content, filename, source, config)
+    elif fmt == "anthropic":
+        return _call_anthropic(content, filename, source, config)
+    elif fmt == "openai":
+        return _call_openai(content, filename, source, config)
+    return None
+
+
 async def _extract_with_ai(
     content: bytes, filename: str, source: str,
     company_id: int | None = None,
 ) -> dict | None:
-    """Use AI to extract quotation data from PDF or image."""
-    config = await resolve_ai_config(company_id)
-    if not config or not config.get("api_key"):
+    """Use AI to extract quotation data from PDF or image.
+
+    Tries each configured provider in order (fallback on failure).
+    """
+    configs = await resolve_all_ai_configs(company_id)
+    if not configs:
         return None
 
-    api_format = config["api_format"]
+    last_error = None
+    for config in configs:
+        try:
+            result = await _call_provider(content, filename, source, config)
+            if result:
+                return result
+            print(f"[AI] {config['provider']}/{config['model']} returned no data, trying next...")
+        except Exception as e:
+            last_error = e
+            print(f"[AI] {config['provider']}/{config['model']} failed: {e}, trying next...")
 
-    if api_format == "openrouter":
-        return await _call_openrouter(content, filename, source, config)
-    elif api_format == "anthropic":
-        return await _call_anthropic(content, filename, source, config)
-    elif api_format == "openai":
-        return await _call_openai_compatible(content, filename, source, config)
-
+    if last_error:
+        print(f"[AI] All providers failed. Last error: {last_error}")
     return None
 
 
@@ -243,13 +313,14 @@ async def _call_openrouter(
             config["base_url"],
             headers={
                 "Authorization": f"Bearer {config['api_key']}",
+                "HTTP-Referer": "https://apu-marketplace.com",
                 "Content-Type": "application/json",
             },
             json={"model": config["model"], "messages": messages, "max_tokens": 4096},
         )
 
     if resp.status_code != 200:
-        return None
+        raise Exception(f"OpenRouter {resp.status_code}: {resp.text[:200]}")
 
     data = resp.json()
     text_content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
@@ -293,7 +364,7 @@ async def _call_anthropic(
         )
 
     if resp.status_code != 200:
-        return None
+        raise Exception(f"Anthropic {resp.status_code}: {resp.text[:200]}")
 
     data = resp.json()
     text_content = ""
@@ -304,10 +375,49 @@ async def _call_anthropic(
     return _parse_ai_response(text_content, filename, source, config)
 
 
-async def _call_openai_compatible(
+async def _call_google(
     content: bytes, filename: str, source: str, config: dict,
 ) -> dict | None:
-    """Call OpenAI-compatible API (OpenAI, Google AI Studio)."""
+    """Google AI Studio — native Gemini generateContent API with ?key= auth."""
+    b64 = base64.b64encode(content).decode()
+    media_type = "application/pdf" if source == "pdf" else "image/jpeg"
+
+    parts = [
+        {"text": EXTRACTION_PROMPT},
+        {"inline_data": {"mime_type": media_type, "data": b64}},
+    ]
+
+    model = config["model"]
+    base = config["base_url"].rstrip("/")
+    endpoint = f"{base}/models/{model}:generateContent?key={config['api_key']}"
+
+    async with httpx.AsyncClient(timeout=90) as client:
+        resp = await client.post(
+            endpoint,
+            headers={"Content-Type": "application/json"},
+            json={
+                "contents": [{"parts": parts}],
+                "generationConfig": {"maxOutputTokens": 4096},
+            },
+        )
+
+    if resp.status_code != 200:
+        raise Exception(f"Google AI {resp.status_code}: {resp.text[:200]}")
+
+    data = resp.json()
+    text_content = ""
+    for candidate in data.get("candidates", []):
+        for part in candidate.get("content", {}).get("parts", []):
+            if "text" in part:
+                text_content += part["text"]
+
+    return _parse_ai_response(text_content, filename, source, config)
+
+
+async def _call_openai(
+    content: bytes, filename: str, source: str, config: dict,
+) -> dict | None:
+    """OpenAI — standard OpenAI API with Bearer auth."""
     b64 = base64.b64encode(content).decode()
     media_type = "application/pdf" if source == "pdf" else "image/jpeg"
 
@@ -327,20 +437,18 @@ async def _call_openai_compatible(
     base_url = config["base_url"].rstrip("/")
     endpoint = f"{base_url}/chat/completions" if not base_url.endswith("/chat/completions") else base_url
 
-    headers = {
-        "Authorization": f"Bearer {config['api_key']}",
-        "Content-Type": "application/json",
-    }
-
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             endpoint,
-            headers=headers,
+            headers={
+                "Authorization": f"Bearer {config['api_key']}",
+                "Content-Type": "application/json",
+            },
             json={"model": config["model"], "messages": messages, "max_tokens": 4096},
         )
 
     if resp.status_code != 200:
-        return None
+        raise Exception(f"OpenAI {resp.status_code}: {resp.text[:200]}")
 
     data = resp.json()
     text_content = data.get("choices", [{}])[0].get("message", {}).get("content", "")

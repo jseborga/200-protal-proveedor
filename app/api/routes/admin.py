@@ -1479,12 +1479,29 @@ async def test_ai_config(
 
 
 async def _test_ai_call(config: dict) -> dict:
-    """Hace una llamada minima de prueba al proveedor AI."""
+    """Hace una llamada minima de prueba al proveedor AI — especifica por proveedor."""
     import httpx
 
     prompt = "Responde solo con el JSON: {\"status\": \"ok\", \"model\": \"tu nombre de modelo\"}"
+    fmt = config["api_format"]
 
-    if config["api_format"] == "anthropic":
+    if fmt == "google":
+        # Google AI Studio — native Gemini API with ?key= auth
+        model = config["model"]
+        base = config["base_url"].rstrip("/")
+        endpoint = f"{base}/models/{model}:generateContent?key={config['api_key']}"
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                endpoint,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {"maxOutputTokens": 100},
+                },
+            )
+
+    elif fmt == "anthropic":
+        # Anthropic — x-api-key header
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 config["base_url"],
@@ -1499,22 +1516,35 @@ async def _test_ai_call(config: dict) -> dict:
                     "max_tokens": 100,
                 },
             )
+
+    elif fmt == "openrouter":
+        # OpenRouter — Bearer + Referer header
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                config["base_url"],
+                headers={
+                    "Authorization": f"Bearer {config['api_key']}",
+                    "HTTP-Referer": "https://apu-marketplace.com",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": config["model"],
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": 100,
+                },
+            )
+
     else:
+        # OpenAI — standard Bearer auth
         url = config["base_url"].rstrip("/")
-        if config["api_format"] == "openrouter":
-            endpoint = url
-        else:
-            endpoint = f"{url}/chat/completions" if not url.endswith("/chat/completions") else url
-
-        headers = {
-            "Authorization": f"Bearer {config['api_key']}",
-            "Content-Type": "application/json",
-        }
-
+        endpoint = f"{url}/chat/completions" if not url.endswith("/chat/completions") else url
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(
                 endpoint,
-                headers=headers,
+                headers={
+                    "Authorization": f"Bearer {config['api_key']}",
+                    "Content-Type": "application/json",
+                },
                 json={
                     "model": config["model"],
                     "messages": [{"role": "user", "content": prompt}],
@@ -1526,7 +1556,7 @@ async def _test_ai_call(config: dict) -> dict:
         raise Exception(f"HTTP {resp.status_code}: {resp.text[:200]}")
 
     return {
-        "provider": config["provider"],
+        "provider": config.get("provider", fmt),
         "model": config["model"],
         "status_code": resp.status_code,
         "response_preview": resp.text[:300],

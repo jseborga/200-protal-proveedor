@@ -212,8 +212,10 @@ async def execute_agent_message(
             # No tools, return final text
             return _extract_text(ai_config, ai_response)
 
-        # Execute each tool and add results
-        if ai_config["api_format"] == "anthropic":
+        # Execute each tool and add results �� format depends on provider
+        fmt = ai_config["api_format"]
+
+        if fmt == "anthropic":
             # Anthropic format: assistant message with tool_use blocks
             messages.append({"role": "assistant", "content": ai_response.get("content", [])})
             tool_results = []
@@ -225,8 +227,23 @@ async def execute_agent_message(
                     "content": json.dumps(result, ensure_ascii=False),
                 })
             messages.append({"role": "user", "content": tool_results})
+
+        elif fmt == "google":
+            # Google Gemini: assistant with functionCall, then function role with functionResponse
+            assistant_parts = []
+            for tc in tool_calls:
+                assistant_parts.append({"functionCall": {"name": tc["name"], "args": tc["input"]}})
+            messages.append({"role": "assistant", "content": json.dumps(assistant_parts)})
+            for tc in tool_calls:
+                result = await _execute_tool(db, tc["name"], tc["input"])
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc["name"],
+                    "content": json.dumps(result, ensure_ascii=False),
+                })
+
         else:
-            # OpenAI format
+            # OpenAI / OpenRouter format
             messages.append(ai_response.get("message", ai_response))
             for tc in tool_calls:
                 result = await _execute_tool(db, tc["name"], tc["input"])
@@ -242,14 +259,19 @@ async def execute_agent_message(
 # ── AI call with tools ────────────────────────────────────────
 
 async def _call_ai_with_tools(config: dict, system: str, messages: list) -> dict | None:
-    """Llama al AI con tools habilitados."""
+    """Llama al AI con tools habilitados — dispatch por proveedor."""
     try:
-        if config["api_format"] == "anthropic":
+        fmt = config["api_format"]
+        if fmt == "anthropic":
             return await _call_anthropic(config, system, messages)
+        elif fmt == "google":
+            return await _call_google_native(config, system, messages)
+        elif fmt == "openrouter":
+            return await _call_openrouter(config, system, messages)
         else:
-            return await _call_openai_compat(config, system, messages)
+            return await _call_openai(config, system, messages)
     except Exception as e:
-        print(f"[AgentExecutor] AI call error: {e}")
+        print(f"[AgentExecutor] AI call error ({config['provider']}): {e}")
         return None
 
 
@@ -274,20 +296,97 @@ async def _call_anthropic(config: dict, system: str, messages: list) -> dict:
         return resp.json()
 
 
-async def _call_openai_compat(config: dict, system: str, messages: list) -> dict:
-    """OpenAI, Google AI Studio, OpenRouter — all OpenAI-compatible."""
-    url = config["base_url"].rstrip("/")
-    if config["api_format"] == "openrouter":
-        endpoint = url
-    else:
-        endpoint = f"{url}/chat/completions" if not url.endswith("/chat/completions") else url
+async def _call_google_native(config: dict, system: str, messages: list) -> dict:
+    """Google AI Studio — native Gemini generateContent API with function calling."""
+    model = config["model"]
+    base = config["base_url"].rstrip("/")
+    endpoint = f"{base}/models/{model}:generateContent?key={config['api_key']}"
 
-    headers = {
-        "Authorization": f"Bearer {config['api_key']}",
-        "Content-Type": "application/json",
+    # Convert tools to Gemini function declarations
+    function_declarations = []
+    for tool in AGENT_TOOLS:
+        fn = tool["function"]
+        decl = {"name": fn["name"], "description": fn["description"]}
+        params = fn.get("parameters", {})
+        if params and params.get("properties"):
+            decl["parameters"] = params
+        function_declarations.append(decl)
+
+    # Convert messages to Gemini format
+    contents = []
+    for m in messages:
+        if not isinstance(m, dict) or "role" not in m:
+            continue
+        role = m["role"]
+        if role == "system":
+            continue  # system goes in systemInstruction
+        gemini_role = "model" if role == "assistant" else "user"
+
+        # Handle tool results
+        if role == "tool":
+            contents.append({
+                "role": "function",
+                "parts": [{
+                    "functionResponse": {
+                        "name": m.get("tool_call_id", "tool").replace("call_", ""),
+                        "response": {"result": m.get("content", "")},
+                    }
+                }],
+            })
+            continue
+
+        content_val = m.get("content", "")
+        if isinstance(content_val, str):
+            contents.append({"role": gemini_role, "parts": [{"text": content_val or " "}]})
+        elif isinstance(content_val, list):
+            # Anthropic-style tool results as user message — skip
+            contents.append({"role": gemini_role, "parts": [{"text": str(content_val)}]})
+
+    body = {
+        "systemInstruction": {"parts": [{"text": system}]},
+        "contents": contents or [{"role": "user", "parts": [{"text": " "}]}],
+        "tools": [{"functionDeclarations": function_declarations}],
+        "generationConfig": {"maxOutputTokens": 2000},
     }
-    if config["api_format"] == "openrouter":
-        headers["HTTP-Referer"] = "https://apu-marketplace.com"
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            endpoint,
+            headers={"Content-Type": "application/json"},
+            json=body,
+        )
+        resp.raise_for_status()
+
+    data = resp.json()
+    candidate = data.get("candidates", [{}])[0]
+    parts = candidate.get("content", {}).get("parts", [])
+
+    # Normalize to OpenAI-like format for _extract_tool_calls
+    result = {"message": {"role": "assistant", "content": None, "tool_calls": []}}
+
+    for part in parts:
+        if "text" in part:
+            result["message"]["content"] = (result["message"]["content"] or "") + part["text"]
+        elif "functionCall" in part:
+            fc = part["functionCall"]
+            result["message"]["tool_calls"].append({
+                "id": f"call_{fc['name']}",
+                "type": "function",
+                "function": {
+                    "name": fc["name"],
+                    "arguments": json.dumps(fc.get("args", {}), ensure_ascii=False),
+                },
+            })
+
+    if not result["message"]["tool_calls"]:
+        del result["message"]["tool_calls"]
+
+    return result
+
+
+async def _call_openrouter(config: dict, system: str, messages: list) -> dict:
+    """OpenRouter — OpenAI-compatible with extra headers."""
+    endpoint = config["base_url"].rstrip("/")
 
     full_messages = [{"role": "system", "content": system}]
     for m in messages:
@@ -297,7 +396,11 @@ async def _call_openai_compat(config: dict, system: str, messages: list) -> dict
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             endpoint,
-            headers=headers,
+            headers={
+                "Authorization": f"Bearer {config['api_key']}",
+                "HTTP-Referer": "https://apu-marketplace.com",
+                "Content-Type": "application/json",
+            },
             json={
                 "model": config["model"],
                 "messages": full_messages,
@@ -306,8 +409,35 @@ async def _call_openai_compat(config: dict, system: str, messages: list) -> dict
             },
         )
         resp.raise_for_status()
-        data = resp.json()
-        return data.get("choices", [{}])[0]
+        return resp.json().get("choices", [{}])[0]
+
+
+async def _call_openai(config: dict, system: str, messages: list) -> dict:
+    """OpenAI — standard API with Bearer auth."""
+    url = config["base_url"].rstrip("/")
+    endpoint = f"{url}/chat/completions" if not url.endswith("/chat/completions") else url
+
+    full_messages = [{"role": "system", "content": system}]
+    for m in messages:
+        if isinstance(m, dict) and "role" in m:
+            full_messages.append(m)
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {config['api_key']}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": config["model"],
+                "messages": full_messages,
+                "tools": AGENT_TOOLS,
+                "max_tokens": 2000,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json().get("choices", [{}])[0]
 
 
 # ── Parse AI responses ────────────────────────────────────────

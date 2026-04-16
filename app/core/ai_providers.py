@@ -9,8 +9,8 @@ AI_PROVIDERS: dict[str, dict] = {
     "google_ai_studio": {
         "key": "google_ai_studio",
         "label": "Google AI Studio (Gratis)",
-        "api_format": "openai",
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "api_format": "google",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta",
         "default_model": "gemini-2.5-flash-preview-05-20",
         "models": [
             "gemini-2.5-pro-preview-06-05",
