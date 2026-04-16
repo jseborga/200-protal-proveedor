@@ -239,6 +239,18 @@ async def site_config():
         return {"ok": True, "data": config}
 
 
+# ── MCP Server (SSE transport for Claude Code Routines) ────────
+# Mounted at /mcp-sse — Claude Code Routines connect here via SSE
+try:
+    from app.mcp_endpoint import get_mcp_sse_app
+    mcp_sse = get_mcp_sse_app()
+    app.mount("/mcp-sse", mcp_sse)
+    print("[MCP] SSE endpoint mounted at /mcp-sse/sse")
+except ImportError as e:
+    print(f"[MCP] Not available (missing dependency): {e}")
+except Exception as e:
+    print(f"[MCP] Failed to mount: {e}")
+
 # ── Static / SPA ────────────────────────────────────────────────
 # Mount frontend (after API routes so /api/* takes priority)
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "public")
