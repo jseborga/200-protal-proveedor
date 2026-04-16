@@ -1721,6 +1721,85 @@ async def test_whatsapp_connection(
         return {"ok": False, "error": str(e)[:200]}
 
 
+@router.post("/integrations/setup-telegram-webhook")
+async def setup_telegram_webhook(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Register the Telegram webhook URL with Telegram Bot API."""
+    import httpx
+    setting = await db.get(SystemSetting, "integrations")
+    cfg = setting.value if setting and setting.value else {}
+
+    from app.core.config import settings as env
+    token = cfg.get("telegram_bot_token") or env.telegram_bot_token
+    secret = cfg.get("telegram_webhook_secret") or env.telegram_webhook_secret
+    app_url = env.app_url.rstrip("/")
+
+    if not token:
+        return {"ok": False, "error": "Bot token no configurado"}
+
+    webhook_url = f"{app_url}/api/v1/webhook/telegram"
+    if secret:
+        webhook_url += f"?secret={secret}"
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{token}/setWebhook",
+                json={
+                    "url": webhook_url,
+                    "allowed_updates": ["message"],
+                },
+            )
+        data = resp.json()
+        if data.get("ok"):
+            return {"ok": True, "data": {"webhook_url": webhook_url, "description": data.get("description", "OK")}}
+        else:
+            return {"ok": False, "error": data.get("description", "Error desconocido")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
+@router.post("/integrations/test-telegram")
+async def test_telegram_send(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Send a test message to a Telegram chat ID."""
+    import httpx
+    setting = await db.get(SystemSetting, "integrations")
+    cfg = setting.value if setting and setting.value else {}
+
+    from app.core.config import settings as env
+    token = cfg.get("telegram_bot_token") or env.telegram_bot_token
+    chat_id = body.get("chat_id", "")
+
+    if not token:
+        return {"ok": False, "error": "Bot token no configurado"}
+    if not chat_id:
+        return {"ok": False, "error": "chat_id requerido"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={
+                    "chat_id": chat_id,
+                    "text": "✅ Test desde APU Marketplace! El bot esta funcionando correctamente.",
+                    "parse_mode": "HTML",
+                },
+            )
+        data = resp.json()
+        if data.get("ok"):
+            return {"ok": True, "data": {"message_id": data["result"]["message_id"]}}
+        else:
+            return {"ok": False, "error": data.get("description", "Error")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+
+
 @router.post("/integrations/test-email")
 async def test_email_connection(
     db: AsyncSession = Depends(get_db),

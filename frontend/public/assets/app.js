@@ -5743,10 +5743,15 @@ async function renderAdminIntegrations() {
                     </div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">Webhook URL (configura con /setWebhook)</label>
+                    <label class="form-label">Webhook URL</label>
                     <div class="integ-webhook-url" onclick="navigator.clipboard.writeText(this.textContent);toast('Copiado','success')">${esc(d.webhook_telegram)}</div>
                 </div>
-                <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar</button>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar</button>
+                    <button type="button" class="btn btn-secondary" onclick="setupTelegramWebhook()">Registrar Webhook</button>
+                    <button type="button" class="btn btn-secondary" onclick="testTelegramSend()">Enviar Test</button>
+                </div>
+                <div id="tg-test-result" style="margin-top:8px"></div>
             </form>
         </div>
 
@@ -5866,6 +5871,41 @@ async function saveBotAuthorized(e) {
         toast('Usuarios autorizados guardados', 'success');
     } else {
         toast(resp.detail || 'Error guardando', 'error');
+    }
+}
+
+async function setupTelegramWebhook() {
+    const el = document.getElementById('tg-test-result');
+    el.innerHTML = '<small style="color:var(--gray-400)">Registrando webhook...</small>';
+
+    const resp = await API.post('/admin/integrations/setup-telegram-webhook');
+    if (resp.ok) {
+        el.innerHTML = `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:8px;font-size:13px">
+            ${icon('check',16)} Webhook registrado: ${esc(resp.data?.webhook_url || 'OK')}
+        </div>`;
+    } else {
+        el.innerHTML = `<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;font-size:13px">
+            ${icon('x',16)} ${esc(resp.error || resp.detail || 'Error')}
+        </div>`;
+    }
+}
+
+async function testTelegramSend() {
+    const chatId = prompt('Ingresa tu Telegram Chat ID (envialo /start al bot primero):');
+    if (!chatId) return;
+
+    const el = document.getElementById('tg-test-result');
+    el.innerHTML = '<small style="color:var(--gray-400)">Enviando mensaje de prueba...</small>';
+
+    const resp = await API.post('/admin/integrations/test-telegram', { chat_id: chatId });
+    if (resp.ok) {
+        el.innerHTML = `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:8px;font-size:13px">
+            ${icon('check',16)} Mensaje enviado a chat ${esc(chatId)}! Revisa tu Telegram.
+        </div>`;
+    } else {
+        el.innerHTML = `<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;font-size:13px">
+            ${icon('x',16)} ${esc(resp.error || resp.detail || 'Error')}
+        </div>`;
     }
 }
 
