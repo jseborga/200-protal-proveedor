@@ -2,21 +2,25 @@
 
 Este modulo crea una instancia FastMCP con las mismas tools que mcp_server.py,
 pero ejecuta las queries directamente contra la DB (sin pasar por HTTP).
-Se monta como sub-aplicacion ASGI en /mcp-sse.
-
-Autenticacion: el query param ?api_key= se valida contra las API keys del sistema.
+Se monta como sub-aplicacion ASGI en /mcp.
 """
 
 import json
 from datetime import date
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy import func, select
 
 from app.core.database import async_session
 
 
-mcp = FastMCP("APU Marketplace")
+# Disable DNS rebinding protection — the app runs behind a reverse proxy
+# (EasyPanel/Traefik) with HTTPS, so host validation is handled upstream.
+mcp = FastMCP(
+    "APU Marketplace",
+    transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+)
 
 
 # ── Stats ──────────────────────────────────────────────────────
@@ -351,14 +355,10 @@ async def get_price_evolution(insumo_id: int) -> str:
 
 
 def get_mcp_sse_app():
-    """Return the MCP SSE Starlette app with proxy-friendly headers.
-
-    Adds X-Accel-Buffering: no and Cache-Control headers so reverse proxies
-    (Nginx, Traefik, EasyPanel) don't buffer SSE responses.
-    """
+    """Return the MCP SSE Starlette app with proxy-friendly response headers."""
     sse_app = mcp.sse_app()
 
-    async def sse_with_proxy_headers(scope, receive, send):
+    async def sse_proxy_wrapper(scope, receive, send):
         if scope["type"] == "http":
             original_send = send
 
@@ -367,7 +367,6 @@ def get_mcp_sse_app():
                     headers = list(message.get("headers", []))
                     headers.append((b"x-accel-buffering", b"no"))
                     headers.append((b"cache-control", b"no-cache, no-transform"))
-                    headers.append((b"connection", b"keep-alive"))
                     message = {**message, "headers": headers}
                 await original_send(message)
 
@@ -375,4 +374,4 @@ def get_mcp_sse_app():
         else:
             await sse_app(scope, receive, send)
 
-    return sse_with_proxy_headers
+    return sse_proxy_wrapper
