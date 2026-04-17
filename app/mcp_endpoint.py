@@ -48,8 +48,8 @@ async def list_suppliers(
     category: str = "",
     limit: int = 50,
 ) -> str:
-    """List suppliers. Filter by name (query), city, department, or category."""
-    from app.models.supplier import Supplier
+    """List suppliers with rubros. Filter by name (query), city, department, or category."""
+    from app.models.supplier import Supplier, SupplierRubro
 
     async with async_session() as db:
         q = select(Supplier).where(Supplier.is_active == True).limit(min(limit, 200))
@@ -65,11 +65,30 @@ async def list_suppliers(
         result = await db.execute(q)
         items = result.scalars().all()
 
+        # Load rubros for each supplier
+        supplier_ids = [s.id for s in items]
+        rubros_map: dict[int, list] = {}
+        if supplier_ids:
+            rr = await db.execute(
+                select(SupplierRubro).where(
+                    SupplierRubro.supplier_id.in_(supplier_ids),
+                    SupplierRubro.is_active == True,
+                )
+            )
+            for r in rr.scalars().all():
+                rubros_map.setdefault(r.supplier_id, []).append({
+                    "id": r.id, "rubro": r.rubro,
+                    "description": r.description, "category_key": r.category_key,
+                })
+
     return json.dumps([{
         "id": s.id, "name": s.name, "trade_name": s.trade_name,
         "city": s.city, "department": s.department,
         "categories": s.categories or [], "whatsapp": s.whatsapp,
-        "nit": s.nit, "phone": s.phone, "email": s.email,
+        "nit": s.nit, "phone": s.phone, "phone2": s.phone2, "email": s.email,
+        "description": s.description, "operating_cities": s.operating_cities or [],
+        "website": s.website,
+        "rubros": rubros_map.get(s.id, []),
     } for s in items], ensure_ascii=False)
 
 
@@ -82,35 +101,68 @@ async def create_supplier(
     whatsapp: str = "",
     trade_name: str = "",
     phone: str = "",
+    phone2: str = "",
     email: str = "",
     nit: str = "",
     address: str = "",
+    website: str = "",
+    description: str = "",
+    operating_cities: list[str] | None = None,
+    rubros: list[dict] | None = None,
 ) -> str:
-    """Register a new supplier. Required: name. Optional: city, department, categories, whatsapp, etc."""
-    from app.models.supplier import Supplier
+    """Register a new supplier with optional rubros.
+    Required: name. Optional: city, department, categories, description, operating_cities, phone2, website, rubros.
+    Each rubro dict: {rubro: str, description: str, category_key: str}."""
+    from app.models.supplier import Supplier, SupplierRubro
 
     async with async_session() as db:
         supplier = Supplier(
             name=name, trade_name=trade_name or name,
             city=city, department=department,
             categories=categories or [],
-            whatsapp=whatsapp, phone=phone, email=email,
-            nit=nit, address=address,
+            whatsapp=whatsapp, phone=phone, phone2=phone2 or None,
+            email=email, nit=nit, address=address,
+            website=website or None, description=description or None,
+            operating_cities=operating_cities,
             verification_state="verified", is_active=True,
         )
         db.add(supplier)
+        await db.flush()
+
+        # Create rubros if provided
+        rubros_created = 0
+        if rubros:
+            for i, r in enumerate(rubros):
+                if not r.get("rubro"):
+                    continue
+                rubro = SupplierRubro(
+                    supplier_id=supplier.id,
+                    rubro=r["rubro"],
+                    description=r.get("description", ""),
+                    category_key=r.get("category_key", ""),
+                    sort_order=i,
+                )
+                db.add(rubro)
+                rubros_created += 1
+
         await db.commit()
         await db.refresh(supplier)
 
-    return json.dumps({"ok": True, "id": supplier.id, "name": supplier.name}, ensure_ascii=False)
+    return json.dumps({
+        "ok": True, "id": supplier.id, "name": supplier.name,
+        "rubros_created": rubros_created,
+    }, ensure_ascii=False)
 
 
 @mcp.tool()
 async def create_suppliers_bulk(suppliers: list[dict]) -> str:
-    """Create multiple suppliers at once. Each dict: name (required), city, department, categories, whatsapp, etc."""
-    from app.models.supplier import Supplier
+    """Create multiple suppliers at once with optional rubros.
+    Each dict: name (required), city, department, categories, phone, phone2, email,
+    website, description, operating_cities, rubros [{rubro, description, category_key}]."""
+    from app.models.supplier import Supplier, SupplierRubro
 
     created = []
+    rubros_total = 0
     async with async_session() as db:
         for s in suppliers:
             if not s.get("name"):
@@ -120,15 +172,36 @@ async def create_suppliers_bulk(suppliers: list[dict]) -> str:
                 city=s.get("city", "La Paz"), department=s.get("department", "La Paz"),
                 categories=s.get("categories", []),
                 whatsapp=s.get("whatsapp", ""), phone=s.get("phone", ""),
+                phone2=s.get("phone2") or None,
                 email=s.get("email", ""), nit=s.get("nit", ""),
                 address=s.get("address", ""),
+                website=s.get("website") or None,
+                description=s.get("description") or None,
+                operating_cities=s.get("operating_cities"),
                 verification_state="verified", is_active=True,
             )
             db.add(supplier)
+            await db.flush()
+
+            for i, r in enumerate(s.get("rubros") or []):
+                if not r.get("rubro"):
+                    continue
+                db.add(SupplierRubro(
+                    supplier_id=supplier.id,
+                    rubro=r["rubro"],
+                    description=r.get("description", ""),
+                    category_key=r.get("category_key", ""),
+                    sort_order=i,
+                ))
+                rubros_total += 1
+
             created.append(s["name"])
         await db.commit()
 
-    return json.dumps({"ok": True, "created": len(created), "names": created}, ensure_ascii=False)
+    return json.dumps({
+        "ok": True, "created": len(created), "names": created,
+        "rubros_created": rubros_total,
+    }, ensure_ascii=False)
 
 
 @mcp.tool()
@@ -141,9 +214,13 @@ async def update_supplier(
     categories: list[str] | None = None,
     whatsapp: str = "",
     phone: str = "",
+    phone2: str = "",
     email: str = "",
     nit: str = "",
     address: str = "",
+    website: str = "",
+    description: str = "",
+    operating_cities: list[str] | None = None,
 ) -> str:
     """Update a supplier by ID. Only provided (non-empty) fields are updated."""
     from app.models.supplier import Supplier
@@ -166,15 +243,79 @@ async def update_supplier(
             supplier.whatsapp = whatsapp
         if phone:
             supplier.phone = phone
+        if phone2:
+            supplier.phone2 = phone2
         if email:
             supplier.email = email
         if nit:
             supplier.nit = nit
         if address:
             supplier.address = address
+        if website:
+            supplier.website = website
+        if description:
+            supplier.description = description
+        if operating_cities is not None:
+            supplier.operating_cities = operating_cities
         await db.commit()
 
     return json.dumps({"ok": True, "id": supplier_id, "name": supplier.name}, ensure_ascii=False)
+
+
+@mcp.tool()
+async def create_supplier_rubro(
+    supplier_id: int,
+    rubro: str,
+    description: str = "",
+    category_key: str = "",
+) -> str:
+    """Add a rubro (product line) to a supplier. Example: supplier 'Acermax' → rubro 'Calaminas'."""
+    from app.models.supplier import Supplier, SupplierRubro
+
+    async with async_session() as db:
+        supplier = await db.get(Supplier, supplier_id)
+        if not supplier:
+            return json.dumps({"ok": False, "error": f"Supplier {supplier_id} not found"})
+
+        # Check duplicate
+        existing = await db.execute(
+            select(SupplierRubro).where(
+                SupplierRubro.supplier_id == supplier_id,
+                SupplierRubro.rubro == rubro,
+            ).limit(1)
+        )
+        if existing.scalar_one_or_none():
+            return json.dumps({"ok": True, "action": "skipped", "reason": "already_exists"})
+
+        r = SupplierRubro(
+            supplier_id=supplier_id, rubro=rubro,
+            description=description, category_key=category_key,
+        )
+        db.add(r)
+        await db.commit()
+        await db.refresh(r)
+
+    return json.dumps({"ok": True, "id": r.id, "rubro": rubro, "supplier": supplier.name}, ensure_ascii=False)
+
+
+@mcp.tool()
+async def list_supplier_rubros(supplier_id: int) -> str:
+    """List all rubros (product lines) for a supplier."""
+    from app.models.supplier import SupplierRubro
+
+    async with async_session() as db:
+        result = await db.execute(
+            select(SupplierRubro).where(
+                SupplierRubro.supplier_id == supplier_id,
+                SupplierRubro.is_active == True,
+            ).order_by(SupplierRubro.sort_order)
+        )
+        rubros = result.scalars().all()
+
+    return json.dumps([{
+        "id": r.id, "rubro": r.rubro, "description": r.description,
+        "category_key": r.category_key, "sort_order": r.sort_order,
+    } for r in rubros], ensure_ascii=False)
 
 
 # ── Products ──────────────────────────────────────────────────

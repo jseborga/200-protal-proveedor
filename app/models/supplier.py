@@ -29,6 +29,11 @@ class Supplier(TimestampMixin, Base):
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Extra contact
+    phone2: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    operating_cities: Mapped[list | None] = mapped_column(ARRAY(String(50)), nullable=True)
+
     # Classification
     categories: Mapped[list | None] = mapped_column(ARRAY(String(50)), nullable=True)
     verification_state: Mapped[str] = mapped_column(
@@ -56,6 +61,9 @@ class Supplier(TimestampMixin, Base):
     )
     branches: Mapped[list["SupplierBranch"]] = relationship(
         "SupplierBranch", back_populates="supplier", cascade="all, delete-orphan"
+    )
+    rubros: Mapped[list["SupplierRubro"]] = relationship(
+        "SupplierRubro", back_populates="supplier", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
@@ -114,3 +122,27 @@ class SupplierBranchContact(TimestampMixin, Base):
 
     def __repr__(self) -> str:
         return f"<SupplierBranchContact {self.id} {self.full_name}>"
+
+
+class SupplierRubro(TimestampMixin, Base):
+    """Linea de producto/rubro de un proveedor.
+
+    Un proveedor puede tener multiples rubros, cada uno con su descripcion.
+    Ej: Acermax → Calaminas ("Calamina plana, ondulada..."), Metalmecánica ("Corte, plegado...")
+    """
+    __tablename__ = "mkt_supplier_rubro"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    supplier_id: Mapped[int] = mapped_column(
+        ForeignKey("mkt_supplier.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    rubro: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category_key: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    supplier: Mapped["Supplier"] = relationship("Supplier", back_populates="rubros")
+
+    def __repr__(self) -> str:
+        return f"<SupplierRubro {self.id} {self.rubro}>"

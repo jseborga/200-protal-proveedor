@@ -1,6 +1,6 @@
 from .base import Base
 from .company import Plan, Company, Subscription
-from .supplier import Supplier, SupplierBranch, SupplierBranchContact
+from .supplier import Supplier, SupplierBranch, SupplierBranchContact, SupplierRubro
 from .insumo_group import InsumoGroup
 from .insumo import Insumo, InsumoRegionalPrice
 from .quotation import Quotation, QuotationLine
@@ -19,7 +19,7 @@ from .ai_agent import AIAgent
 
 __all__ = [
     "Base", "Plan", "Company", "Subscription",
-    "Supplier", "SupplierBranch", "SupplierBranchContact",
+    "Supplier", "SupplierBranch", "SupplierBranchContact", "SupplierRubro",
     "InsumoGroup", "Insumo", "InsumoRegionalPrice",
     "Quotation", "QuotationLine", "RFQ", "RFQItem",
     "ProductMatch", "User", "ApiKey",

@@ -26,16 +26,28 @@ class SupplierIn(BaseModel):
     nit: str | None = None
     email: str | None = None
     phone: str | None = None
+    phone2: str | None = None
     whatsapp: str | None = None
     city: str | None = None
     department: str | None = None
     country: str = "BO"
     address: str | None = None
+    website: str | None = None
+    description: str | None = None
+    operating_cities: list[str] | None = None
     categories: list[str] | None = None
     preferred_channel: str = "whatsapp"
     verification_state: str = "verified"
     latitude: float | None = None
     longitude: float | None = None
+
+
+class SupplierRubroIn(BaseModel):
+    supplier_id: int
+    rubro: str
+    description: str | None = None
+    category_key: str | None = None
+    sort_order: int = 0
 
 
 class ProductIn(BaseModel):
@@ -164,6 +176,83 @@ async def update_supplier(
         setattr(supplier, field, value)
     await db.flush()
     return {"ok": True, "action": "updated", "data": _sup_dict(supplier)}
+
+
+# ── Supplier Rubros ───────────────────────────────────────────
+@router.post("/supplier-rubros")
+async def create_supplier_rubro(
+    body: SupplierRubroIn,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Add a rubro (product line) to a supplier."""
+    from app.models.supplier import SupplierRubro
+
+    supplier = await db.get(Supplier, body.supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    # Check duplicate
+    existing = await db.execute(
+        select(SupplierRubro).where(
+            SupplierRubro.supplier_id == body.supplier_id,
+            SupplierRubro.rubro == body.rubro,
+        ).limit(1)
+    )
+    if existing.scalar_one_or_none():
+        return {"ok": True, "action": "skipped", "reason": "already_exists"}
+
+    rubro = SupplierRubro(
+        supplier_id=body.supplier_id,
+        rubro=body.rubro,
+        description=body.description,
+        category_key=body.category_key,
+        sort_order=body.sort_order,
+    )
+    db.add(rubro)
+    await db.flush()
+    return {"ok": True, "action": "created", "data": {
+        "id": rubro.id, "rubro": rubro.rubro, "supplier_id": rubro.supplier_id,
+    }}
+
+
+@router.get("/supplier-rubros/{supplier_id}")
+async def list_supplier_rubros(
+    supplier_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """List rubros for a supplier."""
+    from app.models.supplier import SupplierRubro
+
+    result = await db.execute(
+        select(SupplierRubro).where(
+            SupplierRubro.supplier_id == supplier_id,
+            SupplierRubro.is_active == True,
+        ).order_by(SupplierRubro.sort_order)
+    )
+    rubros = result.scalars().all()
+    return {"ok": True, "data": [{
+        "id": r.id, "rubro": r.rubro, "description": r.description,
+        "category_key": r.category_key, "sort_order": r.sort_order,
+    } for r in rubros]}
+
+
+@router.delete("/supplier-rubros/{rubro_id}")
+async def delete_supplier_rubro(
+    rubro_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Delete (deactivate) a supplier rubro."""
+    from app.models.supplier import SupplierRubro
+
+    rubro = await db.get(SupplierRubro, rubro_id)
+    if not rubro:
+        raise HTTPException(status_code=404, detail="Rubro not found")
+    rubro.is_active = False
+    await db.flush()
+    return {"ok": True, "action": "deleted", "id": rubro_id}
 
 
 # ── Products ───────────────────────────────────────────────────
@@ -485,8 +574,10 @@ async def _find_product(db, name: str, uom: str) -> Insumo | None:
 def _sup_dict(s: Supplier) -> dict:
     return {
         "id": s.id, "name": s.name, "trade_name": s.trade_name,
-        "phone": s.phone, "whatsapp": s.whatsapp,
+        "phone": s.phone, "phone2": s.phone2, "whatsapp": s.whatsapp,
+        "email": s.email, "website": s.website,
         "city": s.city, "department": s.department,
+        "description": s.description, "operating_cities": s.operating_cities,
         "categories": s.categories, "verification_state": s.verification_state,
     }
 

@@ -52,6 +52,16 @@ async def _init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_mkt_pedido_company_id ON mkt_pedido(company_id)"
         ))
+        # Supplier enrichment: description, operating_cities, phone2
+        await conn.execute(text(
+            "ALTER TABLE mkt_supplier ADD COLUMN IF NOT EXISTS description TEXT"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE mkt_supplier ADD COLUMN IF NOT EXISTS operating_cities VARCHAR(50)[]"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE mkt_supplier ADD COLUMN IF NOT EXISTS phone2 VARCHAR(30)"
+        ))
         # spec_url for technical specs link on insumos
         await conn.execute(text(
             "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS spec_url VARCHAR(500)"
@@ -226,7 +236,7 @@ async def purge_data_direct(secret: str):
         "mkt_notification", "mkt_supplier_suggestion", "mkt_product_match",
         "mkt_price_history", "mkt_insumo_regional_price",
         "mkt_quotation_line", "mkt_quotation", "mkt_rfq",
-        "mkt_supplier_branch", "mkt_supplier",
+        "mkt_supplier_rubro", "mkt_supplier_branch", "mkt_supplier",
         "mkt_insumo", "mkt_insumo_group",
         "mkt_category", "mkt_unit_of_measure", "mkt_task_log",
     ]
