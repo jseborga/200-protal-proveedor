@@ -100,6 +100,7 @@ const API = {
     createInsumo: (data) => API.post('/prices', data),
     uploadInsumoImage: (id, formData) => API.upload(`/prices/${id}/image`, formData),
     deleteInsumoImage: (id) => API.del(`/prices/${id}/image`),
+    geocodeAddress: (q) => API.get(`/suppliers/geocode?q=${encodeURIComponent(q)}`),
     rfqs: (params = '') => API.get(`/rfq${params}`),
     createRFQ: (data) => API.post('/rfq', data),
     stats: () => API.get('/admin/stats'),
@@ -1017,7 +1018,12 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
 
     const supHtml = sups.length > 0
         ? `<div class="pd-section">
-               <h3 class="pd-section-title">${sups.length} proveedor${sups.length > 1 ? 'es' : ''} lo ofrece${sups.length > 1 ? 'n' : ''}</h3>
+               <div class="pd-section-head">
+                   <h3 class="pd-section-title">${sups.length} proveedor${sups.length > 1 ? 'es' : ''} lo ofrece${sups.length > 1 ? 'n' : ''}</h3>
+                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${esc(p.category || '').replace(/'/g,"\\'")}', ${inModal ? 'true' : 'false'})">
+                       ${icon('map-pin', 14)} Cerca de mi
+                   </button>
+               </div>
                <div class="pd-suppliers">
                    ${sups.map(s => {
                        const loc = [s.city, s.department].filter(Boolean).join(', ');
@@ -1034,7 +1040,14 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
                    }).join('')}
                </div>
            </div>`
-        : `<div class="pd-section"><p class="pd-empty-hint">Aun no hay proveedores registrados para este producto.</p></div>`;
+        : `<div class="pd-section">
+               <div class="pd-section-head">
+                   <p class="pd-empty-hint">Aun no hay proveedores registrados para este producto.</p>
+                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${esc(p.category || '').replace(/'/g,"\\'")}', ${inModal ? 'true' : 'false'})">
+                       ${icon('map-pin', 14)} Buscar cerca de mi
+                   </button>
+               </div>
+           </div>`;
 
     const relHtml = (p.related || []).length > 0
         ? `<div class="pd-section">
@@ -1161,6 +1174,106 @@ async function showProductModal(id) {
     }
     const body = document.getElementById('product-modal-body');
     if (body) body.innerHTML = _renderProductDetailHtml(result.data, result.suppliers, { inModal: true });
+}
+
+// ── Product: Find suppliers near me (by insumo_id or category) ─
+function findSuppliersNearForProduct(insumoId, category, fromModal) {
+    if (!navigator.geolocation) {
+        toast('Geolocalizacion no disponible en tu navegador', 'error');
+        return;
+    }
+    toast('Obteniendo tu ubicacion...', 'info');
+    navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+            const { latitude, longitude } = pos.coords;
+            // Try with insumo_id first (suppliers that actually sold this product)
+            let resp = await API.get(
+                `/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=40&insumo_id=${insumoId}`
+            ).catch(() => null);
+            // Fallback to category if no product-specific matches
+            if ((!resp || !resp.ok || !resp.data.length) && category) {
+                resp = await API.get(
+                    `/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=40&category=${encodeURIComponent(category)}`
+                ).catch(() => null);
+            }
+            if (!resp || !resp.ok || !resp.data.length) {
+                toast('No se encontraron proveedores cercanos con ubicacion', 'info');
+                return;
+            }
+            if (fromModal) closeModal();
+            showNearbyProductMap(latitude, longitude, resp.data, insumoId);
+        },
+        () => { toast('No se pudo obtener tu ubicacion', 'error'); },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
+    );
+}
+
+function showNearbyProductMap(userLat, userLon, suppliers, insumoId) {
+    const existing = document.querySelector('.modal-overlay-nearby');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay modal-overlay-nearby';
+    overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+    const mapId = 'nearby-map-' + Date.now();
+    overlay.innerHTML = `
+        <div class="modal modal-nearby">
+            <div class="modal-header">
+                <h3>${icon('map-pin',16)} ${suppliers.length} proveedor${suppliers.length > 1 ? 'es' : ''} cerca de ti</h3>
+                <button class="modal-close" onclick="closeModal()" aria-label="Cerrar">&times;</button>
+            </div>
+            <div class="modal-body nearby-body">
+                <div id="${mapId}" class="nearby-map"></div>
+                <div class="nearby-list">
+                    ${suppliers.map((s, i) => {
+                        const loc = [s.city, s.department].filter(Boolean).join(', ');
+                        const wa = s.has_whatsapp && s.whatsapp
+                            ? `<a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" rel="noopener" class="nearby-wa" onclick="event.stopPropagation()">${icon('whatsapp',14)}</a>` : '';
+                        const rubros = (s.rubros || []).slice(0, 3).join(' &middot; ');
+                        const verifBadge = s.verified ? `<span class="nearby-badge-ok">${icon('check-circle',10)} verificado</span>` : '';
+                        return `
+                            <div class="nearby-card" data-idx="${i}" onclick="closeModal();showPublicSupplierDetail(${s.id})">
+                                <div class="nearby-card-head">
+                                    <span class="nearby-name">${esc(s.name)}</span>
+                                    <span class="nearby-dist">${s.distance_km} km</span>
+                                </div>
+                                <div class="nearby-meta">${loc ? icon('map-pin',11) + ' ' + esc(loc) : ''} ${verifBadge}</div>
+                                ${rubros ? `<div class="nearby-rubros">${esc(rubros)}</div>` : ''}
+                                ${wa}
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    // Init map after overlay is in DOM
+    setTimeout(() => {
+        MapUtils.createMap(mapId, [userLat, userLon], 12);
+        MapUtils.clearMarkers();
+        L.marker([userLat, userLon], {
+            icon: L.divIcon({
+                className: 'user-marker',
+                html: '<div style="background:#1e40af;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 0 6px rgba(0,0,0,0.4)"></div>',
+                iconSize: [20, 20], iconAnchor: [10, 10],
+            })
+        }).addTo(MapUtils._map).bindPopup('<strong>Tu ubicacion</strong>');
+        suppliers.forEach((s, i) => {
+            if (!s.latitude || !s.longitude) return;
+            const rubros = (s.rubros || []).slice(0, 4).join(', ');
+            const waLink = s.has_whatsapp && s.whatsapp
+                ? `<br><a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" style="color:#25d366">WhatsApp</a>` : '';
+            MapUtils.addMarker(s.latitude, s.longitude,
+                `<strong>${esc(s.name)}</strong><br>
+                 <small>${s.distance_km} km &middot; ${esc([s.city, s.department].filter(Boolean).join(', '))}</small>
+                 ${rubros ? `<br><em style="color:#6b7280;font-size:11px">${esc(rubros)}</em>` : ''}
+                 ${waLink}
+                 <br><a href="#" onclick="event.preventDefault();closeModal();showPublicSupplierDetail(${s.id})">Ver detalles &rarr;</a>`
+            );
+        });
+        MapUtils.fitToMarkers();
+    }, 50);
 }
 
 // ── Admin: Upload product image ────────────────────────────────
@@ -2800,9 +2913,17 @@ function showAdminSupplierForm(editId) {
                     <option value="telegram">Telegram</option>
                 </select>
             </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                <div class="form-group"><label class="form-label">Latitud</label><input class="form-input" name="latitude" type="number" step="any" placeholder="-16.5"></div>
-                <div class="form-group"><label class="form-label">Longitud</label><input class="form-input" name="longitude" type="number" step="any" placeholder="-68.15"></div>
+            <div class="form-group">
+                <label class="form-label">Ubicacion (coordenadas)</label>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+                    <input class="form-input" name="latitude" type="number" step="any" placeholder="Latitud (-16.5)">
+                    <input class="form-input" name="longitude" type="number" step="any" placeholder="Longitud (-68.15)">
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="geocodeFromForm()">${icon('search',12)} Geocodificar desde direccion</button>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="pickLocationOnMap()">${icon('map-pin',12)} Elegir en mapa</button>
+                </div>
+                <div id="geocode-results" style="margin-top:6px"></div>
             </div>
             ${isManager() ? `
             <div class="form-group"><label class="form-label">Estado de verificacion</label>
@@ -2829,6 +2950,109 @@ function showAdminSupplierForm(editId) {
         loadSupplierIntoForm(editId);
         loadSupplierBranches(editId);
     }
+}
+
+async function geocodeFromForm() {
+    const f = document.getElementById('admin-supplier-form');
+    if (!f) return;
+    const parts = [f.address?.value, f.city?.value, f.department?.value].filter(Boolean);
+    const q = parts.join(', ');
+    if (q.length < 3) { toast('Ingresa direccion, ciudad o departamento primero', 'error'); return; }
+    const box = document.getElementById('geocode-results');
+    if (box) box.innerHTML = `<small style="color:#6b7280">Buscando...</small>`;
+    const resp = await API.geocodeAddress(q);
+    if (!resp.ok || !resp.data.length) {
+        if (box) box.innerHTML = `<small style="color:#b91c1c">No se encontraron resultados para "${esc(q)}"</small>`;
+        return;
+    }
+    if (box) {
+        box.innerHTML = `
+            <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:6px;padding:6px;font-size:12px">
+                <div style="color:#6b7280;margin-bottom:4px">Selecciona una coincidencia:</div>
+                ${resp.data.map((r, i) => `
+                    <div style="padding:6px;cursor:pointer;border-radius:4px;transition:background 0.1s" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background=''" onclick="applyGeocode(${r.latitude},${r.longitude})">
+                        <div>${esc(r.display_name)}</div>
+                        <small style="color:#6b7280">${r.latitude.toFixed(5)}, ${r.longitude.toFixed(5)}</small>
+                    </div>
+                `).join('')}
+            </div>`;
+    }
+}
+
+function applyGeocode(lat, lon) {
+    const f = document.getElementById('admin-supplier-form');
+    if (!f) return;
+    f.latitude.value = lat;
+    f.longitude.value = lon;
+    const box = document.getElementById('geocode-results');
+    if (box) box.innerHTML = `<small style="color:#166534">&check; Ubicacion aplicada: ${lat.toFixed(5)}, ${lon.toFixed(5)}</small>`;
+}
+
+function pickLocationOnMap() {
+    const f = document.getElementById('admin-supplier-form');
+    if (!f) return;
+    const startLat = parseFloat(f.latitude?.value) || -16.5;
+    const startLon = parseFloat(f.longitude?.value) || -68.15;
+    const existing = document.querySelector('.modal-overlay-picker');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay modal-overlay-picker';
+    overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
+    const mapId = 'pick-map-' + Date.now();
+    overlay.innerHTML = `
+        <div class="modal" style="max-width:700px;width:95%">
+            <div class="modal-header">
+                <h3>${icon('map-pin',16)} Haz clic en el mapa para elegir ubicacion</h3>
+                <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">&times;</button>
+            </div>
+            <div class="modal-body" style="padding:12px">
+                <div id="${mapId}" style="height:420px;border-radius:6px"></div>
+                <div id="pick-coords" style="margin-top:8px;font-size:13px;color:#6b7280">
+                    Lat: ${startLat.toFixed(5)}, Lon: ${startLon.toFixed(5)}
+                </div>
+                <div style="display:flex;gap:8px;margin-top:8px">
+                    <button class="btn btn-primary" onclick="confirmPickedLocation()">Usar esta ubicacion</button>
+                    <button class="btn btn-secondary" onclick="this.closest('.modal-overlay').remove()">Cancelar</button>
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    setTimeout(() => {
+        MapUtils.createMap(mapId, [startLat, startLon], 13);
+        MapUtils.clearMarkers();
+        const marker = L.marker([startLat, startLon], { draggable: true }).addTo(MapUtils._map);
+        _pickedLocation = { lat: startLat, lon: startLon, marker };
+        const updateCoords = (lat, lon) => {
+            _pickedLocation.lat = lat;
+            _pickedLocation.lon = lon;
+            const box = document.getElementById('pick-coords');
+            if (box) box.textContent = `Lat: ${lat.toFixed(5)}, Lon: ${lon.toFixed(5)}`;
+        };
+        marker.on('dragend', () => {
+            const p = marker.getLatLng();
+            updateCoords(p.lat, p.lng);
+        });
+        MapUtils._map.on('click', (e) => {
+            marker.setLatLng(e.latlng);
+            updateCoords(e.latlng.lat, e.latlng.lng);
+        });
+    }, 50);
+}
+
+let _pickedLocation = null;
+
+function confirmPickedLocation() {
+    if (!_pickedLocation) return;
+    const f = document.getElementById('admin-supplier-form');
+    if (f) {
+        f.latitude.value = _pickedLocation.lat.toFixed(6);
+        f.longitude.value = _pickedLocation.lon.toFixed(6);
+        const box = document.getElementById('geocode-results');
+        if (box) box.innerHTML = `<small style="color:#166534">&check; Ubicacion seleccionada en mapa</small>`;
+    }
+    const picker = document.querySelector('.modal-overlay-picker');
+    if (picker) picker.remove();
 }
 
 async function loadSupplierIntoForm(id) {

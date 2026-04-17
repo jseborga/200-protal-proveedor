@@ -260,27 +260,61 @@ async def nearby_suppliers(
     request: Request,
     lat: float = Query(..., description="Latitude"),
     lon: float = Query(..., description="Longitude"),
-    radius_km: float = Query(50, ge=1, le=200),
-    limit: int = Query(20, ge=1, le=50),
+    radius_km: float = Query(50, ge=1, le=500),
+    limit: int = Query(30, ge=1, le=100),
+    insumo_id: int | None = Query(None, description="Solo proveedores que venden este insumo"),
+    category: str | None = Query(None, description="Filtrar por categoria (ej: cemento)"),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """Find nearest suppliers with known coordinates."""
+    """Proveedores cercanos con coordenadas conocidas.
+
+    Filtros opcionales:
+    - insumo_id: solo proveedores que tienen historial de precio del insumo
+    - category: solo proveedores con esa categoria en su array `categories`
+    """
     reveal = user is not None
-    result = await db.execute(text("""
-        SELECT *, (
-            6371 * acos(
-                LEAST(1.0, cos(radians(:lat)) * cos(radians(latitude)) *
-                cos(radians(longitude) - radians(:lon)) +
-                sin(radians(:lat)) * sin(radians(latitude)))
-            )
-        ) AS distance_km
-        FROM mkt_supplier
-        WHERE is_active = true AND verification_state = 'verified'
-          AND latitude IS NOT NULL AND longitude IS NOT NULL
-        ORDER BY distance_km
-        LIMIT :lim
-    """), {"lat": lat, "lon": lon, "lim": limit})
+
+    sql = """
+        SELECT
+            s.id, s.name, s.trade_name, s.whatsapp, s.phone,
+            s.city, s.department, s.latitude, s.longitude, s.categories,
+            s.verification_state, s.rating,
+            (
+                6371 * acos(
+                    LEAST(1.0, cos(radians(:lat)) * cos(radians(s.latitude)) *
+                    cos(radians(s.longitude) - radians(:lon)) +
+                    sin(radians(:lat)) * sin(radians(s.latitude)))
+                )
+            ) AS distance_km,
+            COALESCE(
+                (SELECT array_agg(DISTINCT r.rubro ORDER BY r.rubro)
+                 FROM mkt_supplier_rubro r
+                 WHERE r.supplier_id = s.id AND r.is_active = true),
+                ARRAY[]::varchar[]
+            ) AS rubros
+        FROM mkt_supplier s
+        WHERE s.is_active = true
+          AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+    """
+    params: dict = {"lat": lat, "lon": lon, "lim": limit}
+
+    if insumo_id is not None:
+        sql += """
+          AND EXISTS (
+              SELECT 1 FROM mkt_price_history ph
+              WHERE ph.supplier_id = s.id AND ph.insumo_id = :insumo_id
+          )
+        """
+        params["insumo_id"] = insumo_id
+
+    if category:
+        sql += " AND :cat = ANY(s.categories)"
+        params["cat"] = category
+
+    sql += " ORDER BY distance_km LIMIT :lim"
+
+    result = await db.execute(text(sql), params)
     rows = result.mappings().all()
     return {
         "ok": True,
@@ -295,9 +329,62 @@ async def nearby_suppliers(
                 "city": r["city"], "department": r["department"],
                 "latitude": r["latitude"], "longitude": r["longitude"],
                 "distance_km": round(r["distance_km"], 1),
-                "categories": r["categories"],
+                "categories": r["categories"] or [],
+                "rubros": r["rubros"] or [],
+                "verified": r["verification_state"] == "verified",
+                "rating": r["rating"],
             }
             for r in rows if r["distance_km"] <= radius_km
+        ],
+    }
+
+
+# ── Geocoding (Nominatim / OpenStreetMap) ──────────────────────
+@router.get("/geocode")
+async def geocode_address(
+    q: str = Query(..., min_length=3, description="Direccion o texto a geocodificar"),
+    user: User = Depends(require_manager),
+):
+    """Convierte una direccion a coordenadas usando Nominatim (OpenStreetMap).
+
+    Sin API key. Sesgado a Bolivia via countrycodes=bo.
+    Sujeto a los terminos de uso de Nominatim (1 req/s, User-Agent requerido).
+    """
+    import httpx
+    headers = {"User-Agent": "NexoBase/1.0 (contacto@nexobase.com)"}
+    params = {
+        "q": q,
+        "format": "json",
+        "limit": 5,
+        "countrycodes": "bo",
+        "addressdetails": 1,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params=params,
+                headers=headers,
+            )
+            resp.raise_for_status()
+            items = resp.json()
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Error en Nominatim: {e}")
+
+    return {
+        "ok": True,
+        "data": [
+            {
+                "display_name": it.get("display_name"),
+                "latitude": float(it["lat"]),
+                "longitude": float(it["lon"]),
+                "type": it.get("type"),
+                "city": (it.get("address", {}) or {}).get("city")
+                    or (it.get("address", {}) or {}).get("town")
+                    or (it.get("address", {}) or {}).get("village"),
+                "department": (it.get("address", {}) or {}).get("state"),
+            }
+            for it in items
         ],
     }
 
