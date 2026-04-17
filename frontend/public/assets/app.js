@@ -1717,18 +1717,24 @@ async function loadSupplierCategoryChips() {
 function filterSupplierCategory(cat) {
     state.selectedCategory = cat;
     loadSupplierCategoryChips();
-    loadPublicSuppliers();
+    refreshSupplierView();
 }
 
 function filterSupplierDept() {
     state.selectedDepartment = document.getElementById('supplier-dept-filter')?.value || null;
-    loadPublicSuppliers();
+    refreshSupplierView();
 }
 
 let _supplierTimer;
 function debounceSupplierSearch() {
     clearTimeout(_supplierTimer);
-    _supplierTimer = setTimeout(loadPublicSuppliers, 350);
+    _supplierTimer = setTimeout(refreshSupplierView, 350);
+}
+
+// Refresca lista y, si esta activo el modo mapa, tambien los markers.
+function refreshSupplierView() {
+    loadPublicSuppliers();
+    if (_supplierMapMode) loadSuppliersOnMap();
 }
 
 async function loadPublicSuppliers() {
