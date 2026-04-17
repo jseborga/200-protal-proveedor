@@ -32,11 +32,16 @@ from app.models.banned_ip import BannedIP
 
 
 # ── Configuracion ──────────────────────────────────────────────
+# Kill switch: DISABLE_BAN_CHECK=1 desactiva todo el middleware.
+DISABLE_BAN_CHECK = os.getenv("DISABLE_BAN_CHECK", "0") == "1"
+
 BURST_WINDOW_SEC = int(os.getenv("BURST_WINDOW_SEC", "10"))
-BURST_THRESHOLD = int(os.getenv("BURST_THRESHOLD", "100"))  # hits en la ventana
+BURST_THRESHOLD = int(os.getenv("BURST_THRESHOLD", "300"))  # hits en la ventana
 BURST_BAN_MINUTES = int(os.getenv("BURST_BAN_MINUTES", "60"))
 
 # Paths trampa. Anonimo que los toca se banea permanentemente.
+# Solo paths exactos; evitamos matchers genericos (*.php, /wp-*) porque
+# navegadores y apps legitimas pueden tocarlos accidentalmente.
 HONEYPOT_PATHS = {
     "/api/v1/prices/internal-dump",
     "/api/v1/suppliers/export-all",
@@ -47,6 +52,8 @@ HONEYPOT_PATHS = {
     "/.env",
     "/.git/config",
     "/phpmyadmin/",
+    "/phpMyAdmin/",
+    "/xmlrpc.php",
 }
 
 # Prefijos cuya acumulacion cuenta contra el burst counter
@@ -55,6 +62,23 @@ TRACKED_PREFIXES = (
     "/api/v1/suppliers/public",
     "/api/v1/prices/public/search",
 )
+
+
+def _is_private_ip(ip: str) -> bool:
+    """IPs privadas / loopback no se banean: suelen ser el reverse proxy."""
+    if not ip or ip == "unknown":
+        return True
+    if ip.startswith(("127.", "10.", "192.168.", "169.254.", "::1", "fc", "fd")):
+        return True
+    # 172.16.0.0/12
+    if ip.startswith("172."):
+        try:
+            second = int(ip.split(".")[1])
+            if 16 <= second <= 31:
+                return True
+        except (ValueError, IndexError):
+            pass
+    return False
 
 
 # ── Cache en memoria ───────────────────────────────────────────
@@ -195,21 +219,26 @@ class BanCheckMiddleware:
         self.app = app
 
     async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
+        if scope["type"] != "http" or DISABLE_BAN_CHECK:
             await self.app(scope, receive, send)
             return
 
         path = scope.get("path", "")
         ip = _client_ip_from_scope(scope)
 
+        # Nunca banear IPs privadas / proxies internos.
+        if _is_private_ip(ip):
+            await self.app(scope, receive, send)
+            return
+
         if _is_banned(ip):
             await _send_json(send, 403, {"ok": False, "error": "access_denied"})
             return
 
-        # Honeypot: paths trampa banean permanentemente
-        if path in HONEYPOT_PATHS or path.startswith("/wp-") or path.endswith(".php"):
+        # Honeypot: paths trampa exactos
+        if path in HONEYPOT_PATHS:
             ua = _headers_dict(scope).get("user-agent", "")
-            _ban_cache_add(ip, None)  # banea en cache de inmediato
+            _ban_cache_add(ip, None)
             asyncio.create_task(
                 ban_ip(ip, "honeypot", path=path, user_agent=ua, minutes=None)
             )

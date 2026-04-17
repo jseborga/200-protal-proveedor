@@ -288,6 +288,25 @@ async def robots_txt():
     return PlainTextResponse(_ROBOTS_TXT, media_type="text/plain")
 
 
+# ── Emergency unban (protegido por APP_SECRET_KEY) ─────────────
+# Uso: GET /api/v1/banlist/purge/<APP_SECRET_KEY>
+# Borra toda la tabla mkt_banned_ip y recarga la cache en memoria.
+@app.get("/api/v1/banlist/purge/{secret}", include_in_schema=False)
+async def banlist_purge(secret: str):
+    if secret != settings.app_secret_key:
+        from fastapi import HTTPException
+        raise HTTPException(403, "Invalid secret")
+    from sqlalchemy import delete
+    from app.models.banned_ip import BannedIP
+    from app.core.banlist import reload_ban_cache
+    async with async_session() as db:
+        result = await db.execute(delete(BannedIP))
+        await db.commit()
+        removed = result.rowcount or 0
+    await reload_ban_cache()
+    return {"ok": True, "removed": removed}
+
+
 # ── One-time data purge (remove after use) ─────────────────────
 @app.post("/api/v1/purge/{secret}")
 async def purge_data_direct(secret: str):
