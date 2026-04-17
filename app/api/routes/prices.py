@@ -236,6 +236,145 @@ async def search_prices(
     }
 
 
+@router.get("/public/{insumo_id}")
+@limiter.limit(PUBLIC_LIMIT)
+async def public_insumo_detail(
+    request: Request,
+    insumo_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Detalle publico de un insumo: datos + precios regionales + hermanos del grupo + relacionados."""
+    insumo = await db.get(Insumo, insumo_id)
+    if not insumo or not insumo.is_active:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    data = _insumo_to_dict(insumo)
+
+    rp_result = await db.execute(
+        select(InsumoRegionalPrice).where(InsumoRegionalPrice.insumo_id == insumo_id)
+    )
+    data["regional_prices"] = [
+        {
+            "region": rp.region,
+            "price": rp.price,
+            "currency": rp.currency,
+            "sample_count": rp.sample_count,
+        }
+        for rp in rp_result.scalars().all()
+    ]
+
+    if insumo.group_id:
+        grp = await db.get(InsumoGroup, insumo.group_id)
+        if grp and grp.is_active:
+            siblings_result = await db.execute(
+                select(Insumo)
+                .where(
+                    Insumo.group_id == insumo.group_id,
+                    Insumo.is_active == True,
+                    Insumo.id != insumo_id,
+                )
+                .order_by(Insumo.ref_price.nullslast(), Insumo.name)
+            )
+            data["group"] = {
+                "id": grp.id,
+                "name": grp.name,
+                "variant_label": grp.variant_label,
+                "siblings": [
+                    {
+                        "id": s.id,
+                        "name": s.name,
+                        "uom": s.uom,
+                        "ref_price": s.ref_price,
+                        "ref_currency": s.ref_currency,
+                        "spec_url": getattr(s, "spec_url", None),
+                    }
+                    for s in siblings_result.scalars().all()
+                ],
+            }
+        else:
+            data["group"] = None
+    else:
+        data["group"] = None
+
+    if insumo.category:
+        related_result = await db.execute(
+            select(Insumo)
+            .where(
+                Insumo.category == insumo.category,
+                Insumo.is_active == True,
+                Insumo.id != insumo_id,
+                Insumo.group_id.is_(None) if not insumo.group_id else Insumo.group_id != insumo.group_id,
+            )
+            .order_by(Insumo.name)
+            .limit(8)
+        )
+        data["related"] = [
+            {
+                "id": r.id,
+                "name": r.name,
+                "uom": r.uom,
+                "ref_price": r.ref_price,
+                "ref_currency": r.ref_currency,
+            }
+            for r in related_result.scalars().all()
+        ]
+    else:
+        data["related"] = []
+
+    return {"ok": True, "data": data}
+
+
+@router.get("/public/{insumo_id}/suppliers")
+@limiter.limit(PUBLIC_LIMIT)
+async def public_insumo_suppliers(
+    request: Request,
+    insumo_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Proveedores publicos que ofrecen un insumo (agregados, sin historial individual)."""
+    result = await db.execute(
+        text("""
+            SELECT
+                s.id AS supplier_id,
+                s.name AS supplier_name,
+                s.city,
+                s.department,
+                s.whatsapp,
+                s.phone,
+                s.website,
+                COUNT(*) AS order_count,
+                MAX(ph.observed_date) AS last_order
+            FROM mkt_price_history ph
+            JOIN mkt_supplier s ON s.id = ph.supplier_id
+            WHERE ph.insumo_id = :insumo_id
+              AND ph.supplier_id IS NOT NULL
+              AND s.is_active = true
+            GROUP BY s.id, s.name, s.city, s.department, s.whatsapp, s.phone, s.website
+            ORDER BY order_count DESC, s.name
+            LIMIT 50
+        """),
+        {"insumo_id": insumo_id},
+    )
+    rows = result.mappings().all()
+    return {
+        "ok": True,
+        "data": [
+            {
+                "supplier_id": r["supplier_id"],
+                "supplier_name": r["supplier_name"],
+                "city": r["city"],
+                "department": r["department"],
+                "whatsapp": r["whatsapp"],
+                "phone": r["phone"],
+                "website": r["website"],
+                "order_count": r["order_count"],
+                "last_order": r["last_order"].isoformat() if r["last_order"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
 # ── Authenticated endpoints ─────────────────────────────────────
 @router.get("")
 async def list_insumos(
@@ -745,6 +884,7 @@ def _insumo_to_dict(i: Insumo) -> dict:
         "ref_price": i.ref_price,
         "ref_currency": i.ref_currency,
         "is_active": i.is_active,
+        "description": i.description,
     }
     if hasattr(i, 'spec_url'):
         d["spec_url"] = i.spec_url

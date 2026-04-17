@@ -9,6 +9,7 @@ const state = {
     token: null,
     refreshToken: null,
     currentPage: 'home',
+    currentParams: null,
     searchQuery: '',
     selectedCategory: null,
     selectedDepartment: null,
@@ -76,6 +77,8 @@ const API = {
     supplierCategories: () => API.get('/suppliers/public/categories'),
     supplierCities: () => API.get('/suppliers/public/cities'),
     publicSupplierDetail: (id) => API.get(`/suppliers/public/${id}`),
+    publicInsumoDetail: (id) => API.get(`/prices/public/${id}`),
+    publicInsumoSuppliers: (id) => API.get(`/prices/public/${id}/suppliers`),
     priceCategories: () => API.get('/prices/categories/list'),
 
     // Authenticated
@@ -314,11 +317,32 @@ function icon(name, size = 20) {
 }
 
 // ── Navigation ─────────────────────────────────────────────────
-function navigate(page) {
+function navigate(page, params) {
     state.currentPage = page;
+    state.currentParams = params || null;
     window.scrollTo(0, 0);
+    const url = (page === 'productDetail' && params && params.id)
+        ? `/p/${params.id}`
+        : '/';
+    const skipPush = params && params._noPushState;
+    if (!skipPush && window.location.pathname !== url) {
+        history.pushState({ page, params }, '', url);
+    }
     renderApp();
 }
+
+window.addEventListener('popstate', (e) => {
+    const m = window.location.pathname.match(/^\/p\/(\d+)$/);
+    if (m) {
+        state.currentPage = 'productDetail';
+        state.currentParams = { id: parseInt(m[1], 10), _noPushState: true };
+    } else {
+        state.currentPage = 'home';
+        state.currentParams = null;
+    }
+    window.scrollTo(0, 0);
+    renderApp();
+});
 
 // ── Render: App shell ──────────────────────────────────────────
 function renderApp() {
@@ -343,6 +367,7 @@ function renderApp() {
 
     const hiddenPages = {
         legal: { title: 'Aviso Legal y Terminos de Uso', render: renderLegal },
+        productDetail: { title: 'Detalle de producto', render: renderProductDetail },
     };
 
     const allPages = { ...publicPages, ...hiddenPages, ...(state.user ? { ...authPages, ...staffPages } : {}) };
@@ -854,8 +879,9 @@ function renderPriceCard(p) {
     if (p.type === 'group') return renderGroupCard(p);
     const addBtn = state.user ? `<button class="btn-cart-add" onclick="event.stopPropagation();addToCart(${p.id || 'null'},'${esc(p.name).replace(/'/g,"\\'")}','${esc(p.uom||'')}',${p.ref_price||'null'})" title="Agregar al carrito">${icon('plus',14)}</button>` : '';
     const specLink = p.spec_url ? `<a href="${esc(p.spec_url)}" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()" title="Ficha tecnica">${icon('file-text',13)} Ficha</a>` : '';
+    const clickAttr = p.id ? `onclick="openProduct(${p.id})" style="cursor:pointer"` : '';
     return `
-        <div class="price-card">
+        <div class="price-card" ${clickAttr}>
             <div class="price-info">
                 <div class="price-name">${esc(p.name)}</div>
                 <div class="price-detail">${p.category ? esc(p.category) : ''} ${p.uom ? '&middot; ' + esc(p.uom) : ''} ${specLink}</div>
@@ -899,7 +925,7 @@ function renderGroupCard(g) {
                 </div>
                 <div class="group-variants" id="group-variants-${g.id}" style="display:none">
                     ${(g.insumos || []).map(i => `
-                        <div class="variant-row">
+                        <div class="variant-row" onclick="openProduct(${i.id})" style="cursor:pointer">
                             <span class="variant-name">${esc(i.name)}${i.spec_url ? ` <a href="${esc(i.spec_url)}" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()" title="Ficha tecnica">${icon('file-text',12)}</a>` : ''}</span>
                             <span style="display:flex;align-items:center;gap:6px">
                                 <span class="variant-price">${i.ref_price ? i.ref_price.toFixed(2) : '--.--'} <span class="price-currency">${esc(i.ref_currency || 'BOB')}</span></span>
@@ -920,6 +946,151 @@ function toggleGroupVariants(groupId) {
     const showing = variants.style.display !== 'none';
     variants.style.display = showing ? 'none' : 'block';
     if (iconEl) iconEl.innerHTML = showing ? icon('chevron-down', 16) : icon('chevron-up', 16);
+}
+
+function openProduct(id) {
+    if (!id) return;
+    navigate('productDetail', { id });
+}
+
+// ── Render: Product Detail (/p/{id}) ───────────────────────────
+async function renderProductDetail() {
+    const page = document.getElementById('page-content');
+    const id = state.currentParams && state.currentParams.id;
+    if (!id) { navigate('home'); return; }
+
+    page.innerHTML = `<div class="product-detail-loading">${icon('clock', 20)} Cargando producto...</div>`;
+
+    let detail, suppliers;
+    try {
+        [detail, suppliers] = await Promise.all([
+            API.publicInsumoDetail(id),
+            API.publicInsumoSuppliers(id),
+        ]);
+    } catch (e) {
+        page.innerHTML = `<div class="empty-state">${icon('x', 32)}<p>Error al cargar el producto</p><button class="btn" onclick="navigate('prices')">Volver a Precios</button></div>`;
+        return;
+    }
+    if (!detail.ok || !detail.data) {
+        page.innerHTML = `<div class="empty-state">${icon('layers', 32)}<p>Producto no encontrado</p><button class="btn" onclick="navigate('prices')">Ver todos los precios</button></div>`;
+        return;
+    }
+
+    const p = detail.data;
+    const sups = (suppliers && suppliers.ok) ? suppliers.data : [];
+
+    const priceTxt = p.ref_price
+        ? `${p.ref_price.toFixed(2)} <span class="pd-currency">${esc(p.ref_currency || 'BOB')}</span>`
+        : '<span class="pd-no-price">Precio bajo consulta</span>';
+    const uomTxt = p.uom ? `<span class="pd-unit">/ ${esc(p.uom)}</span>` : '';
+
+    const specBtn = p.spec_url
+        ? `<a href="${esc(p.spec_url)}" target="_blank" rel="noopener" class="btn btn-secondary pd-spec-btn">${icon('file-text', 14)} Ficha tecnica</a>`
+        : '';
+
+    const regionalHtml = (p.regional_prices || []).length > 0
+        ? `<div class="pd-section">
+               <h3 class="pd-section-title">Precios por region</h3>
+               <div class="pd-regional-grid">
+                   ${p.regional_prices.map(r => `
+                       <div class="pd-regional-item">
+                           <div class="pd-regional-name">${esc(r.region)}</div>
+                           <div class="pd-regional-price">${r.price.toFixed(2)} <span class="pd-currency">${esc(r.currency || 'BOB')}</span></div>
+                           ${r.sample_count > 1 ? `<div class="pd-regional-hint">${r.sample_count} cotizaciones</div>` : ''}
+                       </div>
+                   `).join('')}
+               </div>
+           </div>`
+        : '';
+
+    const groupHtml = (p.group && p.group.siblings && p.group.siblings.length > 0)
+        ? `<div class="pd-section">
+               <h3 class="pd-section-title">${p.group.variant_label ? esc(p.group.variant_label) + 's' : 'Variantes'} de la familia: ${esc(p.group.name)}</h3>
+               <div class="pd-variants">
+                   ${p.group.siblings.map(s => `
+                       <div class="pd-variant-row" onclick="openProduct(${s.id})">
+                           <span class="pd-variant-name">${esc(s.name)}</span>
+                           <span class="pd-variant-price">${s.ref_price ? s.ref_price.toFixed(2) : '--.--'} <span class="pd-currency">${esc(s.ref_currency || 'BOB')}</span></span>
+                       </div>
+                   `).join('')}
+               </div>
+           </div>`
+        : '';
+
+    const supHtml = sups.length > 0
+        ? `<div class="pd-section">
+               <h3 class="pd-section-title">${sups.length} proveedor${sups.length > 1 ? 'es' : ''} lo ofrece${sups.length > 1 ? 'n' : ''}</h3>
+               <div class="pd-suppliers">
+                   ${sups.map(s => {
+                       const loc = [s.city, s.department].filter(Boolean).join(', ');
+                       const wa = s.whatsapp ? `<a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" rel="noopener" class="pd-sup-wa" onclick="event.stopPropagation()">${icon('whatsapp', 14)} WhatsApp</a>` : '';
+                       return `
+                           <div class="pd-sup-card" onclick="showPublicSupplierDetail(${s.supplier_id})">
+                               <div class="pd-sup-info">
+                                   <div class="pd-sup-name">${esc(s.supplier_name)}</div>
+                                   <div class="pd-sup-meta">${loc ? icon('map-pin', 12) + ' ' + esc(loc) : ''} ${s.order_count > 0 ? ' &middot; ' + s.order_count + ' pedido' + (s.order_count > 1 ? 's' : '') : ''}</div>
+                               </div>
+                               ${wa}
+                           </div>
+                       `;
+                   }).join('')}
+               </div>
+           </div>`
+        : `<div class="pd-section"><p class="pd-empty-hint">Aun no hay proveedores registrados para este producto.</p></div>`;
+
+    const relHtml = (p.related || []).length > 0
+        ? `<div class="pd-section">
+               <h3 class="pd-section-title">Otros productos de ${esc(p.category || 'la categoria')}</h3>
+               <div class="pd-related">
+                   ${p.related.map(r => `
+                       <div class="pd-related-card" onclick="openProduct(${r.id})">
+                           <div class="pd-related-name">${esc(r.name)}</div>
+                           <div class="pd-related-price">${r.ref_price ? r.ref_price.toFixed(2) : '--.--'} <span class="pd-currency">${esc(r.ref_currency || 'BOB')}</span>${r.uom ? ' / ' + esc(r.uom) : ''}</div>
+                       </div>
+                   `).join('')}
+               </div>
+           </div>`
+        : '';
+
+    page.innerHTML = `
+        <div class="product-detail">
+            <div class="pd-breadcrumb">
+                <a href="#" onclick="event.preventDefault();navigate('home')">Inicio</a>
+                <span>&rsaquo;</span>
+                <a href="#" onclick="event.preventDefault();navigate('prices')">Precios</a>
+                ${p.category ? `<span>&rsaquo;</span><a href="#" onclick="event.preventDefault();state.searchQuery='';state.selectedCategory='${esc(p.category).replace(/'/g,"\\'")}';navigate('prices')">${esc(p.category)}</a>` : ''}
+            </div>
+
+            <div class="pd-hero">
+                <div class="pd-hero-main">
+                    <h1 class="pd-title">${esc(p.name)}</h1>
+                    <div class="pd-meta">
+                        ${p.category ? `<span class="pd-chip">${icon('tag', 12)} ${esc(p.category)}</span>` : ''}
+                        ${p.subcategory ? `<span class="pd-chip">${esc(p.subcategory)}</span>` : ''}
+                        <span class="pd-chip">${icon('layers', 12)} ${esc(p.uom || '-')}</span>
+                        ${p.code ? `<span class="pd-chip pd-chip-mono">${esc(p.code)}</span>` : ''}
+                    </div>
+                    ${p.description ? `<p class="pd-description">${esc(p.description)}</p>` : ''}
+                </div>
+                <div class="pd-hero-side">
+                    <div class="pd-price-big">${priceTxt} ${uomTxt}</div>
+                    <div class="pd-price-hint">Precio de referencia</div>
+                    <div class="pd-actions">
+                        ${specBtn}
+                        ${state.user ? `<button class="btn btn-primary" onclick="addToCart(${p.id},'${esc(p.name).replace(/'/g,"\\'")}','${esc(p.uom||'')}',${p.ref_price||'null'})">${icon('plus', 14)} Agregar al carrito</button>` : ''}
+                    </div>
+                </div>
+            </div>
+
+            ${regionalHtml}
+            ${groupHtml}
+            ${supHtml}
+            ${relHtml}
+        </div>
+    `;
+
+    // Update document title for in-page browser tab (SSR already set it for initial load)
+    document.title = `${p.name} — Precio en Bolivia | Nexo Base`;
 }
 
 // ── Render: Public Prices page ─────────────────────────────────
@@ -7698,6 +7869,12 @@ async function init() {
     // Register service worker
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('/sw.js').catch(() => {});
+    }
+
+    const pathMatch = window.location.pathname.match(/^\/p\/(\d+)$/);
+    if (pathMatch) {
+        state.currentPage = 'productDetail';
+        state.currentParams = { id: parseInt(pathMatch[1], 10), _noPushState: true };
     }
 
     renderApp();

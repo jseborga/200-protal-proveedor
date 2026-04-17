@@ -1,9 +1,9 @@
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -437,7 +437,111 @@ class NoCacheAssetsMiddleware:
 
 app.add_middleware(NoCacheAssetsMiddleware)
 
-# Mount frontend (after API routes so /api/* takes priority)
+# ── SSR SEO: /p/{id} ────────────────────────────────────────────
+# Sirve index.html con meta tags y JSON-LD Product inyectados server-side
+# para que Google y crawlers de IA indexen cada producto.
+
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend", "public")
+_index_template: str | None = None
+
+
+def _load_index_html() -> str:
+    global _index_template
+    if _index_template is None:
+        with open(os.path.join(frontend_dir, "index.html"), encoding="utf-8") as f:
+            _index_template = f.read()
+    return _index_template
+
+
+def _html_escape(s: str) -> str:
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+@app.get("/p/{insumo_id}", response_class=HTMLResponse, include_in_schema=False)
+async def product_page(insumo_id: int, request: Request):
+    import json as _json
+    from app.models.insumo import Insumo
+
+    async with async_session() as db:
+        insumo = await db.get(Insumo, insumo_id)
+        if not insumo or not insumo.is_active:
+            raise HTTPException(status_code=404, detail="Producto no encontrado")
+
+    base_url = str(request.base_url).rstrip("/")
+    canonical = f"{base_url}/p/{insumo_id}"
+    name = insumo.name
+    cat = insumo.category or "construccion"
+    price_txt = f"Bs {insumo.ref_price:.2f} / {insumo.uom}" if insumo.ref_price else f"{insumo.uom}"
+    title = f"{name} — Precio en Bolivia | Nexo Base"
+    desc = (
+        insumo.description
+        or f"{name} ({cat}) — {price_txt}. Compara precios de {name} en Bolivia y contacta proveedores verificados. Nexo Base."
+    )[:300]
+
+    product_ld = {
+        "@context": "https://schema.org",
+        "@type": "Product",
+        "name": name,
+        "category": insumo.category,
+        "description": desc,
+        "sku": str(insumo.id),
+        "brand": {"@type": "Brand", "name": "Nexo Base"},
+        "url": canonical,
+    }
+    if insumo.ref_price:
+        product_ld["offers"] = {
+            "@type": "Offer",
+            "priceCurrency": insumo.ref_currency or "BOB",
+            "price": round(float(insumo.ref_price), 2),
+            "availability": "https://schema.org/InStock",
+            "url": canonical,
+            "areaServed": "BO",
+        }
+
+    html = _load_index_html()
+    e_title = _html_escape(title)
+    e_desc = _html_escape(desc)
+    e_canonical = _html_escape(canonical)
+
+    replacements = [
+        ("<title>Nexo Base | Precios y Proveedores de Construccion en Bolivia</title>",
+         f"<title>{e_title}</title>"),
+        ('<meta name="description" content="Nexo Base es la plataforma boliviana de precios unitarios (APU) y proveedores verificados de materiales de construccion. Compara precios reales de cemento, acero, ceramica, ferreteria y mas; contacta proveedores por WhatsApp y cotiza tus obras en segundos.">',
+         f'<meta name="description" content="{e_desc}">'),
+        ('<link rel="canonical" href="https://apu-marketplace-app.q8waob.easypanel.host/">',
+         f'<link rel="canonical" href="{e_canonical}">'),
+        ('<meta property="og:type" content="website">',
+         '<meta property="og:type" content="product">'),
+        ('<meta property="og:title" content="Nexo Base | Precios y Proveedores de Construccion en Bolivia">',
+         f'<meta property="og:title" content="{e_title}">'),
+        ('<meta property="og:description" content="Plataforma de precios unitarios (APU) y directorio de proveedores verificados de materiales de construccion en Bolivia. Compara, contacta y cotiza en minutos.">',
+         f'<meta property="og:description" content="{e_desc}">'),
+        ('<meta property="og:url" content="https://apu-marketplace-app.q8waob.easypanel.host/">',
+         f'<meta property="og:url" content="{e_canonical}">'),
+        ('<meta name="twitter:title" content="Nexo Base | Precios y Proveedores de Construccion en Bolivia">',
+         f'<meta name="twitter:title" content="{e_title}">'),
+        ('<meta name="twitter:description" content="Precios unitarios (APU) actualizados y proveedores verificados de materiales de construccion en Bolivia. Compara precios reales y contacta por WhatsApp.">',
+         f'<meta name="twitter:description" content="{e_desc}">'),
+    ]
+    for old, new in replacements:
+        html = html.replace(old, new, 1)
+
+    product_ld_tag = (
+        '\n    <!-- Structured Data: Product -->\n'
+        '    <script type="application/ld+json">\n'
+        f'    {_json.dumps(product_ld, ensure_ascii=False)}\n'
+        '    </script>\n</head>'
+    )
+    html = html.replace("</head>", product_ld_tag, 1)
+
+    return HTMLResponse(content=html)
+
+
+# Mount frontend (after API routes so /api/* takes priority)
 if os.path.isdir(frontend_dir):
     app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
