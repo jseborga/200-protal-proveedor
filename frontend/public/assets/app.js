@@ -2311,7 +2311,7 @@ async function loadAdminSuppliers() {
                     const waInvalid = !waNum || waNum === '0000000000' || (waNum.startsWith('591') && waNum.length >= 11 && !['6','7'].includes(waNum[3]));
                     const hasLoc = s.latitude != null && s.longitude != null;
                     const locCell = hasLoc
-                        ? `<span style="color:var(--success)" title="${(+s.latitude).toFixed(5)}, ${(+s.longitude).toFixed(5)}">${icon('map-pin',14)}</span>`
+                        ? `<a href="https://www.google.com/maps/?q=${(+s.latitude).toFixed(6)},${(+s.longitude).toFixed(6)}" target="_blank" rel="noopener" style="color:var(--success);text-decoration:none" title="${(+s.latitude).toFixed(5)}, ${(+s.longitude).toFixed(5)} - Ver en Google Maps">${icon('map-pin',14)}</a>`
                         : `<span style="color:var(--danger)" title="Sin coordenadas">-</span>`;
                     return `
                     <tr>
@@ -2354,12 +2354,62 @@ async function verifySupplier(id, newState) {
     } catch { toast('Error de conexion', 'error'); }
 }
 
+// Parse lat/lon from a pasted Google Maps URL or raw "lat,lon" string.
+// Returns {lat, lon} or null.
+function parseLatLonFromInput(text) {
+    if (!text) return null;
+    const t = text.trim();
+    // Plain "lat,lon" or "lat, lon"
+    let m = t.match(/^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/);
+    if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
+    // Google Maps URL: /@lat,lon,zoom
+    m = t.match(/[@\/](-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)(?:[,&\/]|$)/);
+    if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
+    // Google Maps URL with !3d<lat>!4d<lon>
+    m = t.match(/!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/);
+    if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
+    // ?q=lat,lon or ?ll=lat,lon
+    m = t.match(/[?&](?:q|ll|destination)=(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/);
+    if (m) return { lat: parseFloat(m[1]), lon: parseFloat(m[2]) };
+    return null;
+}
+
 async function geocodeRowSupplier(id) {
-    const override = prompt('Direccion a geocodificar (deja vacio para usar la del proveedor). Acepta Plus Code tipo FR9H+25W:');
-    if (override === null) return; // cancelled
+    const input = prompt(
+        'Opciones:\n' +
+        '1) Pega una URL de Google Maps (con coordenadas)\n' +
+        '2) Pega "lat, lon" directamente\n' +
+        '3) Escribe una direccion para geocodificar (acepta Plus Code FR9H+25W)\n' +
+        '4) Deja vacio para usar la direccion guardada del proveedor:'
+    );
+    if (input === null) return; // cancelled
+    const txt = (input || '').trim();
+
+    // If input looks like coords or a Maps URL, update directly.
+    const coords = parseLatLonFromInput(txt);
+    if (coords) {
+        try {
+            toast('Actualizando coordenadas...', 'info');
+            const resp = await API.updateSupplier(id, {
+                latitude: coords.lat,
+                longitude: coords.lon,
+            });
+            if (resp.ok || resp.id || resp.data) {
+                toast(`OK: ${coords.lat.toFixed(5)}, ${coords.lon.toFixed(5)}`, 'success');
+                loadAdminSuppliers();
+            } else {
+                toast(resp.detail || 'Error al guardar', 'error');
+            }
+        } catch (e) {
+            toast(e?.detail || 'Error al guardar', 'error');
+        }
+        return;
+    }
+
+    // Otherwise, geocode via Nominatim / Plus Code
     try {
         toast('Geocodificando...', 'info');
-        const resp = await API.geocodeSingleSupplier(id, override.trim() || null);
+        const resp = await API.geocodeSingleSupplier(id, txt || null);
         if (resp.ok) {
             const m = resp.method === 'pluscode_full' ? 'Plus Code' :
                       resp.method === 'pluscode_short' ? 'Plus Code corto' : 'Nominatim';
