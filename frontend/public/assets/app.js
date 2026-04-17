@@ -729,18 +729,28 @@ function renderSupplierCard(s) {
 
     const location = [s.city, s.department].filter(Boolean).join(', ');
 
+    // Anonimo: contactos bloqueados. Muestra boton que abre login.
+    const locked = s.contacts_locked;
     const waBtn = s.whatsapp
         ? `<a href="https://wa.me/${s.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" rel="noopener"
               class="btn-whatsapp" onclick="event.stopPropagation()">
               ${icon('whatsapp', 16)} WhatsApp
            </a>`
-        : '';
+        : (locked && s.has_whatsapp
+            ? `<button class="btn-whatsapp btn-locked" onclick="event.stopPropagation();showLoginModal()" title="Registrate para ver el contacto">
+                  ${icon('lock', 14)} WhatsApp
+               </button>`
+            : '');
 
     const callBtn = s.phone
         ? `<a href="tel:${s.phone}" class="btn-call" onclick="event.stopPropagation()">
               ${icon('phone', 16)} Llamar
            </a>`
-        : '';
+        : (locked && s.has_phone
+            ? `<button class="btn-call btn-locked" onclick="event.stopPropagation();showLoginModal()" title="Registrate para ver el contacto">
+                  ${icon('lock', 14)} Llamar
+               </button>`
+            : '');
 
     const rating = s.rating > 0
         ? `<span style="color:#f59e0b;font-size:13px">${icon('star', 14)} ${s.rating.toFixed(1)}</span>`
@@ -1196,15 +1206,30 @@ async function showPublicSupplierDetail(supplierId) {
             return `<span class="supplier-cat">${esc(meta.label || cat)}</span>`;
         }).join('');
 
+        const locked = s.contacts_locked;
         const waBtn = s.whatsapp
             ? `<a href="https://wa.me/${s.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" rel="noopener"
                   class="btn-whatsapp" onclick="event.stopPropagation()">${icon('whatsapp', 16)} WhatsApp</a>`
-            : '';
+            : (locked && s.has_whatsapp
+                ? `<button class="btn-whatsapp btn-locked" onclick="showLoginModal()">${icon('lock', 14)} WhatsApp</button>`
+                : '');
         const callBtn = s.phone
             ? `<a href="tel:${s.phone}" class="btn-call" onclick="event.stopPropagation()">${icon('phone', 16)} Llamar</a>`
-            : '';
+            : (locked && s.has_phone
+                ? `<button class="btn-call btn-locked" onclick="showLoginModal()">${icon('lock', 14)} Llamar</button>`
+                : '');
         const webBtn = s.website
             ? `<a href="${esc(s.website)}" target="_blank" rel="noopener" class="btn-call">${icon('globe', 16)} Web</a>`
+            : (locked && s.has_website
+                ? `<button class="btn-call btn-locked" onclick="showLoginModal()">${icon('lock', 14)} Web</button>`
+                : '');
+        const lockedBanner = locked
+            ? `<div class="contacts-locked-banner">
+                  ${icon('lock', 16)}
+                  <span>Los datos de contacto estan disponibles para usuarios registrados.</span>
+                  <button class="btn btn-primary btn-sm" onclick="showLoginModal()">Ingresar</button>
+                  <button class="btn btn-outline btn-sm" onclick="showRegisterModal(event)">Registrarme</button>
+               </div>`
             : '';
         const rating = s.rating > 0
             ? `<span style="color:#f59e0b;font-size:15px">${icon('star', 16)} ${s.rating.toFixed(1)}</span>`
@@ -1216,14 +1241,30 @@ async function showPublicSupplierDetail(supplierId) {
 
         const branchesHtml = (s.branches || []).map(b => {
             const bLoc = [b.city, b.department].filter(Boolean).join(', ');
-            const contactsHtml = (b.contacts || []).map(ct =>
-                `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+            const contactsHtml = (b.contacts || []).map(ct => {
+                const waLink = ct.whatsapp
+                    ? `<a href="https://wa.me/${ct.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" style="color:var(--whatsapp);font-size:12px">${icon('whatsapp',12)} ${esc(ct.whatsapp)}</a>`
+                    : (locked && ct.has_whatsapp
+                        ? `<button class="btn-locked" onclick="showLoginModal()" style="font-size:11px;padding:2px 6px">${icon('lock',11)} WhatsApp</button>` : '');
+                const phLink = ct.phone && !ct.whatsapp
+                    ? `<a href="tel:${ct.phone}" style="font-size:12px">${icon('phone',12)} ${esc(ct.phone)}</a>`
+                    : (locked && ct.has_phone && !ct.has_whatsapp
+                        ? `<button class="btn-locked" onclick="showLoginModal()" style="font-size:11px;padding:2px 6px">${icon('lock',11)} Telefono</button>` : '');
+                return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
                     <span style="font-weight:500">${esc(ct.full_name)}</span>
                     ${ct.position ? `<span style="font-size:12px;color:var(--gray-500)">${esc(ct.position)}</span>` : ''}
-                    ${ct.whatsapp ? `<a href="https://wa.me/${ct.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" style="color:var(--whatsapp);font-size:12px">${icon('whatsapp',12)} ${esc(ct.whatsapp)}</a>` : ''}
-                    ${ct.phone && !ct.whatsapp ? `<a href="tel:${ct.phone}" style="font-size:12px">${icon('phone',12)} ${esc(ct.phone)}</a>` : ''}
-                </div>`
-            ).join('');
+                    ${waLink}${phLink}
+                </div>`;
+            }).join('');
+
+            const bWa = b.whatsapp
+                ? `<a href="https://wa.me/${b.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" class="btn-whatsapp" style="font-size:12px;padding:3px 8px">${icon('whatsapp',12)} ${esc(b.whatsapp)}</a>`
+                : (locked && b.has_whatsapp
+                    ? `<button class="btn-whatsapp btn-locked" onclick="showLoginModal()" style="font-size:12px;padding:3px 8px">${icon('lock',12)} WhatsApp</button>` : '');
+            const bPh = b.phone
+                ? `<a href="tel:${b.phone}" class="btn-call" style="font-size:12px;padding:3px 8px">${icon('phone',12)} ${esc(b.phone)}</a>`
+                : (locked && b.has_phone
+                    ? `<button class="btn-call btn-locked" onclick="showLoginModal()" style="font-size:12px;padding:3px 8px">${icon('lock',12)} Llamar</button>` : '');
 
             return `
                 <div style="border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-bottom:8px">
@@ -1233,10 +1274,7 @@ async function showPublicSupplierDetail(supplierId) {
                     </div>
                     <div style="font-size:13px;color:var(--gray-500);margin-bottom:4px">${icon('map',12)} ${bLoc || 'Sin ubicacion'}</div>
                     ${b.address ? `<div style="font-size:13px;color:var(--gray-500);margin-bottom:6px">${esc(b.address)}</div>` : ''}
-                    <div style="display:flex;gap:8px;margin-bottom:6px">
-                        ${b.whatsapp ? `<a href="https://wa.me/${b.whatsapp.replace(/[^0-9]/g, '')}" target="_blank" class="btn-whatsapp" style="font-size:12px;padding:3px 8px">${icon('whatsapp',12)} ${esc(b.whatsapp)}</a>` : ''}
-                        ${b.phone ? `<a href="tel:${b.phone}" class="btn-call" style="font-size:12px;padding:3px 8px">${icon('phone',12)} ${esc(b.phone)}</a>` : ''}
-                    </div>
+                    <div style="display:flex;gap:8px;margin-bottom:6px">${bWa}${bPh}</div>
                     ${contactsHtml ? `<div style="border-top:1px solid var(--gray-100);padding-top:6px;margin-top:4px">
                         <div style="font-size:12px;color:var(--gray-400);margin-bottom:2px">Contactos</div>
                         ${contactsHtml}
@@ -1250,7 +1288,8 @@ async function showPublicSupplierDetail(supplierId) {
 
         const phone2Btn = s.phone2
             ? `<a href="tel:${s.phone2}" class="btn-call" onclick="event.stopPropagation()">${icon('phone', 16)} ${esc(s.phone2)}</a>`
-            : '';
+            : (locked && s.has_phone2
+                ? `<button class="btn-call btn-locked" onclick="showLoginModal()">${icon('lock', 14)} Telefono 2</button>` : '');
 
         const rubrosHtml = (s.rubros || []).length > 0
             ? `<div style="margin-bottom:16px">
@@ -1277,9 +1316,11 @@ async function showPublicSupplierDetail(supplierId) {
                 ${opCities}
                 ${s.address ? `<div style="color:var(--gray-500);font-size:13px;margin-top:2px">${esc(s.address)}</div>` : ''}
                 ${s.description ? `<div style="margin-top:8px;font-size:14px;color:var(--gray-600);line-height:1.4">${esc(s.description)}</div>` : ''}
-                ${s.email ? `<div style="margin-top:6px;font-size:13px">${icon('mail',13)} <a href="mailto:${esc(s.email)}">${esc(s.email)}</a></div>` : ''}
+                ${s.email ? `<div style="margin-top:6px;font-size:13px">${icon('mail',13)} <a href="mailto:${esc(s.email)}">${esc(s.email)}</a></div>`
+                    : (locked && s.has_email ? `<div style="margin-top:6px;font-size:13px;color:var(--gray-500)">${icon('lock',13)} Email disponible al registrarse</div>` : '')}
                 ${s.website ? `<div style="font-size:13px;margin-top:2px">${icon('globe',13)} <a href="https://${esc(s.website)}" target="_blank" rel="noopener">${esc(s.website)}</a></div>` : ''}
             </div>
+            ${lockedBanner}
             <div class="supplier-categories" style="margin-bottom:12px">${cats || ''}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
                 ${waBtn}${callBtn}${phone2Btn}${webBtn}
