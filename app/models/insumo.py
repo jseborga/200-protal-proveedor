@@ -29,6 +29,8 @@ class Insumo(TimestampMixin, Base):
 
     # Link to technical specs PDF/manual
     spec_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Product image (path served from /uploads/insumos/)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     # Matching helpers
     tokens: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # pre-computed tokens

@@ -71,6 +71,10 @@ async def _init_db():
         await conn.execute(text(
             "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS spec_url VARCHAR(500)"
         ))
+        # image_url for product image (served from /uploads/insumos/)
+        await conn.execute(text(
+            "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS image_url VARCHAR(500)"
+        ))
 
 
 async def _ensure_superadmin():
@@ -483,6 +487,8 @@ async def product_page(insumo_id: int, request: Request):
         or f"{name} ({cat}) — {price_txt}. Compara precios de {name} en Bolivia y contacta proveedores verificados. Nexo Base."
     )[:300]
 
+    image_abs = f"{base_url}{insumo.image_url}" if insumo.image_url else None
+
     product_ld = {
         "@context": "https://schema.org",
         "@type": "Product",
@@ -493,6 +499,8 @@ async def product_page(insumo_id: int, request: Request):
         "brand": {"@type": "Brand", "name": "Nexo Base"},
         "url": canonical,
     }
+    if image_abs:
+        product_ld["image"] = image_abs
     if insumo.ref_price:
         product_ld["offers"] = {
             "@type": "Offer",
@@ -528,6 +536,17 @@ async def product_page(insumo_id: int, request: Request):
         ('<meta name="twitter:description" content="Precios unitarios (APU) actualizados y proveedores verificados de materiales de construccion en Bolivia. Compara precios reales y contacta por WhatsApp.">',
          f'<meta name="twitter:description" content="{e_desc}">'),
     ]
+    if image_abs:
+        e_img = _html_escape(image_abs)
+        e_alt = _html_escape(f"{name} - Nexo Base")
+        replacements.extend([
+            ('<meta property="og:image" content="https://apu-marketplace-app.q8waob.easypanel.host/icon-512.png">',
+             f'<meta property="og:image" content="{e_img}">'),
+            ('<meta property="og:image:alt" content="Nexo Base - Precios y proveedores de construccion en Bolivia">',
+             f'<meta property="og:image:alt" content="{e_alt}">'),
+            ('<meta name="twitter:image" content="https://apu-marketplace-app.q8waob.easypanel.host/icon-512.png">',
+             f'<meta name="twitter:image" content="{e_img}">'),
+        ])
     for old, new in replacements:
         html = html.replace(old, new, 1)
 
@@ -541,6 +560,11 @@ async def product_page(insumo_id: int, request: Request):
 
     return HTMLResponse(content=html)
 
+
+# Mount uploads dir (persisted via EasyPanel volume if configured)
+uploads_dir = os.path.join(os.path.dirname(__file__), "..", "uploads")
+os.makedirs(os.path.join(uploads_dir, "insumos"), exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 # Mount frontend (after API routes so /api/* takes priority)
 if os.path.isdir(frontend_dir):

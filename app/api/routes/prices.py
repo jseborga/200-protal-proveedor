@@ -1,8 +1,10 @@
 import json
+import os
+import secrets
 from datetime import date, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +44,7 @@ class InsumoUpdate(BaseModel):
     ref_price: float | None = None
     is_active: bool | None = None
     spec_url: str | None = None
+    image_url: str | None = None
 
 
 class RegionalPriceInput(BaseModel):
@@ -162,6 +165,7 @@ async def public_grouped_prices(
                     "ref_price": i.ref_price,
                     "ref_currency": i.ref_currency,
                     "spec_url": getattr(i, "spec_url", None),
+                    "image_url": getattr(i, "image_url", None),
                 }
                 for i in sorted(active, key=lambda x: (x.ref_price or 0, x.name))
             ],
@@ -287,6 +291,7 @@ async def public_insumo_detail(
                         "ref_price": s.ref_price,
                         "ref_currency": s.ref_currency,
                         "spec_url": getattr(s, "spec_url", None),
+                        "image_url": getattr(s, "image_url", None),
                     }
                     for s in siblings_result.scalars().all()
                 ],
@@ -704,6 +709,74 @@ async def add_manual_price(
     return {"ok": True, "id": ph.id}
 
 
+# ── Image upload ──────────────────────────────────────────────
+_UPLOADS_INSUMOS_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "insumos"
+_ALLOWED_IMG_EXT = {".jpg", ".jpeg", ".png", ".webp"}
+_MAX_IMG_SIZE = 5 * 1024 * 1024  # 5 MB
+
+
+@router.post("/{insumo_id}/image")
+async def upload_insumo_image(
+    insumo_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Sube imagen para un insumo (admin/manager). Guarda en /uploads/insumos/."""
+    if user.role not in ("admin", "superadmin", "manager"):
+        raise HTTPException(status_code=403, detail="Solo admin/manager pueden subir imagenes")
+
+    insumo = await db.get(Insumo, insumo_id)
+    if not insumo:
+        raise HTTPException(status_code=404, detail="Insumo no encontrado")
+
+    filename = file.filename or ""
+    ext = Path(filename).suffix.lower()
+    if ext not in _ALLOWED_IMG_EXT:
+        raise HTTPException(status_code=400, detail=f"Extension no permitida. Usa: {', '.join(sorted(_ALLOWED_IMG_EXT))}")
+
+    content = await file.read()
+    if len(content) > _MAX_IMG_SIZE:
+        raise HTTPException(status_code=413, detail="Imagen mayor a 5 MB")
+
+    _UPLOADS_INSUMOS_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Remove previous image(s) for this insumo
+    for prev in _UPLOADS_INSUMOS_DIR.glob(f"{insumo_id}-*"):
+        try: prev.unlink()
+        except OSError: pass
+
+    token = secrets.token_hex(3)
+    new_name = f"{insumo_id}-{token}{ext}"
+    with open(_UPLOADS_INSUMOS_DIR / new_name, "wb") as f:
+        f.write(content)
+
+    insumo.image_url = f"/uploads/insumos/{new_name}"
+    await db.flush()
+    return {"ok": True, "image_url": insumo.image_url}
+
+
+@router.delete("/{insumo_id}/image")
+async def delete_insumo_image(
+    insumo_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if user.role not in ("admin", "superadmin", "manager"):
+        raise HTTPException(status_code=403, detail="Solo admin/manager")
+
+    insumo = await db.get(Insumo, insumo_id)
+    if not insumo:
+        raise HTTPException(status_code=404, detail="Insumo no encontrado")
+
+    for prev in _UPLOADS_INSUMOS_DIR.glob(f"{insumo_id}-*"):
+        try: prev.unlink()
+        except OSError: pass
+    insumo.image_url = None
+    await db.flush()
+    return {"ok": True}
+
+
 # ── Supplier-Product relationship ──────────────────────────────
 @router.get("/{insumo_id}/suppliers")
 async def get_product_suppliers(
@@ -888,4 +961,6 @@ def _insumo_to_dict(i: Insumo) -> dict:
     }
     if hasattr(i, 'spec_url'):
         d["spec_url"] = i.spec_url
+    if hasattr(i, 'image_url'):
+        d["image_url"] = i.image_url
     return d
