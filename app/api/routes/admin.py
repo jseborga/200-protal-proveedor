@@ -17,6 +17,7 @@ from app.models.user import User
 from app.models.api_key import ApiKey
 from app.models.catalog import Category, UnitOfMeasure
 from app.models.ai_agent import AIAgent
+from app.services.pluscode import decode_to_latlng, extract as extract_pluscode, is_full as pluscode_is_full
 
 router = APIRouter()
 
@@ -947,11 +948,14 @@ async def bulk_geocode_suppliers(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_manager),
 ):
-    """Geocodifica por lotes los proveedores usando Nominatim (OSM).
+    """Geocodifica por lotes los proveedores.
 
-    - batch_size: cantidad a procesar en esta llamada (max 50, ~1s por uno)
+    Estrategia:
+      1. Detecta Plus Codes (ej. "FR9H+25W") en address/description y decodifica local.
+         Codigo corto: usa la ciudad/depto como referencia (geocodeada con Nominatim).
+      2. Si no hay Plus Code, llama Nominatim con address+city+department.
+    - batch_size: max 50 por llamada (~1s Nominatim cada uno sin Plus Code)
     - only_missing: si true, solo toca proveedores sin lat/lng
-    Devuelve contador y lista de resultados para auditoria.
     """
     import asyncio
     import httpx
@@ -970,42 +974,117 @@ async def bulk_geocode_suppliers(
     items = []
     geocoded = 0
     failed = 0
+    city_ref_cache: dict[str, tuple[float, float] | None] = {}
+
+    async def get_city_ref(client: httpx.AsyncClient, city: str | None, dept: str | None) -> tuple[float, float] | None:
+        key = f"{(city or '').lower().strip()}|{(dept or '').lower().strip()}"
+        if key in city_ref_cache:
+            return city_ref_cache[key]
+        parts = [p for p in [city, dept, "Bolivia"] if p]
+        if not parts:
+            city_ref_cache[key] = None
+            return None
+        try:
+            resp = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": ", ".join(parts), "format": "json", "limit": 1, "countrycodes": "bo"},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            if data:
+                ref = (float(data[0]["lat"]), float(data[0]["lon"]))
+                city_ref_cache[key] = ref
+                await asyncio.sleep(1.1)
+                return ref
+        except Exception:
+            pass
+        city_ref_cache[key] = None
+        await asyncio.sleep(1.1)
+        return None
 
     async with httpx.AsyncClient(timeout=12.0) as client:
         for i, s in enumerate(suppliers):
-            parts = [s.address, s.city, s.department, "Bolivia"]
-            query = ", ".join([p for p in parts if p])
-            if not query or len(query) < 5:
-                items.append({"id": s.id, "name": s.name, "status": "skipped", "reason": "sin direccion/ciudad"})
-                failed += 1
-                continue
-            try:
-                resp = await client.get(
-                    "https://nominatim.openstreetmap.org/search",
-                    params={"q": query, "format": "json", "limit": 1, "countrycodes": "bo"},
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                if not data:
-                    items.append({"id": s.id, "name": s.name, "status": "not_found", "query": query})
+            used_api = False
+            handled = False
+
+            # ── 1. Intentar Plus Code ─────────────────────────────
+            blob = " ".join([x for x in [s.address, s.description] if x])
+            code = extract_pluscode(blob)
+            if code:
+                if pluscode_is_full(code):
+                    latlng = decode_to_latlng(code)
+                    if latlng:
+                        s.latitude, s.longitude = latlng
+                        items.append({
+                            "id": s.id, "name": s.name, "status": "ok",
+                            "lat": latlng[0], "lon": latlng[1],
+                            "method": "pluscode_full", "code": code,
+                        })
+                        geocoded += 1
+                        handled = True
+                else:
+                    # Codigo corto: necesita referencia
+                    ref = await get_city_ref(client, s.city, s.department)
+                    used_api = True
+                    if ref:
+                        latlng = decode_to_latlng(code, ref[0], ref[1])
+                        if latlng:
+                            s.latitude, s.longitude = latlng
+                            items.append({
+                                "id": s.id, "name": s.name, "status": "ok",
+                                "lat": latlng[0], "lon": latlng[1],
+                                "method": "pluscode_short", "code": code, "ref_city": s.city,
+                            })
+                            geocoded += 1
+                            handled = True
+                    if not handled:
+                        items.append({
+                            "id": s.id, "name": s.name, "status": "not_found",
+                            "method": "pluscode_short", "code": code,
+                            "reason": "ciudad sin referencia",
+                        })
+                        failed += 1
+                        handled = True
+
+            # ── 2. Fallback: Nominatim por direccion libre ────────
+            if not handled:
+                parts = [s.address, s.city, s.department, "Bolivia"]
+                query = ", ".join([p for p in parts if p])
+                if not query or len(query) < 5:
+                    items.append({"id": s.id, "name": s.name, "status": "skipped", "reason": "sin direccion/ciudad"})
                     failed += 1
                 else:
-                    lat = float(data[0]["lat"])
-                    lon = float(data[0]["lon"])
-                    s.latitude = lat
-                    s.longitude = lon
-                    items.append({
-                        "id": s.id, "name": s.name, "status": "ok",
-                        "lat": lat, "lon": lon,
-                        "display_name": data[0].get("display_name"),
-                    })
-                    geocoded += 1
-            except Exception as e:
-                items.append({"id": s.id, "name": s.name, "status": "error", "error": str(e)[:80]})
-                failed += 1
-            # Respetar rate limit de Nominatim (~1 req/s)
-            if i < len(suppliers) - 1:
+                    try:
+                        resp = await client.get(
+                            "https://nominatim.openstreetmap.org/search",
+                            params={"q": query, "format": "json", "limit": 1, "countrycodes": "bo"},
+                            headers=headers,
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        used_api = True
+                        if not data:
+                            items.append({"id": s.id, "name": s.name, "status": "not_found", "query": query, "method": "nominatim"})
+                            failed += 1
+                        else:
+                            lat = float(data[0]["lat"])
+                            lon = float(data[0]["lon"])
+                            s.latitude = lat
+                            s.longitude = lon
+                            items.append({
+                                "id": s.id, "name": s.name, "status": "ok",
+                                "lat": lat, "lon": lon,
+                                "method": "nominatim",
+                                "display_name": data[0].get("display_name"),
+                            })
+                            geocoded += 1
+                    except Exception as e:
+                        items.append({"id": s.id, "name": s.name, "status": "error", "error": str(e)[:80]})
+                        failed += 1
+
+            # Respetar rate limit de Nominatim solo si se uso la API
+            if used_api and i < len(suppliers) - 1:
                 await asyncio.sleep(1.1)
 
     await db.flush()
@@ -1024,6 +1103,99 @@ async def bulk_geocode_suppliers(
         "failed": failed,
         "items": items,
         "remaining": remaining,
+    }
+
+
+class _SingleGeocodeIn(BaseModel):
+    address: str | None = None  # opcional: override del address del proveedor
+    save: bool = True  # si true guarda lat/lng en DB
+
+
+@router.post("/suppliers/{supplier_id}/geocode")
+async def geocode_single_supplier(
+    supplier_id: int,
+    body: _SingleGeocodeIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Geocodifica un proveedor puntual (Plus Code o Nominatim).
+
+    Permite override del address via body. Util para re-intentar o corregir.
+    """
+    import httpx
+
+    s = (await db.execute(select(Supplier).where(Supplier.id == supplier_id))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "Proveedor no encontrado")
+
+    address = (body.address or s.address or "").strip()
+    blob = " ".join([x for x in [address, s.description] if x])
+    headers = {"User-Agent": "NexoBase/1.0 (contacto@nexobase.com)"}
+
+    # 1. Plus Code
+    code = extract_pluscode(blob)
+    if code:
+        if pluscode_is_full(code):
+            latlng = decode_to_latlng(code)
+            if latlng:
+                if body.save:
+                    s.latitude, s.longitude = latlng
+                    await db.flush()
+                return {"ok": True, "lat": latlng[0], "lon": latlng[1], "method": "pluscode_full", "code": code}
+        else:
+            # corto: obtener referencia por ciudad
+            async with httpx.AsyncClient(timeout=12.0) as client:
+                parts = [p for p in [s.city, s.department, "Bolivia"] if p]
+                ref = None
+                if parts:
+                    try:
+                        resp = await client.get(
+                            "https://nominatim.openstreetmap.org/search",
+                            params={"q": ", ".join(parts), "format": "json", "limit": 1, "countrycodes": "bo"},
+                            headers=headers,
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                        if data:
+                            ref = (float(data[0]["lat"]), float(data[0]["lon"]))
+                    except Exception:
+                        ref = None
+            if ref:
+                latlng = decode_to_latlng(code, ref[0], ref[1])
+                if latlng:
+                    if body.save:
+                        s.latitude, s.longitude = latlng
+                        await db.flush()
+                    return {"ok": True, "lat": latlng[0], "lon": latlng[1], "method": "pluscode_short", "code": code}
+            raise HTTPException(422, f"Plus Code corto '{code}' sin referencia de ciudad")
+
+    # 2. Fallback Nominatim
+    parts = [address, s.city, s.department, "Bolivia"]
+    query = ", ".join([p for p in parts if p])
+    if not query or len(query) < 5:
+        raise HTTPException(422, "Sin direccion/ciudad para geocodificar")
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        try:
+            resp = await client.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={"q": query, "format": "json", "limit": 1, "countrycodes": "bo"},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as e:
+            raise HTTPException(502, f"Error Nominatim: {str(e)[:80]}")
+    if not data:
+        raise HTTPException(404, f"No encontrado en Nominatim: {query}")
+    lat = float(data[0]["lat"])
+    lon = float(data[0]["lon"])
+    if body.save:
+        s.latitude, s.longitude = lat, lon
+        await db.flush()
+    return {
+        "ok": True, "lat": lat, "lon": lon,
+        "method": "nominatim",
+        "display_name": data[0].get("display_name"),
     }
 
 

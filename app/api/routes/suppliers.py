@@ -397,6 +397,7 @@ async def list_suppliers(
     category: str | None = Query(None),
     state: str | None = Query(None),
     contact: str | None = Query(None, description="valid_wa, invalid_wa, no_wa"),
+    location: str | None = Query(None, description="missing | has"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
@@ -426,6 +427,17 @@ async def list_suppliers(
     elif contact == "valid_wa":
         query = query.where(
             Supplier.whatsapp.op("~")(r"^591[67]\d{7}$"),
+        )
+
+    # Location filter
+    if location == "missing":
+        query = query.where(
+            (Supplier.latitude.is_(None)) | (Supplier.longitude.is_(None))
+        )
+    elif location == "has":
+        query = query.where(
+            Supplier.latitude.isnot(None),
+            Supplier.longitude.isnot(None),
         )
 
     total_q = select(func.count()).select_from(query.subquery())

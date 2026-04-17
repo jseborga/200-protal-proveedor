@@ -103,6 +103,7 @@ const API = {
     geocodeAddress: (q) => API.get(`/suppliers/geocode?q=${encodeURIComponent(q)}`),
     geocodeStatus: () => API.get('/admin/suppliers/geocode-status'),
     bulkGeocode: (batchSize = 20) => API.post(`/admin/suppliers/bulk-geocode?batch_size=${batchSize}`, {}),
+    geocodeSingleSupplier: (id, address = null) => API.post(`/admin/suppliers/${id}/geocode`, { address, save: true }),
     rfqs: (params = '') => API.get(`/rfq${params}`),
     createRFQ: (data) => API.post('/rfq', data),
     stats: () => API.get('/admin/stats'),
@@ -2208,6 +2209,7 @@ async function renderAdminDashboard() {
 let _admSupOffset = 0;
 let _admSupCategory = '';
 let _admSupContact = '';
+let _admSupLocation = '';
 const _admSupPageSize = 50;
 
 async function renderAdminSuppliers() {
@@ -2248,6 +2250,13 @@ async function renderAdminSuppliers() {
                     <option value="no_wa" ${_admSupContact === 'no_wa' ? 'selected' : ''}>Sin WhatsApp</option>
                     <option value="invalid_wa" ${_admSupContact === 'invalid_wa' ? 'selected' : ''}>WhatsApp invalido</option>
                 </select>
+                <select id="admin-supplier-location"
+                        onchange="_admSupLocation=this.value;_admSupOffset=0;loadAdminSuppliers()"
+                        style="padding:6px 10px;border:1px solid #ddd;border-radius:4px">
+                    <option value="">Ubicacion: todas</option>
+                    <option value="missing" ${_admSupLocation === 'missing' ? 'selected' : ''}>Sin ubicacion</option>
+                    <option value="has" ${_admSupLocation === 'has' ? 'selected' : ''}>Con ubicacion</option>
+                </select>
             </div>
             <div style="display:flex;gap:8px">
                 <button class="btn btn-primary" onclick="showAdminSupplierForm()">
@@ -2280,6 +2289,7 @@ async function loadAdminSuppliers() {
     if (st) params += `&state=${encodeURIComponent(st)}`;
     if (_admSupCategory) params += `&category=${encodeURIComponent(_admSupCategory)}`;
     if (_admSupContact) params += `&contact=${encodeURIComponent(_admSupContact)}`;
+    if (_admSupLocation) params += `&location=${encodeURIComponent(_admSupLocation)}`;
 
     try {
         const resp = await API.suppliers(params);
@@ -2293,17 +2303,22 @@ async function loadAdminSuppliers() {
         container.innerHTML = `
             <div class="table-wrap"><table>
                 <thead><tr>
-                    <th>Nombre</th><th>Ciudad</th><th>Depto.</th><th>WhatsApp</th>
+                    <th>Nombre</th><th>Ciudad</th><th>Depto.</th><th>Ubicacion</th><th>WhatsApp</th>
                     <th>Categorias</th><th>Estado</th><th>Acciones</th>
                 </tr></thead>
                 <tbody>${resp.data.map(s => {
                     const waNum = (s.whatsapp || '').replace(/[^0-9]/g, '');
                     const waInvalid = !waNum || waNum === '0000000000' || (waNum.startsWith('591') && waNum.length >= 11 && !['6','7'].includes(waNum[3]));
+                    const hasLoc = s.latitude != null && s.longitude != null;
+                    const locCell = hasLoc
+                        ? `<span style="color:var(--success)" title="${(+s.latitude).toFixed(5)}, ${(+s.longitude).toFixed(5)}">${icon('map-pin',14)}</span>`
+                        : `<span style="color:var(--danger)" title="Sin coordenadas">-</span>`;
                     return `
                     <tr>
                         <td><strong>${esc(s.name)}</strong>${s.trade_name ? `<br><small style="color:var(--gray-500)">${esc(s.trade_name)}</small>` : ''}</td>
                         <td>${esc(s.city) || '-'}</td>
                         <td>${esc(s.department) || '-'}</td>
+                        <td>${locCell}</td>
                         <td>${s.whatsapp && s.whatsapp !== '0000000000'
                             ? `<a href="https://wa.me/${waNum}" target="_blank" style="color:${waInvalid ? 'var(--danger)' : 'var(--whatsapp)'}">${esc(s.whatsapp)}${waInvalid ? ' ⚠' : ''}</a>`
                             : '<span style="color:var(--danger)">Sin WhatsApp</span>'}</td>
@@ -2312,6 +2327,7 @@ async function loadAdminSuppliers() {
                         <td style="white-space:nowrap">
                             <button class="btn btn-sm btn-primary" onclick="showAdminSupplierDetail(${s.id}, decodeURIComponent('${encodeURIComponent(s.name)}'))" title="Ver detalle">${icon('file-text',14)}</button>
                             <button class="btn btn-sm btn-secondary" onclick="showAdminSupplierForm(${s.id})" title="Editar">${icon('edit',14)}</button>
+                            ${isManager() ? `<button class="btn btn-sm btn-secondary" onclick="geocodeRowSupplier(${s.id})" title="Geocodificar" style="color:var(--primary)">${icon('map-pin',14)}</button>` : ''}
                             ${isManager() ? `<button class="btn btn-sm btn-secondary" onclick="verifySupplier(${s.id},'verified')" title="Verificar" style="color:var(--success)">&#10003;</button>` : ''}
                         </td>
                     </tr>`;
@@ -2336,6 +2352,25 @@ async function verifySupplier(id, newState) {
         if (resp.ok) { toast('Proveedor actualizado', 'success'); loadAdminSuppliers(); }
         else toast(resp.detail || 'Error', 'error');
     } catch { toast('Error de conexion', 'error'); }
+}
+
+async function geocodeRowSupplier(id) {
+    const override = prompt('Direccion a geocodificar (deja vacio para usar la del proveedor). Acepta Plus Code tipo FR9H+25W:');
+    if (override === null) return; // cancelled
+    try {
+        toast('Geocodificando...', 'info');
+        const resp = await API.geocodeSingleSupplier(id, override.trim() || null);
+        if (resp.ok) {
+            const m = resp.method === 'pluscode_full' ? 'Plus Code' :
+                      resp.method === 'pluscode_short' ? 'Plus Code corto' : 'Nominatim';
+            toast(`OK (${m}): ${resp.lat.toFixed(5)}, ${resp.lon.toFixed(5)}`, 'success');
+            loadAdminSuppliers();
+        } else {
+            toast(resp.detail || 'Sin resultado', 'error');
+        }
+    } catch (e) {
+        toast(e?.detail || 'Error al geocodificar', 'error');
+    }
 }
 
 async function showSupplierProducts(supplierId, name) {
