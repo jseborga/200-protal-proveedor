@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.rate_limit import PUBLIC_LIMIT, limiter
 from app.core.security import get_current_user
 from app.api.deps import require_manager, require_staff
 from sqlalchemy.orm import selectinload
@@ -52,13 +53,15 @@ class SupplierUpdate(BaseModel):
 
 # ── Public endpoints ────────────────────────────────────────────
 @router.get("/public")
+@limiter.limit(PUBLIC_LIMIT)
 async def public_suppliers(
+    request: Request,
     q: str | None = Query(None),
     city: str | None = Query(None),
     department: str | None = Query(None),
     category: str | None = Query(None),
     offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
     """Public supplier directory — no auth required."""
@@ -103,7 +106,8 @@ async def public_suppliers(
 
 
 @router.get("/public/cities")
-async def public_cities(db: AsyncSession = Depends(get_db)):
+@limiter.limit(PUBLIC_LIMIT)
+async def public_cities(request: Request, db: AsyncSession = Depends(get_db)):
     """List cities with verified suppliers."""
     result = await db.execute(
         select(Supplier.city, Supplier.department, func.count(Supplier.id))
@@ -125,7 +129,8 @@ async def public_cities(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/public/categories")
-async def public_supplier_categories(db: AsyncSession = Depends(get_db)):
+@limiter.limit(PUBLIC_LIMIT)
+async def public_supplier_categories(request: Request, db: AsyncSession = Depends(get_db)):
     """List distinct supplier categories with counts."""
     result = await db.execute(
         select(func.unnest(Supplier.categories).label("cat"))
@@ -141,7 +146,9 @@ async def public_supplier_categories(db: AsyncSession = Depends(get_db)):
 
 # ── Public supplier detail ────────────────────────────────────
 @router.get("/public/{supplier_id}")
+@limiter.limit(PUBLIC_LIMIT)
 async def public_supplier_detail(
+    request: Request,
     supplier_id: int,
     db: AsyncSession = Depends(get_db),
 ):
@@ -230,11 +237,13 @@ async def public_supplier_detail(
 
 # ── Nearby endpoint (public) ───────────────────────────────────
 @router.get("/public/nearby")
+@limiter.limit(PUBLIC_LIMIT)
 async def nearby_suppliers(
+    request: Request,
     lat: float = Query(..., description="Latitude"),
     lon: float = Query(..., description="Longitude"),
-    radius_km: float = Query(50, ge=1, le=500),
-    limit: int = Query(20, ge=1, le=100),
+    radius_km: float = Query(50, ge=1, le=200),
+    limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
     """Find nearest suppliers with known coordinates."""
