@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -68,15 +68,16 @@ async def public_suppliers(
     )
     if q:
         # Search in name, description, and rubros (product lines)
+        pattern = f"%{q}%"
         rubro_match = select(SupplierRubro.supplier_id).where(
             SupplierRubro.is_active == True,
-            (SupplierRubro.rubro.ilike(f"%{q}%") | SupplierRubro.description.ilike(f"%{q}%")),
+            or_(SupplierRubro.rubro.ilike(pattern), SupplierRubro.description.ilike(pattern)),
         ).correlate(None)
-        query = query.where(
-            Supplier.name.ilike(f"%{q}%")
-            | Supplier.description.ilike(f"%{q}%")
-            | Supplier.id.in_(rubro_match)
-        )
+        query = query.where(or_(
+            Supplier.name.ilike(pattern),
+            Supplier.description.ilike(pattern),
+            Supplier.id.in_(rubro_match),
+        ))
     if city:
         query = query.where(Supplier.city == city)
     if department:
