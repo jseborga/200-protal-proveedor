@@ -1,0 +1,471 @@
+{
+  "generated_at": "2026-04-17 (manual via Claude)",
+  "model": "claude-opus-4-7 (directo)",
+  "total_items": 421,
+  "total_groups": 47,
+  "notes": "Revisa cada grupo. Para omitir uno, agrega \"_skip\": true. Puedes editar name/category/variant_label.",
+  "groups": [
+    {
+      "name": "Angular de acero",
+      "category": "Acero para Construcción",
+      "variant_label": "Medida",
+      "reasoning": "Angulares de acero 6m en distintos espesores y medidas",
+      "member_ids": [8489, 8490, 8491, 8492, 8493, 8494, 8495, 8496, 8497]
+    },
+    {
+      "name": "Fierro corrugado (Acero para Construcción) Barra 12m",
+      "category": "Acero para Construcción",
+      "variant_label": "Diametro",
+      "reasoning": "Acero corrugado en barras de 12m, distintos diametros",
+      "member_ids": [8499, 8500, 8501, 8502, 8503, 8504, 8505]
+    },
+    {
+      "name": "Fierro liso Barra 12m",
+      "category": "Acero para Construcción",
+      "variant_label": "Diametro",
+      "reasoning": "Acero liso en barras de 12m, distintos diametros",
+      "member_ids": [8506, 8507, 8508, 8509, 8510, 8511]
+    },
+    {
+      "name": "Perfil Costanera",
+      "category": "Acero para Construcción",
+      "variant_label": "Medida",
+      "reasoning": "Perfiles costanera de 6m en distintas medidas",
+      "member_ids": [8512, 8513, 8514, 8515]
+    },
+    {
+      "name": "Perfil U",
+      "category": "Acero para Construcción",
+      "variant_label": "Espesor",
+      "reasoning": "Perfil U 100x50 en distintos espesores",
+      "member_ids": [8516, 8517]
+    },
+    {
+      "name": "Perfil Tee",
+      "category": "Acero para Construcción",
+      "variant_label": "Medida",
+      "reasoning": "Perfiles Tee de 6m en distintas medidas",
+      "member_ids": [8518, 8519, 8520, 8521, 8522, 8523]
+    },
+    {
+      "name": "Perfil para ventana",
+      "category": "Acero para Construcción",
+      "variant_label": "Medida",
+      "reasoning": "Perfiles para marcos de ventana (series 3 y 4) en distintos anchos",
+      "member_ids": [8524, 8525, 8526, 8527, 8528, 8529, 8530, 8531]
+    },
+    {
+      "name": "Pletina de acero",
+      "category": "Acero para Construcción",
+      "variant_label": "Medida",
+      "reasoning": "Pletinas en distintos espesores y anchos",
+      "member_ids": [8532, 8533, 8534, 8535, 8536, 8537, 8538, 8539, 8540, 8541, 8542, 8543, 8544, 8545, 8546]
+    },
+    {
+      "name": "Tubular cuadrado",
+      "category": "Acero para Construcción",
+      "variant_label": "Medida",
+      "reasoning": "Tubulares cuadrados en distintas medidas",
+      "member_ids": [8547, 8548, 8549, 8550]
+    },
+    {
+      "name": "Tubular rectangular",
+      "category": "Acero para Construcción",
+      "variant_label": "Medida",
+      "reasoning": "Tubulares rectangulares 6m en distintas medidas y espesores",
+      "member_ids": [8551, 8552, 8553]
+    },
+    {
+      "name": "Tubular redondo",
+      "category": "Acero para Construcción",
+      "variant_label": "Diametro",
+      "reasoning": "Tubulares redondos en distintos diametros",
+      "member_ids": [8554, 8555, 8556, 8557, 8558]
+    },
+    {
+      "name": "Aire Acondicionado LG",
+      "category": "Acondicionador de Aire",
+      "variant_label": "Capacidad",
+      "reasoning": "Aires acondicionados LG en distintas capacidades (BTU) y modo frio/frio-calor",
+      "member_ids": [8559, 8560, 8561, 8562, 8563, 8564]
+    },
+    {
+      "name": "Pegamento CPVC (Agua Caliente)",
+      "category": "Adhesivos - Otros",
+      "variant_label": "Capacidad",
+      "reasoning": "Pegamento CPVC en distintas presentaciones (Lt)",
+      "member_ids": [8593, 8594, 8595, 8596]
+    },
+    {
+      "name": "Parketex",
+      "category": "Adhesivos - Otros",
+      "variant_label": "Capacidad",
+      "reasoning": "Parketex en 10 y 20 Lt",
+      "member_ids": [8587, 8588]
+    },
+    {
+      "name": "Fullcañería P/Tubos PVC",
+      "category": "Adhesivos - Otros",
+      "variant_label": "Capacidad",
+      "reasoning": "Fullcañería en 18 y 200 Lts",
+      "member_ids": [8589, 8590]
+    },
+    {
+      "name": "Silicona",
+      "category": "Adhesivos - Otros",
+      "variant_label": "Tipo",
+      "reasoning": "Silicona incoloro negro (vidrio) y neutro (policarbonato)",
+      "member_ids": [8597, 8598]
+    },
+    {
+      "name": "Colmafix 32 Puente de Adherencia",
+      "category": "Adhesivos - Sika",
+      "variant_label": "Presentacion",
+      "reasoning": "Colmafix 32 por kg y en presentacion 5 Kg",
+      "member_ids": [8570, 8571]
+    },
+    {
+      "name": "Sika Ligante",
+      "category": "Adhesivos - Sika",
+      "variant_label": "Presentacion",
+      "reasoning": "Sika Ligante por kg y en distintas presentaciones",
+      "member_ids": [8579, 8580, 8581]
+    },
+    {
+      "name": "Sikaceram 610 Frague",
+      "category": "Adhesivos - Sika",
+      "variant_label": "Presentacion",
+      "reasoning": "Sikaceram 610 Frague por kg y en presentacion 5 Kg",
+      "member_ids": [8572, 8573]
+    },
+    {
+      "name": "Sikadur 31 HMG Anclaje",
+      "category": "Adhesivos - Sika",
+      "variant_label": "Presentacion",
+      "reasoning": "Sikadur 31 HMG por kg y en presentacion 5 Kg",
+      "member_ids": [8582, 8583]
+    },
+    {
+      "name": "Sikadur 32 Gel Puente de Adherencia",
+      "category": "Adhesivos - Sika",
+      "variant_label": "Presentacion",
+      "reasoning": "Sikadur 32 Gel por kg y en presentacion 5 Kg",
+      "member_ids": [8584, 8585]
+    },
+    {
+      "name": "Antisol Normalizado",
+      "category": "Aditivos - Sika",
+      "variant_label": "Capacidad",
+      "reasoning": "Antisol Normalizado en presentaciones 20 Kg y 200 Kg",
+      "member_ids": [8603, 8604]
+    },
+    {
+      "name": "Intraplast Z",
+      "category": "Aditivos - Sika",
+      "variant_label": "Capacidad",
+      "reasoning": "Intraplast Z en presentaciones 20 Kg y 200 Kg",
+      "member_ids": [8605, 8606]
+    },
+    {
+      "name": "Sika 1 Impermeabilizante",
+      "category": "Aditivos - Sika",
+      "variant_label": "Presentacion",
+      "reasoning": "Sika 1 Impermeabilizante por Lt y en presentaciones 20 Kg, 200 Kg",
+      "member_ids": [8609, 8610, 8611]
+    },
+    {
+      "name": "Sika 3 Acelerador Controlable",
+      "category": "Aditivos - Sika",
+      "variant_label": "Presentacion",
+      "reasoning": "Sika 3 por kg y en presentaciones 20 Kg, 22 Kg, 200 Kg",
+      "member_ids": [8612, 8613, 8614, 8615]
+    },
+    {
+      "name": "Sika Acelerante Sin Cloruros",
+      "category": "Aditivos - Sika",
+      "variant_label": "Capacidad",
+      "reasoning": "Sika Acelerante en presentaciones 5 Kg, 20 Kg, 200 Kg",
+      "member_ids": [8616, 8617, 8618]
+    },
+    {
+      "name": "Sika WT-100L Impermeabilizante",
+      "category": "Aditivos - Sika",
+      "variant_label": "Presentacion",
+      "reasoning": "Sika WT-100L por kg y en presentacion 200 Kg",
+      "member_ids": [8619, 8620]
+    },
+    {
+      "name": "Sikalatex",
+      "category": "Aditivos - Sika",
+      "variant_label": "Presentacion",
+      "reasoning": "Sikalatex por kg y en presentaciones 22 Kg, 200 Kg",
+      "member_ids": [8622, 8623, 8624]
+    },
+    {
+      "name": "Sikament N-100 Superplastificante",
+      "category": "Aditivos - Sika",
+      "variant_label": "Capacidad",
+      "reasoning": "Sikament N-100 en presentaciones 5 Kg, 22 Kg, 220 Kg",
+      "member_ids": [8626, 8627, 8628]
+    },
+    {
+      "name": "Sikaviscocrete 5-800",
+      "category": "Aditivos - Sika",
+      "variant_label": "Capacidad",
+      "reasoning": "Sikaviscocrete 5-800 en presentaciones 20 Kg y 220 Kg",
+      "member_ids": [8629, 8630]
+    },
+    {
+      "name": "Plancha Tecnopor 100x50 (E Alta Densidad)",
+      "category": "Aislante Termico Acustico",
+      "variant_label": "Espesor",
+      "reasoning": "Planchas Tecnopor alta densidad (E) en distintos espesores",
+      "member_ids": [8632, 8633, 8634, 8635]
+    },
+    {
+      "name": "Plancha Tecnopor 100x50 (STD)",
+      "category": "Aislante Termico Acustico",
+      "variant_label": "Espesor",
+      "reasoning": "Planchas Tecnopor estandar (STD) en distintos espesores",
+      "member_ids": [8636, 8637, 8638, 8639, 8640, 8641, 8642]
+    },
+    {
+      "name": "Alambre galvanizado (Alambres y Mallas)",
+      "category": "Alambres y Mallas",
+      "variant_label": "Calibre",
+      "reasoning": "Alambre galvanizado en distintos calibres (#8, #10, #12, #14)",
+      "member_ids": [8646, 8647, 8648, 8649]
+    },
+    {
+      "name": "Alambre tejido",
+      "category": "Alambres y Mallas",
+      "variant_label": "Medida",
+      "reasoning": "Alambre tejido en distintas presentaciones y medidas",
+      "member_ids": [8650, 8651, 8652, 8653]
+    },
+    {
+      "name": "Fierro corrugado Barra 12m",
+      "category": "acero",
+      "variant_label": "Diametro",
+      "reasoning": "Fierro corrugado en barras de 12m, distintos diametros (categoria acero)",
+      "member_ids": [8880, 8881, 8882, 8883, 8884, 8885]
+    },
+    {
+      "name": "Cemento Portland (bolsa 50kg)",
+      "category": "cemento",
+      "variant_label": "Tipo",
+      "reasoning": "Cemento en bolsa de 50kg, distintas marcas y tipos (IP-30, IP-40, IF-40, Portland Tipo I, etc.)",
+      "member_ids": [8858, 8859, 8860, 8861, 8862, 8863, 8864, 8865, 8677, 8752]
+    },
+    {
+      "name": "Yeso",
+      "category": "cemento",
+      "variant_label": "Presentacion",
+      "reasoning": "Yeso por kg y en bolsas de 20kg, 40kg",
+      "member_ids": [8692, 8755, 8866]
+    },
+    {
+      "name": "Hormigon premezclado",
+      "category": "hormigon",
+      "variant_label": "Tipo",
+      "reasoning": "Hormigon premezclado en distintas resistencias H21, H25, H28",
+      "member_ids": [8867, 8868, 8869]
+    },
+    {
+      "name": "Hormigon premezclado (cemento)",
+      "category": "cemento",
+      "variant_label": "Tipo",
+      "reasoning": "Hormigon premezclado H-18, H-21, H-25 (categoria cemento)",
+      "member_ids": [8738, 8739, 8740]
+    },
+    {
+      "name": "Porcelanato",
+      "category": "ceramica",
+      "variant_label": "Medida",
+      "reasoning": "Porcelanato en distintas medidas y marcas",
+      "member_ids": [8713, 8842, 8874, 8875, 8879]
+    },
+    {
+      "name": "Ceramica 30x30",
+      "category": "ceramica",
+      "variant_label": "Tipo",
+      "reasoning": "Ceramica 30x30 en distintas variantes",
+      "member_ids": [8711, 8877, 8878]
+    },
+    {
+      "name": "Ceramica para piso 45x45",
+      "category": "ceramica",
+      "variant_label": "Marca",
+      "reasoning": "Ceramica piso 45x45 en distintas marcas",
+      "member_ids": [8846, 8876]
+    },
+    {
+      "name": "Alambre aislado",
+      "category": "electrico",
+      "variant_label": "Calibre",
+      "reasoning": "Alambre aislado en distintos calibres (AWG/mm2)",
+      "member_ids": [8662, 8663, 8664, 8665, 8666]
+    },
+    {
+      "name": "Cable TW AWG",
+      "category": "electrico",
+      "variant_label": "Calibre",
+      "reasoning": "Cable TW en distintos calibres AWG",
+      "member_ids": [8808, 8809, 8810, 8811]
+    },
+    {
+      "name": "Disyuntor termomagnetico",
+      "category": "electrico",
+      "variant_label": "Capacidad",
+      "reasoning": "Disyuntores termomagneticos 15A y 30A",
+      "member_ids": [8726, 8727]
+    },
+    {
+      "name": "Tablero de distribucion",
+      "category": "electrico",
+      "variant_label": "Capacidad",
+      "reasoning": "Tableros de distribucion 6 y 12 circuitos",
+      "member_ids": [8813, 8814]
+    },
+    {
+      "name": "Tubo conduit PVC",
+      "category": "electrico",
+      "variant_label": "Diametro",
+      "reasoning": "Tubo conduit PVC 1/2 pulg y 3/4 pulg",
+      "member_ids": [8728, 8729]
+    },
+    {
+      "name": "Ladrillo",
+      "category": "ladrillos",
+      "variant_label": "Tipo",
+      "reasoning": "Ladrillos de distintos tipos y medidas (6H, 18H, 21H, tabique, hueco, adobito)",
+      "member_ids": [8681, 8682, 8688, 8761, 8762, 8763, 8764]
+    },
+    {
+      "name": "Puerta de madera entamborada",
+      "category": "madera",
+      "variant_label": "Medida",
+      "reasoning": "Puertas de madera entamborada en distintos anchos",
+      "member_ids": [8730, 8731, 8732]
+    },
+    {
+      "name": "Madera en tabla (por especie)",
+      "category": "madera",
+      "variant_label": "Tipo",
+      "reasoning": "Maderas en tabla por especie (almendrillo, mara, roble)",
+      "member_ids": [8829, 8830, 8831]
+    },
+    {
+      "name": "Pintura",
+      "category": "pinturas",
+      "variant_label": "Tipo",
+      "reasoning": "Pinturas en distintos tipos (latex, esmalte, anticorrosiva, oleo)",
+      "member_ids": [8705, 8706, 8707, 8823, 8824]
+    },
+    {
+      "name": "Codo PVC (plomeria)",
+      "category": "plomeria",
+      "variant_label": "Diametro",
+      "reasoning": "Codos PVC 1/2 pulg y 3/4 pulg",
+      "member_ids": [8702, 8703]
+    },
+    {
+      "name": "Tee PVC (plomeria)",
+      "category": "plomeria",
+      "variant_label": "Diametro",
+      "reasoning": "Tees PVC en distintos diametros",
+      "member_ids": [8704, 8796, 8797]
+    },
+    {
+      "name": "Tuberia FG (fierro galvanizado)",
+      "category": "plomeria",
+      "variant_label": "Diametro",
+      "reasoning": "Tuberia FG en distintos diametros",
+      "member_ids": [8787, 8788, 8789, 8790, 8791]
+    },
+    {
+      "name": "Tuberia PVC E-40",
+      "category": "plomeria",
+      "variant_label": "Diametro",
+      "reasoning": "Tuberia PVC E-40 en distintos diametros",
+      "member_ids": [8696, 8697, 8698]
+    },
+    {
+      "name": "Tuberia PVC desague",
+      "category": "plomeria",
+      "variant_label": "Diametro",
+      "reasoning": "Tuberia PVC desague en distintos diametros",
+      "member_ids": [8699, 8700, 8701, 8792]
+    },
+    {
+      "name": "Vigueta pretensada Sobopret",
+      "category": "prefabricados",
+      "variant_label": "Longitud",
+      "reasoning": "Vigueta pretensada Sobopret en distintas longitudes (4m, 5m, 6m)",
+      "member_ids": [8870, 8871, 8872]
+    },
+    {
+      "name": "Bloque de hormigon",
+      "category": "prefabricados",
+      "variant_label": "Medida",
+      "reasoning": "Bloque de hormigon 15cm y 20cm",
+      "member_ids": [8743, 8744]
+    },
+    {
+      "name": "Tubo PVC SR",
+      "category": "sanitario",
+      "variant_label": "Diametro",
+      "reasoning": "Tubo PVC SR en distintos diametros",
+      "member_ids": [8465, 8466, 8467, 8481]
+    },
+    {
+      "name": "Codo PVC SR",
+      "category": "sanitario",
+      "variant_label": "Diametro",
+      "reasoning": "Codo PVC SR 50mm y 100mm",
+      "member_ids": [8468, 8472]
+    },
+    {
+      "name": "Semi codo PVC SR",
+      "category": "sanitario",
+      "variant_label": "Diametro",
+      "reasoning": "Semi codo PVC SR en distintos diametros",
+      "member_ids": [8469, 8473, 8474]
+    },
+    {
+      "name": "Yee PVC SR",
+      "category": "sanitario",
+      "variant_label": "Medida",
+      "reasoning": "Yee PVC SR en distintas medidas",
+      "member_ids": [8470, 8471, 8476]
+    },
+    {
+      "name": "Griferia",
+      "category": "sanitario",
+      "variant_label": "Tipo",
+      "reasoning": "Griferias para ducha, lavamanos y lavaplatos",
+      "member_ids": [8717, 8718, 8719]
+    },
+    {
+      "name": "Llave de paso",
+      "category": "sanitario",
+      "variant_label": "Diametro",
+      "reasoning": "Llave de paso 1/2 pulg y 3/4 pulg",
+      "member_ids": [8798, 8799]
+    },
+    {
+      "name": "Calamina galvanizada",
+      "category": "techos",
+      "variant_label": "Tipo",
+      "reasoning": "Calamina galvanizada en distintos calibres (N28, N30, N34)",
+      "member_ids": [8693, 8771, 8772]
+    },
+    {
+      "name": "Vidrio plano",
+      "category": "vidrios",
+      "variant_label": "Espesor",
+      "reasoning": "Vidrio plano 4mm y 6mm",
+      "member_ids": [8816, 8817]
+    }
+  ]
+}
