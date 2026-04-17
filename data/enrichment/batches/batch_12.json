@@ -1,0 +1,191 @@
+[
+  {
+    "id": 3502,
+    "name": "Magalc S.R.L.",
+    "trade_name": "Magalc S.R.L.",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2912823",
+    "phone2": "+591 73026738",
+    "whatsapp": null,
+    "email": "quiroga.magalc@hotmail.com",
+    "website": null,
+    "categories": [
+      "maquinaria",
+      "servicios"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3508,
+    "name": "Protec Premoldeados",
+    "trade_name": "Protec",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 71353633",
+    "phone2": "+591 71353611",
+    "whatsapp": null,
+    "email": "info@protebol.com",
+    "website": null,
+    "categories": [
+      "prefabricados",
+      "cemento"
+    ],
+    "operating_cities": [
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3513,
+    "name": "Simcort SRL",
+    "trade_name": "Simcort - Construcciones Ortiz",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2776358",
+    "phone2": "+591 77735040",
+    "whatsapp": null,
+    "email": "juanpe_ortiz@outlook.com",
+    "website": null,
+    "categories": [
+      "servicios",
+      "plomeria"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3519,
+    "name": "TOBOL Topografos Bolivia",
+    "trade_name": "TOBOL",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2201982",
+    "phone2": "+591 69877982",
+    "whatsapp": null,
+    "email": null,
+    "website": "www.conalpuc.com",
+    "categories": [
+      "servicios"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3324,
+    "name": "Cerabol",
+    "trade_name": "Cerabol",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 3 3229435",
+    "phone2": "+591 3 3451177",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.cerabol.com",
+    "categories": [
+      "ceramica"
+    ],
+    "operating_cities": [
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3374,
+    "name": "Quark Costos y Presupuestos",
+    "trade_name": "Quark Costos y Presupuestos",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2421368",
+    "phone2": "+591 61186167",
+    "whatsapp": "",
+    "email": "webmaster@quark-costos.com",
+    "website": "www.quark-costos.com",
+    "categories": [
+      "herramientas"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3358,
+    "name": "Mamut",
+    "trade_name": "Mamut",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 70341775",
+    "phone2": "+591 4 4486243",
+    "whatsapp": "",
+    "email": "manuel.laredo@pisosmamut.com",
+    "website": "grupo-mamut.com",
+    "categories": [
+      "ceramica"
+    ],
+    "operating_cities": [
+      "CBBA",
+      "SCZ",
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3388,
+    "name": "Tecnopreco",
+    "trade_name": "Tecnopreco",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 70513827",
+    "phone2": null,
+    "whatsapp": "",
+    "email": null,
+    "website": "www.tecnopreco.com",
+    "categories": [
+      "prefabricados"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "EL ALTO",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3367,
+    "name": "Plasticos Carmen",
+    "trade_name": "Plasticos Carmen",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 3 3332762",
+    "phone2": "+591 72042942",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.plasticoscarmen.com",
+    "categories": [
+      "plomeria",
+      "sanitario"
+    ],
+    "operating_cities": [
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3398,
+    "name": "Plasticos Carmen (Campeon)",
+    "trade_name": "Plasticos Carmen (Campeon)",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 3 3332762",
+    "phone2": "+591 72042942",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.plasticoscarmen.com",
+    "categories": [
+      "sanitario",
+      "plomeria"
+    ],
+    "operating_cities": [
+      "SCZ"
+    ]
+  }
+]

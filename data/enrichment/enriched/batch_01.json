@@ -1,0 +1,80 @@
+[
+  {
+    "id": 3326,
+    "name": "Ceratech",
+    "status": "partial",
+    "phone": "+591 2 2795029",
+    "whatsapp": "59177299721",
+    "email": "ceratechsrl@hotmail.com",
+    "website": "www.ceratech-bo.com",
+    "address": "Av. Ballivian Nro. 805, Calacoto, La Paz",
+    "latitude": -16.541900,
+    "longitude": -68.080600,
+    "branches": [],
+    "contacts": [],
+    "sources": [
+      "https://www.facebook.com/people/Ceratech-Srl/100063555133324/",
+      "https://www.boliviaentusmanos.com/amarillas/142/1/lapaz/ceramica.html"
+    ],
+    "notes": "Direccion Calacoto Av. Ballivian 805 confirmada por Facebook oficial. Website devuelve ECONNREFUSED. WhatsApp probable 77299721 (celular). Coordenadas aproximadas de zona Calacoto."
+  },
+  {
+    "id": 3317,
+    "name": "Acustica.bo",
+    "status": "found",
+    "phone": "+591 69830577",
+    "whatsapp": "59169830577",
+    "email": "contacto@acustica.bo",
+    "website": "www.acustica.bo",
+    "address": "Av. San Martin y Calle J, Equipetrol, Centro Empresarial Manzana 40, Torre 2 Piso 9, Santa Cruz de la Sierra",
+    "latitude": -17.773100,
+    "longitude": -63.201100,
+    "branches": [],
+    "contacts": [],
+    "sources": [
+      "https://www.acustica.bo/oficinas"
+    ],
+    "notes": "Direccion oficial (Equipetrol) confirmada por sitio oficial. Razon social Acustica Ingenieria del Silencio SRL. WhatsApp inferido del mismo telefono (celular 6x valido). Coordenadas aproximadas Equipetrol."
+  },
+  {
+    "id": 3335,
+    "name": "Faboce",
+    "status": "found",
+    "phone": "+591 4 4746485",
+    "whatsapp": "59171734251",
+    "email": "marketing@faboce.com.bo",
+    "website": "www.faboce.com.bo",
+    "address": "Av. Chapare No. 8490, Zona Huayllani, Sacaba, Cochabamba",
+    "latitude": -17.398800,
+    "longitude": -66.038600,
+    "branches": [
+      {
+        "branch_name": "Casa Matriz Cochabamba",
+        "city": "Cochabamba",
+        "department": "Cochabamba",
+        "address": "Av. Chapare No. 8490, Zona Huayllani, Sacaba",
+        "phone": "+591 4 4746485",
+        "whatsapp": "59171734251",
+        "latitude": -17.398800,
+        "longitude": -66.038600
+      },
+      {
+        "branch_name": "Oficina Santa Cruz",
+        "city": "Santa Cruz",
+        "department": "Santa Cruz",
+        "address": null,
+        "phone": "+591 3 3465454",
+        "whatsapp": null,
+        "latitude": null,
+        "longitude": null
+      }
+    ],
+    "contacts": [],
+    "sources": [
+      "https://www.faboce.com.bo/",
+      "https://www.facebook.com/fabocebolivia/",
+      "https://ibce.org.bo/principales-noticias-bolivia/noticias-nacionales-detalle.php?id=46296"
+    ],
+    "notes": "Razon social Fabrica Boliviana de Ceramica S.R.L. Empresa grande con 3 plantas (CBBA, TJA, SCZ) y 16 puntos de venta nacional. WhatsApp oficial 71734251 del sitio. Coordenadas de Sacaba/Huayllani aproximadas."
+  }
+]

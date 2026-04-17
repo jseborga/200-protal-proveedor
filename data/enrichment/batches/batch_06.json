@@ -1,392 +1,188 @@
 [
   {
-    "id": 3369,
-    "name": "Plussteel",
-    "trade_name": "Plussteel",
-    "city": "CBBA",
-    "department": "Cochabamba",
-    "phone": "+591 3 3347777",
-    "phone2": "+591 4 4417184",
-    "whatsapp": "",
-    "email": null,
-    "website": null,
-    "categories": [
-      "acero",
-      "techos"
-    ],
-    "operating_cities": [
-      "SCZ",
-      "CBBA",
-      "LPZ",
-      "EL ALTO"
-    ]
-  },
-  {
-    "id": 3378,
-    "name": "Roca Fuerte Aridos",
-    "trade_name": "Roca Fuerte Aridos",
-    "city": "EL ALTO",
-    "department": "La Paz",
-    "phone": "+591 72099245",
-    "phone2": "+591 76735673",
-    "whatsapp": "",
-    "email": "todosconlater@gmail.com",
-    "website": null,
-    "categories": [
-      "agregados"
-    ],
-    "operating_cities": [
-      "EL ALTO",
-      "VIACHA"
-    ]
-  },
-  {
-    "id": 3500,
-    "name": "Maccaferri",
-    "trade_name": "Maccaferri Bolivia",
-    "city": "SCZ",
-    "department": "Santa Cruz",
-    "phone": "+591 3 3228042",
-    "phone2": "+591 78900102",
-    "whatsapp": null,
-    "email": null,
-    "website": null,
-    "categories": [
-      "geotecnia"
-    ],
-    "operating_cities": [
-      "SCZ",
-      "LPZ",
-      "CBBA"
-    ]
-  },
-  {
-    "id": 3506,
-    "name": "Partner Corp.",
-    "trade_name": "Partner Corp.",
+    "id": 3338,
+    "name": "Faragauss Bolivia",
+    "trade_name": "FARAGAUSS System",
     "city": "LPZ",
     "department": "La Paz",
-    "phone": "+591 2 2457750",
-    "phone2": "+591 78886899",
-    "whatsapp": null,
-    "email": null,
-    "website": null,
+    "phone": "+591 2 2246122",
+    "phone2": "+591 71542281",
+    "whatsapp": "",
+    "email": "contacto@pseing.com",
+    "website": "www.faragaussbolivia.com",
     "categories": [
-      "vidrios"
+      "electrico"
     ],
     "operating_cities": [
       "LPZ"
     ]
   },
   {
-    "id": 3381,
-    "name": "Sanear",
-    "trade_name": "Sanear",
-    "city": "CBBA",
-    "department": "Cochabamba",
-    "phone": "+591 3 3333130",
-    "phone2": "+591 2 2824103",
+    "id": 3345,
+    "name": "ICI Ltda.",
+    "trade_name": "ICI Ltda.",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 78934730",
+    "phone2": "+591 2 2440944",
     "whatsapp": "",
-    "email": "ventas.nal@tspsanear.com",
-    "website": null,
+    "email": "ici_ltda.lp@hotmail.com",
+    "website": "www.iciltda.com",
     "categories": [
       "sanitario"
     ],
     "operating_cities": [
-      "SCZ",
-      "EL ALTO",
-      "CBBA"
+      "LPZ"
     ]
   },
   {
-    "id": 3393,
-    "name": "Tigre",
-    "trade_name": "Tigre",
-    "city": "EL ALTO",
+    "id": 3346,
+    "name": "IMCAR (Dist. Sika)",
+    "trade_name": "IMCAR (Dist. Sika)",
+    "city": "LPZ",
     "department": "La Paz",
-    "phone": "+591 3 3147210",
-    "phone2": "+591 2 2147220",
+    "phone": "+591 77242420",
+    "phone2": "+591 2 2791252",
     "whatsapp": "",
+    "email": "imcar@mail.com",
+    "website": null,
+    "categories": [
+      "impermeabilizantes",
+      "sanitario"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3485,
+    "name": "Bolivian Electric",
+    "trade_name": "Bolivian Electric",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 3 3329091",
+    "phone2": "+591 4 4141710",
+    "whatsapp": null,
     "email": null,
     "website": null,
     "categories": [
-      "plomeria",
       "electrico"
     ],
     "operating_cities": [
       "SCZ",
-      "LPZ",
+      "CBBA",
       "EL ALTO"
     ]
   },
   {
-    "id": 3516,
-    "name": "Stoneflex",
-    "trade_name": "Stoneflex",
-    "city": "EL ALTO",
+    "id": 3491,
+    "name": "Deco Vinil",
+    "trade_name": "Deco Vinil",
+    "city": "LPZ",
     "department": "La Paz",
-    "phone": "+591 61006127",
-    "phone2": "+591 69962064",
+    "phone": "+591 2 2782912",
+    "phone2": "+591 79685406",
     "whatsapp": null,
-    "email": null,
-    "website": null,
+    "email": "deco.vinil@hotmail.com",
+    "website": "www.deco-vinil.jimdo.com",
     "categories": [
-      "ceramica"
+      "ceramica",
+      "pintura"
     ],
     "operating_cities": [
-      "EL ALTO"
+      "LPZ"
     ]
   },
   {
-    "id": 3355,
-    "name": "Isocret",
-    "trade_name": "Isocret",
-    "city": "EL ALTO",
+    "id": 3497,
+    "name": "Gomatex",
+    "trade_name": "Gomatex",
+    "city": "LPZ",
     "department": "La Paz",
-    "phone": "+591 61005252",
+    "phone": "+591 2 2210118",
+    "phone2": "+591 2 2214216",
+    "whatsapp": null,
+    "email": "info@gomatex.com",
+    "website": "www.gomatex.com",
+    "categories": [
+      "impermeabilizantes",
+      "acero"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3334,
+    "name": "Eurocable",
+    "trade_name": "Eurocable",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2710961",
+    "phone2": "+591 75555608",
+    "whatsapp": "",
+    "email": "info@eurocable.net",
+    "website": "www.eurocable.net",
+    "categories": [
+      "electrico"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3340,
+    "name": "Galindo Ingenieria",
+    "trade_name": "Galindo Ingenieria",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 72044342",
     "phone2": null,
     "whatsapp": "",
-    "email": "ventas@isocret.com.bo",
-    "website": "www.isocret.com.bo",
+    "email": "contacto@galindoingenieria.com",
+    "website": "www.galindoingenieria.com",
     "categories": [
-      "prefabricados"
-    ],
-    "operating_cities": [
-      "EL ALTO"
-    ]
-  },
-  {
-    "id": 3368,
-    "name": "Plastiforte",
-    "trade_name": "Plastiforte",
-    "city": "CBBA",
-    "department": "Cochabamba",
-    "phone": "+591 4 4433270",
-    "phone2": "+591 3 3425108",
-    "whatsapp": "",
-    "email": "ventas@plastiforte.com",
-    "website": "www.plastiforte.com",
-    "categories": [
-      "plomeria",
-      "impermeabilizantes"
-    ],
-    "operating_cities": [
-      "CBBA",
-      "SCZ",
-      "LPZ",
-      "CHQ",
-      "ORU",
-      "PSI",
-      "TJA"
-    ]
-  },
-  {
-    "id": 3347,
-    "name": "Importadora Alarcon",
-    "trade_name": "Importadora Alarcon",
-    "city": "CBBA",
-    "department": "Cochabamba",
-    "phone": "+591 3 3557100",
-    "phone2": "+591 70953567",
-    "whatsapp": "",
-    "email": "ventas@importadora-alarcon.com.bo",
-    "website": "www.importadora-alarcon.com.bo",
-    "categories": [
-      "plomeria",
-      "sanitario"
-    ],
-    "operating_cities": [
-      "SCZ",
-      "CBBA"
-    ]
-  },
-  {
-    "id": 3502,
-    "name": "Magalc S.R.L.",
-    "trade_name": "Magalc S.R.L.",
-    "city": "LPZ",
-    "department": "La Paz",
-    "phone": "+591 2 2912823",
-    "phone2": "+591 73026738",
-    "whatsapp": null,
-    "email": "quiroga.magalc@hotmail.com",
-    "website": null,
-    "categories": [
-      "maquinaria",
-      "servicios"
+      "acero"
     ],
     "operating_cities": [
       "LPZ"
     ]
   },
   {
-    "id": 3508,
-    "name": "Protec Premoldeados",
-    "trade_name": "Protec",
-    "city": "SCZ",
-    "department": "Santa Cruz",
-    "phone": "+591 71353633",
-    "phone2": "+591 71353611",
-    "whatsapp": null,
-    "email": "info@protebol.com",
-    "website": null,
-    "categories": [
-      "prefabricados",
-      "cemento"
-    ],
-    "operating_cities": [
-      "SCZ"
-    ]
-  },
-  {
-    "id": 3513,
-    "name": "Simcort SRL",
-    "trade_name": "Simcort - Construcciones Ortiz",
-    "city": "LPZ",
+    "id": 3350,
+    "name": "INGCO Bolivia",
+    "trade_name": "INGCO Bolivia",
+    "city": "EL ALTO",
     "department": "La Paz",
-    "phone": "+591 2 2776358",
-    "phone2": "+591 77735040",
-    "whatsapp": null,
-    "email": "juanpe_ortiz@outlook.com",
-    "website": null,
-    "categories": [
-      "servicios",
-      "plomeria"
-    ],
-    "operating_cities": [
-      "LPZ"
-    ]
-  },
-  {
-    "id": 3519,
-    "name": "TOBOL Topografos Bolivia",
-    "trade_name": "TOBOL",
-    "city": "LPZ",
-    "department": "La Paz",
-    "phone": "+591 2 2201982",
-    "phone2": "+591 69877982",
-    "whatsapp": null,
-    "email": null,
-    "website": "www.conalpuc.com",
-    "categories": [
-      "servicios"
-    ],
-    "operating_cities": [
-      "LPZ"
-    ]
-  },
-  {
-    "id": 3324,
-    "name": "Cerabol",
-    "trade_name": "Cerabol",
-    "city": "SCZ",
-    "department": "Santa Cruz",
-    "phone": "+591 3 3229435",
-    "phone2": "+591 3 3451177",
+    "phone": "+591 71241833",
+    "phone2": "+591 71570898",
     "whatsapp": "",
     "email": null,
-    "website": "www.cerabol.com",
-    "categories": [
-      "ceramica"
-    ],
-    "operating_cities": [
-      "SCZ"
-    ]
-  },
-  {
-    "id": 3374,
-    "name": "Quark Costos y Presupuestos",
-    "trade_name": "Quark Costos y Presupuestos",
-    "city": "LPZ",
-    "department": "La Paz",
-    "phone": "+591 2 2421368",
-    "phone2": "+591 61186167",
-    "whatsapp": "",
-    "email": "webmaster@quark-costos.com",
-    "website": "www.quark-costos.com",
+    "website": "www.ingcobolivia.com",
     "categories": [
       "herramientas"
     ],
     "operating_cities": [
-      "LPZ"
-    ]
-  },
-  {
-    "id": 3358,
-    "name": "Mamut",
-    "trade_name": "Mamut",
-    "city": "CBBA",
-    "department": "Cochabamba",
-    "phone": "+591 70341775",
-    "phone2": "+591 4 4486243",
-    "whatsapp": "",
-    "email": "manuel.laredo@pisosmamut.com",
-    "website": "grupo-mamut.com",
-    "categories": [
-      "ceramica"
-    ],
-    "operating_cities": [
-      "CBBA",
-      "SCZ",
-      "LPZ"
-    ]
-  },
-  {
-    "id": 3388,
-    "name": "Tecnopreco",
-    "trade_name": "Tecnopreco",
-    "city": "LPZ",
-    "department": "La Paz",
-    "phone": "+591 70513827",
-    "phone2": null,
-    "whatsapp": "",
-    "email": null,
-    "website": "www.tecnopreco.com",
-    "categories": [
-      "prefabricados"
-    ],
-    "operating_cities": [
-      "LPZ",
       "EL ALTO",
       "SCZ"
     ]
   },
   {
-    "id": 3367,
-    "name": "Plasticos Carmen",
-    "trade_name": "Plasticos Carmen",
-    "city": "SCZ",
-    "department": "Santa Cruz",
-    "phone": "+591 3 3332762",
-    "phone2": "+591 72042942",
-    "whatsapp": "",
+    "id": 3483,
+    "name": "BAEM Ingenieria & Servicios",
+    "trade_name": "BAEM Ingenieria & Servicios",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2310832",
+    "phone2": "+591 73029705",
+    "whatsapp": null,
     "email": null,
-    "website": "www.plasticoscarmen.com",
+    "website": "www.baembolivia.com",
     "categories": [
-      "plomeria",
-      "sanitario"
+      "electrico"
     ],
     "operating_cities": [
-      "SCZ"
-    ]
-  },
-  {
-    "id": 3398,
-    "name": "Plasticos Carmen (Campeon)",
-    "trade_name": "Plasticos Carmen (Campeon)",
-    "city": "SCZ",
-    "department": "Santa Cruz",
-    "phone": "+591 3 3332762",
-    "phone2": "+591 72042942",
-    "whatsapp": "",
-    "email": null,
-    "website": "www.plasticoscarmen.com",
-    "categories": [
-      "sanitario",
-      "plomeria"
-    ],
-    "operating_cities": [
-      "SCZ"
+      "LPZ"
     ]
   }
 ]

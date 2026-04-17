@@ -1,0 +1,198 @@
+[
+  {
+    "id": 3383,
+    "name": "Sokolmet",
+    "trade_name": "Sokolmet",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2795824",
+    "phone2": "+591 79523922",
+    "whatsapp": "",
+    "email": "informacion@sokolmet.com",
+    "website": "www.sokolmet.com",
+    "categories": [
+      "maquinaria"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3389,
+    "name": "Tektron",
+    "trade_name": "Tektron",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 76767808",
+    "phone2": "+591 76830036",
+    "whatsapp": "",
+    "email": "contacto@tektron.com.bo",
+    "website": "www.tektron.com.bo",
+    "categories": [
+      "acero",
+      "aislantes"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "EL ALTO",
+      "CBBA",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3520,
+    "name": "TurfBrasil",
+    "trade_name": "TurfBrasil",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 68420811",
+    "phone2": "+591 75724218",
+    "whatsapp": null,
+    "email": null,
+    "website": "www.mundo-pisos.com",
+    "categories": [
+      "ceramica",
+      "pintura"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "EL ALTO"
+    ]
+  },
+  {
+    "id": 3370,
+    "name": "Postcrete",
+    "trade_name": "Postcrete",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 72558308",
+    "phone2": "+591 69796954",
+    "whatsapp": "",
+    "email": "aramos@postcrete.com",
+    "website": "www.postcrete.com",
+    "categories": [
+      "prefabricados",
+      "acero"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "CBBA",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3382,
+    "name": "Sobopret / SOBOCE",
+    "trade_name": "Sobopret / SOBOCE",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 3 3449939",
+    "phone2": "+591 2 2406040",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.soboce.com",
+    "categories": [
+      "prefabricados"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "LPZ",
+      "CBBA",
+      "ORU",
+      "TJA"
+    ]
+  },
+  {
+    "id": 3375,
+    "name": "Quasar Solutions",
+    "trade_name": "Quasar Solutions",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 310832",
+    "phone2": "+591 73718195",
+    "whatsapp": "",
+    "email": "ventas@quasar.com.bo",
+    "website": "www.quasar.com.bo",
+    "categories": [
+      "electrico"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3387,
+    "name": "Tecnoplan S.R.L.",
+    "trade_name": "Tecnoplan S.R.L.",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2434930",
+    "phone2": "+591 70181122",
+    "whatsapp": "",
+    "email": "tecnoplan_srl@hotmail.com",
+    "website": null,
+    "categories": [
+      "impermeabilizantes"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3392,
+    "name": "Termovid PVC",
+    "trade_name": "Termovid PVC",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 2 2791783",
+    "phone2": "+591 77225530",
+    "whatsapp": "",
+    "email": "constructora.alipaz@entelnet.bo",
+    "website": null,
+    "categories": [
+      "vidrios"
+    ],
+    "operating_cities": [
+      "CBBA"
+    ]
+  },
+  {
+    "id": 3390,
+    "name": "Terra Foundations",
+    "trade_name": "Terra Foundations",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2776248",
+    "phone2": "+591 3 3120996",
+    "whatsapp": "",
+    "email": "info@terrafoundations.com.bo",
+    "website": "www.terrafoundations.com",
+    "categories": [
+      "prefabricados"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3510,
+    "name": "Roghur",
+    "trade_name": "Roghur",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2423114",
+    "phone2": "+591 3 3369494",
+    "whatsapp": null,
+    "email": null,
+    "website": null,
+    "categories": [
+      "maquinaria",
+      "electrico"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "SCZ"
+    ]
+  }
+]

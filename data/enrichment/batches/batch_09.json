@@ -1,0 +1,196 @@
+[
+  {
+    "id": 3501,
+    "name": "Magno Watts",
+    "trade_name": "Magno Watts",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2260365",
+    "phone2": "+591 2 2852951",
+    "whatsapp": null,
+    "email": "ventas@magnowatts.com",
+    "website": "www.magnowatts.com",
+    "categories": [
+      "electrico"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "EL ALTO"
+    ]
+  },
+  {
+    "id": 3507,
+    "name": "Perez Arquitectura y Construccion",
+    "trade_name": "Perez Arquitectura y Construccion",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 75862981",
+    "phone2": null,
+    "whatsapp": null,
+    "email": "27constructoraperez@gmail.com",
+    "website": null,
+    "categories": [
+      "servicios"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3515,
+    "name": "STI Iluminacion",
+    "trade_name": "STI",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 4 4522500",
+    "phone2": "+591 2 2418457",
+    "whatsapp": null,
+    "email": null,
+    "website": null,
+    "categories": [
+      "electrico"
+    ],
+    "operating_cities": [
+      "CBBA",
+      "LPZ",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3521,
+    "name": "WCI Bolivia",
+    "trade_name": "WCI",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2408003",
+    "phone2": "+591 71524781",
+    "whatsapp": null,
+    "email": "toneryrecargas@hotmail.com",
+    "website": "www.toneryrecargas.com",
+    "categories": [
+      "electrico",
+      "plomeria"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3333,
+    "name": "Electrored",
+    "trade_name": "Electrored",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 2 2282428",
+    "phone2": "+591 4 4583221",
+    "whatsapp": "",
+    "email": null,
+    "website": "electrored.store",
+    "categories": [
+      "electrico"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "SCZ",
+      "CBBA"
+    ]
+  },
+  {
+    "id": 3395,
+    "name": "Turf Brasil / Mundo Pisos",
+    "trade_name": "Turf Brasil / Mundo Pisos",
+    "city": "EL ALTO",
+    "department": "La Paz",
+    "phone": "+591 77761063",
+    "phone2": "+591 76732376",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.mundo-pisos.com",
+    "categories": [
+      "ceramica"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "EL ALTO",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3514,
+    "name": "SOBOCE",
+    "trade_name": "SOBOCE Sociedad Boliviana de Cemento",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 3 3449939",
+    "phone2": "+591 2 2406040",
+    "whatsapp": null,
+    "email": null,
+    "website": "www.soboce.com",
+    "categories": [
+      "cemento"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "LPZ",
+      "CBBA",
+      "ORU",
+      "TJA"
+    ]
+  },
+  {
+    "id": 3371,
+    "name": "Pretbol Constructora",
+    "trade_name": "Pretbol Constructora",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 73685996",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "pretbolsrl@gmail.com",
+    "website": null,
+    "categories": [
+      "prefabricados"
+    ],
+    "operating_cities": [
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3372,
+    "name": "Pretensa",
+    "trade_name": "Pretensa",
+    "city": "EL ALTO",
+    "department": "La Paz",
+    "phone": "+591 2 2745474",
+    "phone2": "+591 77612273",
+    "whatsapp": "",
+    "email": "pretensa.mkt@gmail.com",
+    "website": "pretensalta.com",
+    "categories": [
+      "prefabricados"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "EL ALTO"
+    ]
+  },
+  {
+    "id": 3505,
+    "name": "Muley Impermeabilizaciones",
+    "trade_name": "Muley Impermeabilizaciones",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2441763",
+    "phone2": "+591 76498778",
+    "whatsapp": null,
+    "email": null,
+    "website": null,
+    "categories": [
+      "impermeabilizantes"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "SCZ"
+    ]
+  }
+]

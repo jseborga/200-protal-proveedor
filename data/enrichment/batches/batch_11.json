@@ -1,0 +1,203 @@
+[
+  {
+    "id": 3369,
+    "name": "Plussteel",
+    "trade_name": "Plussteel",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 3 3347777",
+    "phone2": "+591 4 4417184",
+    "whatsapp": "",
+    "email": null,
+    "website": null,
+    "categories": [
+      "acero",
+      "techos"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "CBBA",
+      "LPZ",
+      "EL ALTO"
+    ]
+  },
+  {
+    "id": 3378,
+    "name": "Roca Fuerte Aridos",
+    "trade_name": "Roca Fuerte Aridos",
+    "city": "EL ALTO",
+    "department": "La Paz",
+    "phone": "+591 72099245",
+    "phone2": "+591 76735673",
+    "whatsapp": "",
+    "email": "todosconlater@gmail.com",
+    "website": null,
+    "categories": [
+      "agregados"
+    ],
+    "operating_cities": [
+      "EL ALTO",
+      "VIACHA"
+    ]
+  },
+  {
+    "id": 3500,
+    "name": "Maccaferri",
+    "trade_name": "Maccaferri Bolivia",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 3 3228042",
+    "phone2": "+591 78900102",
+    "whatsapp": null,
+    "email": null,
+    "website": null,
+    "categories": [
+      "geotecnia"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "LPZ",
+      "CBBA"
+    ]
+  },
+  {
+    "id": 3506,
+    "name": "Partner Corp.",
+    "trade_name": "Partner Corp.",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2457750",
+    "phone2": "+591 78886899",
+    "whatsapp": null,
+    "email": null,
+    "website": null,
+    "categories": [
+      "vidrios"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3381,
+    "name": "Sanear",
+    "trade_name": "Sanear",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 3 3333130",
+    "phone2": "+591 2 2824103",
+    "whatsapp": "",
+    "email": "ventas.nal@tspsanear.com",
+    "website": null,
+    "categories": [
+      "sanitario"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "EL ALTO",
+      "CBBA"
+    ]
+  },
+  {
+    "id": 3393,
+    "name": "Tigre",
+    "trade_name": "Tigre",
+    "city": "EL ALTO",
+    "department": "La Paz",
+    "phone": "+591 3 3147210",
+    "phone2": "+591 2 2147220",
+    "whatsapp": "",
+    "email": null,
+    "website": null,
+    "categories": [
+      "plomeria",
+      "electrico"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "LPZ",
+      "EL ALTO"
+    ]
+  },
+  {
+    "id": 3516,
+    "name": "Stoneflex",
+    "trade_name": "Stoneflex",
+    "city": "EL ALTO",
+    "department": "La Paz",
+    "phone": "+591 61006127",
+    "phone2": "+591 69962064",
+    "whatsapp": null,
+    "email": null,
+    "website": null,
+    "categories": [
+      "ceramica"
+    ],
+    "operating_cities": [
+      "EL ALTO"
+    ]
+  },
+  {
+    "id": 3355,
+    "name": "Isocret",
+    "trade_name": "Isocret",
+    "city": "EL ALTO",
+    "department": "La Paz",
+    "phone": "+591 61005252",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "ventas@isocret.com.bo",
+    "website": "www.isocret.com.bo",
+    "categories": [
+      "prefabricados"
+    ],
+    "operating_cities": [
+      "EL ALTO"
+    ]
+  },
+  {
+    "id": 3368,
+    "name": "Plastiforte",
+    "trade_name": "Plastiforte",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 4 4433270",
+    "phone2": "+591 3 3425108",
+    "whatsapp": "",
+    "email": "ventas@plastiforte.com",
+    "website": "www.plastiforte.com",
+    "categories": [
+      "plomeria",
+      "impermeabilizantes"
+    ],
+    "operating_cities": [
+      "CBBA",
+      "SCZ",
+      "LPZ",
+      "CHQ",
+      "ORU",
+      "PSI",
+      "TJA"
+    ]
+  },
+  {
+    "id": 3347,
+    "name": "Importadora Alarcon",
+    "trade_name": "Importadora Alarcon",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 3 3557100",
+    "phone2": "+591 70953567",
+    "whatsapp": "",
+    "email": "ventas@importadora-alarcon.com.bo",
+    "website": "www.importadora-alarcon.com.bo",
+    "categories": [
+      "plomeria",
+      "sanitario"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "CBBA"
+    ]
+  }
+]

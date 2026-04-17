@@ -1,398 +1,190 @@
 [
   {
-    "id": 3349,
-    "name": "Importadora Z. Santos",
-    "trade_name": "Importadora Z. Santos",
-    "city": "EL ALTO",
-    "department": "La Paz",
-    "phone": "+591 2 2850866",
-    "phone2": "+591 67341157",
+    "id": 3377,
+    "name": "REMOC Cimentaciones",
+    "trade_name": "REMOC Cimentaciones",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 72152000",
+    "phone2": "+591 73710666",
     "whatsapp": "",
-    "email": "importsantos@yahoo.es",
+    "email": null,
     "website": null,
     "categories": [
-      "acero",
       "prefabricados"
     ],
     "operating_cities": [
+      "CBBA"
+    ]
+  },
+  {
+    "id": 3379,
+    "name": "SACOCI S.R.L.",
+    "trade_name": "SACOCI S.R.L.",
+    "city": "EL ALTO",
+    "department": "La Paz",
+    "phone": "+591 2 2818834",
+    "phone2": "+591 77777726",
+    "whatsapp": "+591 77295388",
+    "email": "sacoci_bol@yahoo.es",
+    "website": "www.sacocisrl.com",
+    "categories": [
+      "maquinaria"
+    ],
+    "operating_cities": [
       "EL ALTO"
     ]
   },
   {
-    "id": 3352,
-    "name": "Innoplack",
-    "trade_name": "Innoplack",
+    "id": 3391,
+    "name": "Termocruz",
+    "trade_name": "Termocruz",
     "city": "SCZ",
     "department": "Santa Cruz",
-    "phone": "+591 78511353",
-    "phone2": "+591 3 3231119",
+    "phone": "+591 70860219",
+    "phone2": "+591 79054874",
     "whatsapp": "",
-    "email": "ventas@innoplack.com",
-    "website": "www.innoplack.com",
-    "categories": [
-      "acero",
-      "techos"
-    ],
-    "operating_cities": [
-      "SCZ"
-    ]
-  },
-  {
-    "id": 3503,
-    "name": "Marca V",
-    "trade_name": "Empresa Marca V",
-    "city": "CHQ",
-    "department": "Chuquisaca",
-    "phone": "+591 77110060",
-    "phone2": "+591 72881248",
-    "whatsapp": null,
-    "email": "empresamarcav@gmail.com",
+    "email": "cvebozo@outlook.com",
     "website": null,
     "categories": [
-      "geotecnia",
-      "plomeria"
-    ],
-    "operating_cities": [
-      "CHQ",
-      "PSI",
-      "ORU",
-      "LPZ",
-      "SCZ",
-      "TJA",
-      "CBBA"
-    ]
-  },
-  {
-    "id": 3322,
-    "name": "Boliviaven",
-    "trade_name": "Estructuras Dragados / Boliviaven Group",
-    "city": "LPZ",
-    "department": "La Paz",
-    "phone": "+591 78949943",
-    "phone2": "+591 77259628",
-    "whatsapp": "",
-    "email": "info@boliviaven.com",
-    "website": "www.boliviaven.com",
-    "categories": [
-      "acero",
-      "maquinaria"
-    ],
-    "operating_cities": [
-      "LPZ"
-    ]
-  },
-  {
-    "id": 3325,
-    "name": "Ceramica Dorado",
-    "trade_name": "Ceramica Dorado",
-    "city": "EL ALTO",
-    "department": "La Paz",
-    "phone": "+591 77284877",
-    "phone2": "+591 77570071",
-    "whatsapp": "",
-    "email": "juliosusara@gmail.com",
-    "website": "www.ceramicadorado.com",
-    "categories": [
-      "ceramica",
-      "techos"
-    ],
-    "operating_cities": [
-      "EL ALTO",
-      "LPZ"
-    ]
-  },
-  {
-    "id": 3336,
-    "name": "Facil Cementos Adhesivos",
-    "trade_name": "Facil Winayataki",
-    "city": "LPZ",
-    "department": "La Paz",
-    "phone": "+591 67300277",
-    "phone2": "+591 2 2712798",
-    "whatsapp": "",
-    "email": null,
-    "website": null,
-    "categories": [
-      "cemento",
-      "ceramica"
-    ],
-    "operating_cities": [
-      "LPZ"
-    ]
-  },
-  {
-    "id": 3316,
-    "name": "Aceros Torrico",
-    "trade_name": "Aceros Torrico",
-    "city": "CBBA",
-    "department": "Cochabamba",
-    "phone": "+591 78970158",
-    "phone2": "+591 78504206",
-    "whatsapp": "",
-    "email": null,
-    "website": "www.acerostorrico.com",
-    "categories": [
-      "acero",
-      "techos"
-    ],
-    "operating_cities": [
-      "LPZ",
-      "SCZ",
-      "CBBA"
-    ]
-  },
-  {
-    "id": 3330,
-    "name": "DJ Importaciones",
-    "trade_name": "DJ Importaciones",
-    "city": "EL ALTO",
-    "department": "La Paz",
-    "phone": "+591 71557243",
-    "phone2": null,
-    "whatsapp": "",
-    "email": "contactos@djimportaciones.com",
-    "website": "www.djimportaciones.com",
-    "categories": [
-      "ceramica"
-    ],
-    "operating_cities": [
-      "EL ALTO",
-      "LPZ"
-    ]
-  },
-  {
-    "id": 3487,
-    "name": "CHB Ltda.",
-    "trade_name": "CHB Ltda. Consultores",
-    "city": "SUCRE",
-    "department": "Chuquisaca",
-    "phone": "+591 72886763",
-    "phone2": null,
-    "whatsapp": null,
-    "email": null,
-    "website": null,
-    "categories": [],
-    "operating_cities": [
-      "SUCRE"
-    ]
-  },
-  {
-    "id": 3493,
-    "name": "Directa S.R.L.",
-    "trade_name": "Directa S.R.L.",
-    "city": "LPZ",
-    "department": "La Paz",
-    "phone": "+591 2 2776536",
-    "phone2": "+591 70652500",
-    "whatsapp": null,
-    "email": "directa@directa.com.bo",
-    "website": null,
-    "categories": [
-      "vidrios"
-    ],
-    "operating_cities": [
-      "LPZ",
-      "ORU"
-    ]
-  },
-  {
-    "id": 3498,
-    "name": "IMPROMEC",
-    "trade_name": "IMPROMEC",
-    "city": "CBBA",
-    "department": "Cochabamba",
-    "phone": "+591 4 4061219",
-    "phone2": "+591 63873066",
-    "whatsapp": null,
-    "email": "contacto@impromec.com",
-    "website": "www.impromec.com",
-    "categories": [
-      "acero",
-      "electrico"
-    ],
-    "operating_cities": [
-      "CBBA"
-    ]
-  },
-  {
-    "id": 3504,
-    "name": "Grupo Empresarial Miranda",
-    "trade_name": "Miranda Construcciones",
-    "city": "LPZ",
-    "department": "La Paz",
-    "phone": "+591 75203502",
-    "phone2": null,
-    "whatsapp": null,
-    "email": null,
-    "website": null,
-    "categories": [
-      "servicios"
-    ],
-    "operating_cities": [
-      "LPZ"
-    ]
-  },
-  {
-    "id": 3512,
-    "name": "Sika Bolivia",
-    "trade_name": "Sika",
-    "city": "SCZ",
-    "department": "Santa Cruz",
-    "phone": "+591 3 3464504",
-    "phone2": "+591 2 2854305",
-    "whatsapp": null,
-    "email": null,
-    "website": null,
-    "categories": [
-      "cemento",
-      "impermeabilizantes"
-    ],
-    "operating_cities": [
-      "SCZ",
-      "EL ALTO",
-      "CBBA"
-    ]
-  },
-  {
-    "id": 3518,
-    "name": "Tecnopor S.A.",
-    "trade_name": "Tecnopor",
-    "city": "LPZ",
-    "department": "La Paz",
-    "phone": "+591 2 2460630",
-    "phone2": "+591 4 4221240",
-    "whatsapp": null,
-    "email": null,
-    "website": null,
-    "categories": [
-      "prefabricados",
-      "ceramica"
-    ],
-    "operating_cities": [
-      "LPZ",
-      "CBBA",
-      "SCZ"
-    ]
-  },
-  {
-    "id": 3522,
-    "name": "IMCAR",
-    "trade_name": "IMCAR - Distribuidor SIKA",
-    "city": "La Paz",
-    "department": "La Paz",
-    "phone": "772-42420",
-    "phone2": null,
-    "whatsapp": "715-26027",
-    "email": "ImcarSika@hotmail.com",
-    "website": null,
-    "categories": [
-      "aditivos",
-      "impermeabilizantes"
-    ],
-    "operating_cities": [
-      "La Paz",
-      "Cochabamba",
-      "Santa Cruz"
-    ]
-  },
-  {
-    "id": 3523,
-    "name": "Revista P&C - Mercado Referencial",
-    "trade_name": "Mercado Referencial (Revista P&C)",
-    "city": "La Paz",
-    "department": "La Paz",
-    "phone": "",
-    "phone2": null,
-    "whatsapp": "",
-    "email": "",
-    "website": null,
-    "categories": [
-      "referencial",
-      "acero_construccion",
-      "tubulares",
-      "alambres",
-      "aire_acondicionado",
       "aislantes"
     ],
     "operating_cities": [
-      "La Paz",
-      "Cochabamba",
-      "Santa Cruz"
+      "SCZ"
     ]
   },
   {
-    "id": 3320,
-    "name": "Lab. Batercon (Barrientos Teran)",
-    "trade_name": "Lab. Batercon (Barrientos Teran)",
-    "city": "EL ALTO",
+    "id": 3359,
+    "name": "Maqualq S.R.L.",
+    "trade_name": "Maqualq S.R.L.",
+    "city": "LPZ",
     "department": "La Paz",
-    "phone": "+591 71505710",
-    "phone2": "+591 73206292",
+    "phone": "+591 2 2912823",
+    "phone2": "+591 77706766",
     "whatsapp": "",
-    "email": "laboratorio@barrientosteran.com",
+    "email": "quiroga.maqalq@hotmail.com",
     "website": null,
     "categories": [
       "maquinaria"
     ],
     "operating_cities": [
-      "EL ALTO"
-    ]
-  },
-  {
-    "id": 3327,
-    "name": "Cimal",
-    "trade_name": "Cimal",
-    "city": "EL ALTO",
-    "department": "La Paz",
-    "phone": "+591 3 3462504",
-    "phone2": "+591 2 2846021",
-    "whatsapp": "",
-    "email": null,
-    "website": "www.cimal.com.bo",
-    "categories": [
-      "madera"
-    ],
-    "operating_cities": [
-      "SCZ",
-      "EL ALTO",
       "LPZ"
     ]
   },
   {
-    "id": 3337,
-    "name": "Famequi",
-    "trade_name": "Famequi",
+    "id": 3376,
+    "name": "Ready Mix Bolivia / SOBOCE",
+    "trade_name": "Ready Mix Bolivia / SOBOCE",
     "city": "CBBA",
     "department": "Cochabamba",
-    "phone": "+591 4 4314631",
-    "phone2": "+591 72221523",
+    "phone": "+591 3 3499395",
+    "phone2": "+591 2 2612630",
     "whatsapp": "",
-    "email": "famequi-jk@hotmail.com",
+    "email": null,
+    "website": "www.soboce.com",
+    "categories": [
+      "cemento"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "LPZ",
+      "CBBA"
+    ]
+  },
+  {
+    "id": 3396,
+    "name": "Valkure Bolivia",
+    "trade_name": "Valkure Bolivia",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2772488",
+    "phone2": "+591 61000354",
+    "whatsapp": "",
+    "email": "comercial@valkurebolivia.com",
     "website": null,
     "categories": [
+      "cemento"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3394,
+    "name": "TrabajAhora",
+    "trade_name": "TrabajAhora",
+    "city": "NACIONAL",
+    "department": "Nacional",
+    "phone": "+591 75221344",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "contact-info@andystfort.com",
+    "website": "www.trabajahora.andystfort.com",
+    "categories": [
+      "herramientas"
+    ],
+    "operating_cities": [
+      "NACIONAL"
+    ]
+  },
+  {
+    "id": 3343,
+    "name": "Hansa",
+    "trade_name": "Hansa",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 4 4441824",
+    "phone2": "+591 2 2407777",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.hansa.com.bo",
+    "categories": [
+      "acero",
       "maquinaria"
     ],
     "operating_cities": [
+      "LPZ",
       "CBBA",
       "SCZ"
     ]
   },
   {
-    "id": 3488,
-    "name": "Cofadena Maquinaria",
-    "trade_name": "COFADENA Maquinaria - UPCM",
-    "city": "EL ALTO",
+    "id": 3319,
+    "name": "Bacheo.com.bo",
+    "trade_name": "Bacheo.com.bo",
+    "city": "LPZ",
     "department": "La Paz",
-    "phone": "+591 76733280",
-    "phone2": "+591 72025685",
-    "whatsapp": null,
+    "phone": "+591 2 2118292",
+    "phone2": "+591 3 3112390",
+    "whatsapp": "+591 71643556",
     "email": null,
-    "website": null,
+    "website": "www.bacheo.com.bo",
     "categories": [
-      "maquinaria"
+      "agregados"
     ],
     "operating_cities": [
-      "EL ALTO"
+      "LPZ",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3354,
+    "name": "Intermec S.R.L.",
+    "trade_name": "Intermec S.R.L.",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 4 4449686",
+    "phone2": "+591 60700143",
+    "whatsapp": "",
+    "email": "intermec.bo@gmail.com",
+    "website": "www.intermecsrl.com",
+    "categories": [
+      "acero",
+      "vidrios"
+    ],
+    "operating_cities": [
+      "CBBA",
+      "LPZ"
     ]
   }
 ]
