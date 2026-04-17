@@ -76,5 +76,159 @@
       "https://ibce.org.bo/principales-noticias-bolivia/noticias-nacionales-detalle.php?id=46296"
     ],
     "notes": "Razon social Fabrica Boliviana de Ceramica S.R.L. Empresa grande con 3 plantas (CBBA, TJA, SCZ) y 16 puntos de venta nacional. WhatsApp oficial 71734251 del sitio. Coordenadas de Sacaba/Huayllani aproximadas."
+  },
+  {
+    "id": 3341,
+    "name": "Gestual Arquitectura",
+    "status": "not_found",
+    "phone": "+591 62322006",
+    "whatsapp": null,
+    "email": null,
+    "website": null,
+    "address": null,
+    "latitude": null,
+    "longitude": null,
+    "branches": [],
+    "contacts": [],
+    "sources": [],
+    "notes": "Sin presencia web encontrada bajo el nombre 'Gestual Arquitectura' en La Paz. Telefono 62322006 no corresponde a formato de celular Bolivia valido (comenzaria con 6 pero tiene solo 8 digitos; 62322006 podria ser celular La Paz pero no verificado). No se encontro Facebook ni sitio oficial."
+  },
+  {
+    "id": 3318,
+    "name": "Ayudante de tu Hogar",
+    "status": "partial",
+    "phone": "+591 75221344",
+    "whatsapp": "59175221344",
+    "email": "contacto@ayudantedetuhogar.com",
+    "website": "www.ayudantedetuhogar.com",
+    "address": null,
+    "latitude": null,
+    "longitude": null,
+    "branches": [],
+    "contacts": [],
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.ayudantedetuhogar.elayudantedetuhogar",
+      "https://apps.apple.com/us/app/el-ayudante-de-tu-hogar/id6476014177",
+      "https://www.ayudantedetuhogar.com"
+    ],
+    "notes": "Plataforma/App nacional para conectar servicios de hogar (plomeros, electricistas, etc) con usuarios. Sitio web actualmente indica que la aplicacion ya no esta disponible y redirige a andystfort.com. WhatsApp inferido del unico telefono registrado. No hay direccion fisica publica."
+  },
+  {
+    "id": 3344,
+    "name": "Hidronyx",
+    "status": "not_found",
+    "phone": "+591 70120080",
+    "whatsapp": "59170120080",
+    "email": "hidronyx@gmail.com",
+    "website": null,
+    "address": null,
+    "latitude": null,
+    "longitude": null,
+    "branches": [],
+    "contacts": [],
+    "sources": [],
+    "notes": "Sin coincidencias web encontradas para Hidronyx como empresa boliviana de sanitario/plomeria en La Paz. hidronyx.com existe pero es una startup extranjera de hormigon ecologico, no relacionada. WhatsApp inferido del telefono principal (celular 70120080 valido)."
+  },
+  {
+    "id": 3313,
+    "name": "GUTIERREZ ROMERO JOSE LUIS",
+    "status": "not_found",
+    "phone": null,
+    "whatsapp": null,
+    "email": null,
+    "website": null,
+    "address": null,
+    "latitude": null,
+    "longitude": null,
+    "branches": [],
+    "contacts": [],
+    "sources": [],
+    "notes": "Proveedor persona natural sin datos de contacto en registro original. Nombre generico; busqueda web no encontro coincidencia unica para Gutierrez Romero Jose Luis con ferreteria/plomeria en La Paz. Directorios muestran otros Gutierrez (Correa, Torrico) pero no Romero."
+  },
+  {
+    "id": 3365,
+    "name": "Picmetrica S.R.L.",
+    "status": "partial",
+    "phone": "+591 63091512",
+    "whatsapp": "59163091512",
+    "email": "gerenciageneral@picmetrica.com",
+    "website": "constructorapicmetrica-srl.com",
+    "address": null,
+    "latitude": null,
+    "longitude": null,
+    "branches": [],
+    "contacts": [],
+    "sources": [],
+    "notes": "Constructora Picmetrica SRL (La Paz). No se encontro presencia en directorios web publicos ni Facebook/Instagram oficial. Website constructorapicmetrica-srl.com devuelve ECONNREFUSED. WhatsApp inferido del celular 63091512 (valido). Email gerenciageneral@picmetrica.com sugiere dominio picmetrica.com."
+  },
+  {
+    "id": 3353,
+    "name": "Inkaforte (Brizio)",
+    "status": "found",
+    "phone": "+591 73595255",
+    "whatsapp": "59173595255",
+    "email": "inkaforte@inka-forte.com",
+    "website": "www.inka-forte.com",
+    "address": "Carretera a Viacha, Zona Chijini Alto, Calle 7 N°2540, La Paz",
+    "latitude": -16.609800,
+    "longitude": -68.179400,
+    "branches": [
+      {
+        "branch_name": "Planta Industrial y Oficina Central",
+        "city": "La Paz",
+        "department": "La Paz",
+        "address": "Carretera a Viacha, Zona Chijini Alto, Calle 7 N°2540",
+        "phone": "+591 73595255",
+        "whatsapp": "59173595255",
+        "latitude": -16.609800,
+        "longitude": -68.179400
+      }
+    ],
+    "contacts": [],
+    "sources": [
+      "https://www.inka-forte.com/"
+    ],
+    "notes": "Inkaforte es el brazo operativo de BRIZIO LTDA, produce morteros industriales y pegamentos ceramicos. Planta central en Zona Chijini Alto, carretera a Viacha (La Paz). Horario lun-sab 8:00-19:00. Telefono corregido a 73595255 (el original 735952554 tenia 9 digitos). WhatsApp valido (celular 7x)."
+  },
+  {
+    "id": 3384,
+    "name": "Synergy",
+    "status": "found",
+    "phone": "+591 3 3420345",
+    "whatsapp": null,
+    "email": null,
+    "website": "synergy.com.bo",
+    "address": "Av Tercer Anillo Interno entre Av. Alemana y Av. Mutualista #3275, Santa Cruz de la Sierra",
+    "latitude": -17.776900,
+    "longitude": -63.192300,
+    "branches": [
+      {
+        "branch_name": "Casa Matriz Santa Cruz",
+        "city": "Santa Cruz de la Sierra",
+        "department": "Santa Cruz",
+        "address": "Av Tercer Anillo Interno entre Av. Alemana y Av. Mutualista #3275",
+        "phone": "+591 3 3420345",
+        "whatsapp": null,
+        "latitude": -17.776900,
+        "longitude": -63.192300
+      },
+      {
+        "branch_name": "Oficina Cochabamba",
+        "city": "Cochabamba",
+        "department": "Cochabamba",
+        "address": null,
+        "phone": "+591 4 4496372",
+        "whatsapp": null,
+        "latitude": null,
+        "longitude": null
+      }
+    ],
+    "contacts": [],
+    "sources": [
+      "https://synergy.com.bo/",
+      "https://www.facebook.com/SynergyBolivia/",
+      "https://www.linkedin.com/company/synergybolivia"
+    ],
+    "notes": "Empresa con 30 anios en el mercado, lider en construccion en seco y tableros de madera. 17 sucursales nacionales (SCZ, CBBA, LPZ, El Alto, TJA, Montero). Produce perfiles galvanizados, tejas coloniales, canaletas. Horarios lun-vie 8:00-12:30 y 14:30-18:30, sab 8:30-13:00. WhatsApp no publicado en sitio (solo fijos). Coordenadas aproximadas del 3er Anillo Interno esquina Alemana."
   }
 ]
