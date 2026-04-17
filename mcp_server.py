@@ -138,15 +138,252 @@ async def create_suppliers_bulk(suppliers: list[dict]) -> str:
 
 
 @mcp.tool()
-async def update_supplier(supplier_id: int, **fields) -> str:
-    """Update an existing supplier by ID.
+async def update_supplier(
+    supplier_id: int,
+    name: str = "",
+    trade_name: str = "",
+    nit: str = "",
+    email: str = "",
+    phone: str = "",
+    phone2: str = "",
+    whatsapp: str = "",
+    website: str = "",
+    city: str = "",
+    department: str = "",
+    address: str = "",
+    description: str = "",
+    latitude: float | None = None,
+    longitude: float | None = None,
+    operating_cities: list[str] | None = None,
+    categories: list[str] | None = None,
+) -> str:
+    """Update an existing supplier by ID. Only non-empty fields are updated.
+
+    Args:
+        supplier_id: Supplier ID (required)
+        name, trade_name, nit: Identificadores
+        email, phone, phone2, whatsapp, website: Contactos
+        city, department, address: Ubicacion principal
+        description: Descripcion del proveedor
+        latitude, longitude: Coordenadas (-90..90, -180..180)
+        operating_cities: Ciudades donde opera (ej: ["LPZ","SCZ","CBBA"])
+        categories: Categorias del catalogo (ej: ["cemento","acero"])
+    """
+    fields: dict = {}
+    if name: fields["name"] = name
+    if trade_name: fields["trade_name"] = trade_name
+    if nit: fields["nit"] = nit
+    if email: fields["email"] = email
+    if phone: fields["phone"] = phone
+    if phone2: fields["phone2"] = phone2
+    if whatsapp: fields["whatsapp"] = whatsapp
+    if website: fields["website"] = website
+    if city: fields["city"] = city
+    if department: fields["department"] = department
+    if address: fields["address"] = address
+    if description: fields["description"] = description
+    if latitude is not None: fields["latitude"] = latitude
+    if longitude is not None: fields["longitude"] = longitude
+    if operating_cities is not None: fields["operating_cities"] = operating_cities
+    if categories is not None: fields["categories"] = categories
+
+    result = await _put(f"/suppliers/{supplier_id}", fields)
+    return json.dumps(result, ensure_ascii=False)
+
+
+# ── Supplier Detail + Branches ─────────────────────────────────
+@mcp.tool()
+async def get_supplier_detail(supplier_id: int) -> str:
+    """Get full supplier detail including branches and branch contacts.
 
     Args:
         supplier_id: Supplier ID
-        **fields: Fields to update (name, whatsapp, city, department, categories, etc.)
     """
-    result = await _put(f"/suppliers/{supplier_id}", fields)
+    result = await _get(f"/suppliers/{supplier_id}/detail")
     return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def list_branches(supplier_id: int, include_contacts: bool = False) -> str:
+    """List active branches of a supplier.
+
+    Args:
+        supplier_id: Supplier ID
+        include_contacts: If True, include branch contacts
+    """
+    params = {"include_contacts": "true" if include_contacts else "false"}
+    result = await _get(f"/branches/{supplier_id}", params)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def create_branch(
+    supplier_id: int,
+    branch_name: str,
+    city: str = "",
+    department: str = "",
+    address: str = "",
+    phone: str = "",
+    whatsapp: str = "",
+    email: str = "",
+    latitude: float | None = None,
+    longitude: float | None = None,
+    is_main: bool = False,
+) -> str:
+    """Create a branch for a supplier.
+
+    Args:
+        supplier_id: Supplier ID
+        branch_name: Nombre de la sucursal (ej: "Central Av Arce", "Sucursal El Alto")
+        city, department, address: Ubicacion
+        phone, whatsapp, email: Contacto de la sucursal
+        latitude, longitude: Coordenadas
+        is_main: True para marcarla como principal (desmarca otras)
+    """
+    data = {
+        "supplier_id": supplier_id,
+        "branch_name": branch_name,
+        "is_main": is_main,
+    }
+    if city: data["city"] = city
+    if department: data["department"] = department
+    if address: data["address"] = address
+    if phone: data["phone"] = phone
+    if whatsapp: data["whatsapp"] = whatsapp
+    if email: data["email"] = email
+    if latitude is not None: data["latitude"] = latitude
+    if longitude is not None: data["longitude"] = longitude
+    result = await _post("/branches", data)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def update_branch(
+    branch_id: int,
+    branch_name: str = "",
+    city: str = "",
+    department: str = "",
+    address: str = "",
+    phone: str = "",
+    whatsapp: str = "",
+    email: str = "",
+    latitude: float | None = None,
+    longitude: float | None = None,
+    is_main: bool | None = None,
+    is_active: bool | None = None,
+) -> str:
+    """Update a branch. Only non-empty / non-None fields are updated.
+
+    Args:
+        branch_id: Branch ID
+        branch_name, city, department, address: Ubicacion / nombre
+        phone, whatsapp, email: Contacto
+        latitude, longitude: Coordenadas
+        is_main: True marca como principal (desmarca otras)
+        is_active: False la desactiva
+    """
+    fields: dict = {}
+    if branch_name: fields["branch_name"] = branch_name
+    if city: fields["city"] = city
+    if department: fields["department"] = department
+    if address: fields["address"] = address
+    if phone: fields["phone"] = phone
+    if whatsapp: fields["whatsapp"] = whatsapp
+    if email: fields["email"] = email
+    if latitude is not None: fields["latitude"] = latitude
+    if longitude is not None: fields["longitude"] = longitude
+    if is_main is not None: fields["is_main"] = is_main
+    if is_active is not None: fields["is_active"] = is_active
+    result = await _put(f"/branches/{branch_id}", fields)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def delete_branch(branch_id: int) -> str:
+    """Deactivate a branch (soft delete).
+
+    Args:
+        branch_id: Branch ID
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.delete(f"{BASE}/branches/{branch_id}", headers=HEADERS)
+        return json.dumps(resp.json(), ensure_ascii=False)
+
+
+# ── Branch Contacts ────────────────────────────────────────────
+@mcp.tool()
+async def create_branch_contact(
+    branch_id: int,
+    full_name: str,
+    position: str = "",
+    phone: str = "",
+    whatsapp: str = "",
+    email: str = "",
+    is_primary: bool = False,
+) -> str:
+    """Add a contact person to a branch.
+
+    Args:
+        branch_id: Branch ID
+        full_name: Nombre completo
+        position: Cargo (ej: "Gerente de Ventas", "Ejecutivo Comercial")
+        phone, whatsapp, email: Contacto
+        is_primary: Marcar como contacto principal
+    """
+    data = {
+        "branch_id": branch_id,
+        "full_name": full_name,
+        "is_primary": is_primary,
+    }
+    if position: data["position"] = position
+    if phone: data["phone"] = phone
+    if whatsapp: data["whatsapp"] = whatsapp
+    if email: data["email"] = email
+    result = await _post("/branch-contacts", data)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def update_branch_contact(
+    contact_id: int,
+    full_name: str = "",
+    position: str = "",
+    phone: str = "",
+    whatsapp: str = "",
+    email: str = "",
+    is_primary: bool | None = None,
+    is_active: bool | None = None,
+) -> str:
+    """Update a branch contact.
+
+    Args:
+        contact_id: Contact ID
+        full_name, position, phone, whatsapp, email: Campos a actualizar
+        is_primary: Marcar como principal
+        is_active: False desactiva el contacto
+    """
+    fields: dict = {}
+    if full_name: fields["full_name"] = full_name
+    if position: fields["position"] = position
+    if phone: fields["phone"] = phone
+    if whatsapp: fields["whatsapp"] = whatsapp
+    if email: fields["email"] = email
+    if is_primary is not None: fields["is_primary"] = is_primary
+    if is_active is not None: fields["is_active"] = is_active
+    result = await _put(f"/branch-contacts/{contact_id}", fields)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def delete_branch_contact(contact_id: int) -> str:
+    """Deactivate a branch contact.
+
+    Args:
+        contact_id: Contact ID
+    """
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.delete(f"{BASE}/branch-contacts/{contact_id}", headers=HEADERS)
+        return json.dumps(resp.json(), ensure_ascii=False)
 
 
 # ── Products ───────────────────────────────────────────────────

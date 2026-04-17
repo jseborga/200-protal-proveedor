@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.security import verify_api_key
-from app.models.supplier import Supplier
+from app.models.supplier import Supplier, SupplierBranch, SupplierBranchContact
 from app.models.insumo import Insumo
 from app.models.price_history import PriceHistory
 
@@ -277,6 +277,250 @@ async def delete_supplier_rubro(
     rubro.is_active = False
     await db.flush()
     return {"ok": True, "action": "deleted", "id": rubro_id}
+
+
+# ── Supplier Detail (with branches) ───────────────────────────
+@router.get("/suppliers/{supplier_id}/detail")
+async def get_supplier_detail(
+    supplier_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Full supplier detail incluyendo sucursales y contactos."""
+    from sqlalchemy.orm import selectinload
+    result = await db.execute(
+        select(Supplier).options(
+            selectinload(Supplier.branches).selectinload(SupplierBranch.contacts),
+        ).where(Supplier.id == supplier_id)
+    )
+    s = result.scalar_one_or_none()
+    if not s:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+    return {
+        "ok": True,
+        "data": {
+            **_sup_dict(s),
+            "branches": [
+                {**_branch_dict(b), "contacts": [_contact_dict(c) for c in b.contacts if c.is_active]}
+                for b in s.branches if b.is_active
+            ],
+        },
+    }
+
+
+# ── Supplier Branches ─────────────────────────────────────────
+class BranchIn(BaseModel):
+    supplier_id: int
+    branch_name: str
+    city: str | None = None
+    department: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+    email: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    is_main: bool = False
+
+
+class BranchUpdateIn(BaseModel):
+    branch_name: str | None = None
+    city: str | None = None
+    department: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+    email: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    is_main: bool | None = None
+    is_active: bool | None = None
+
+
+@router.get("/branches/{supplier_id}")
+async def list_branches(
+    supplier_id: int,
+    include_contacts: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Lista sucursales activas de un proveedor."""
+    if include_contacts:
+        from sqlalchemy.orm import selectinload
+        result = await db.execute(
+            select(SupplierBranch)
+            .options(selectinload(SupplierBranch.contacts))
+            .where(SupplierBranch.supplier_id == supplier_id, SupplierBranch.is_active == True)
+            .order_by(SupplierBranch.is_main.desc(), SupplierBranch.id)
+        )
+        branches = result.scalars().all()
+        data = [
+            {**_branch_dict(b), "contacts": [_contact_dict(c) for c in b.contacts if c.is_active]}
+            for b in branches
+        ]
+    else:
+        result = await db.execute(
+            select(SupplierBranch)
+            .where(SupplierBranch.supplier_id == supplier_id, SupplierBranch.is_active == True)
+            .order_by(SupplierBranch.is_main.desc(), SupplierBranch.id)
+        )
+        data = [_branch_dict(b) for b in result.scalars().all()]
+    return {"ok": True, "data": data}
+
+
+@router.post("/branches")
+async def create_branch(
+    body: BranchIn,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Crea una sucursal para un proveedor. Si is_main=True desmarca las otras."""
+    supplier = await db.get(Supplier, body.supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    # Dedup por supplier_id + branch_name
+    existing = await db.execute(
+        select(SupplierBranch).where(
+            SupplierBranch.supplier_id == body.supplier_id,
+            SupplierBranch.branch_name == body.branch_name,
+            SupplierBranch.is_active == True,
+        ).limit(1)
+    )
+    dup = existing.scalar_one_or_none()
+    if dup:
+        return {"ok": True, "action": "skipped", "reason": "already_exists", "data": _branch_dict(dup)}
+
+    if body.is_main:
+        # Desmarcar otras main
+        await db.execute(
+            text("UPDATE mkt_supplier_branch SET is_main = false WHERE supplier_id = :sid"),
+            {"sid": body.supplier_id},
+        )
+
+    branch = SupplierBranch(**body.model_dump())
+    db.add(branch)
+    await db.flush()
+    return {"ok": True, "action": "created", "data": _branch_dict(branch)}
+
+
+@router.put("/branches/{branch_id}")
+async def update_branch(
+    branch_id: int,
+    body: BranchUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Actualiza una sucursal. Solo los campos enviados."""
+    branch = await db.get(SupplierBranch, branch_id)
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+
+    data = body.model_dump(exclude_unset=True)
+    if data.get("is_main") is True:
+        await db.execute(
+            text("UPDATE mkt_supplier_branch SET is_main = false WHERE supplier_id = :sid AND id != :bid"),
+            {"sid": branch.supplier_id, "bid": branch_id},
+        )
+
+    for field, value in data.items():
+        setattr(branch, field, value)
+    await db.flush()
+    return {"ok": True, "action": "updated", "data": _branch_dict(branch)}
+
+
+@router.delete("/branches/{branch_id}")
+async def delete_branch(
+    branch_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Desactiva una sucursal."""
+    branch = await db.get(SupplierBranch, branch_id)
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    branch.is_active = False
+    await db.flush()
+    return {"ok": True, "action": "deleted", "id": branch_id}
+
+
+# ── Branch Contacts ───────────────────────────────────────────
+class BranchContactIn(BaseModel):
+    branch_id: int
+    full_name: str
+    position: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+    email: str | None = None
+    is_primary: bool = False
+
+
+class BranchContactUpdateIn(BaseModel):
+    full_name: str | None = None
+    position: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+    email: str | None = None
+    is_primary: bool | None = None
+    is_active: bool | None = None
+
+
+@router.post("/branch-contacts")
+async def create_branch_contact(
+    body: BranchContactIn,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Agrega un contacto a una sucursal."""
+    branch = await db.get(SupplierBranch, body.branch_id)
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+
+    existing = await db.execute(
+        select(SupplierBranchContact).where(
+            SupplierBranchContact.branch_id == body.branch_id,
+            SupplierBranchContact.full_name == body.full_name,
+            SupplierBranchContact.is_active == True,
+        ).limit(1)
+    )
+    dup = existing.scalar_one_or_none()
+    if dup:
+        return {"ok": True, "action": "skipped", "reason": "already_exists", "data": _contact_dict(dup)}
+
+    contact = SupplierBranchContact(**body.model_dump())
+    db.add(contact)
+    await db.flush()
+    return {"ok": True, "action": "created", "data": _contact_dict(contact)}
+
+
+@router.put("/branch-contacts/{contact_id}")
+async def update_branch_contact(
+    contact_id: int,
+    body: BranchContactUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    contact = await db.get(SupplierBranchContact, contact_id)
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(contact, field, value)
+    await db.flush()
+    return {"ok": True, "action": "updated", "data": _contact_dict(contact)}
+
+
+@router.delete("/branch-contacts/{contact_id}")
+async def delete_branch_contact(
+    contact_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    contact = await db.get(SupplierBranchContact, contact_id)
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    contact.is_active = False
+    await db.flush()
+    return {"ok": True, "action": "deleted", "id": contact_id}
 
 
 # ── Products ───────────────────────────────────────────────────
@@ -624,11 +868,33 @@ async def _find_product(db, name: str, uom: str) -> Insumo | None:
 def _sup_dict(s: Supplier) -> dict:
     return {
         "id": s.id, "name": s.name, "trade_name": s.trade_name,
+        "nit": s.nit,
         "phone": s.phone, "phone2": s.phone2, "whatsapp": s.whatsapp,
         "email": s.email, "website": s.website,
-        "city": s.city, "department": s.department,
+        "city": s.city, "department": s.department, "address": s.address,
+        "latitude": s.latitude, "longitude": s.longitude,
         "description": s.description, "operating_cities": s.operating_cities,
         "categories": s.categories, "verification_state": s.verification_state,
+    }
+
+
+def _branch_dict(b: SupplierBranch) -> dict:
+    return {
+        "id": b.id, "supplier_id": b.supplier_id,
+        "branch_name": b.branch_name,
+        "city": b.city, "department": b.department, "address": b.address,
+        "phone": b.phone, "whatsapp": b.whatsapp, "email": b.email,
+        "latitude": b.latitude, "longitude": b.longitude,
+        "is_main": b.is_main, "is_active": b.is_active,
+    }
+
+
+def _contact_dict(c: SupplierBranchContact) -> dict:
+    return {
+        "id": c.id, "branch_id": c.branch_id,
+        "full_name": c.full_name, "position": c.position,
+        "phone": c.phone, "whatsapp": c.whatsapp, "email": c.email,
+        "is_primary": c.is_primary, "is_active": c.is_active,
     }
 
 
