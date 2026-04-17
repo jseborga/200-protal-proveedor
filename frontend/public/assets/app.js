@@ -519,10 +519,12 @@ async function renderHome() {
                     <div class="home-search">
                         ${icon('search', 18)}
                         <input id="hero-search-input" type="search"
-                               placeholder="Buscar materiales..."
+                               placeholder="Buscar materiales o proveedores..."
                                value="${esc(state.searchQuery)}"
+                               oninput="debounceHeroSuggest()"
                                onkeydown="if(event.key==='Enter')heroSearch()">
                     </div>
+                    <div id="hero-suggestions" class="hero-suggestions" style="display:none"></div>
                 </div>
             </div>
         </div>
@@ -533,20 +535,20 @@ async function renderHome() {
 
         <div id="home-stats" class="home-stats"></div>
 
-        <div class="home-section" id="home-prices-section" style="display:none">
-            <div class="home-section-header">
-                <span class="home-section-title">Precios</span>
-                <button class="home-section-link" onclick="navigate('prices')">Ver todos &rarr;</button>
-            </div>
-            <div class="price-grid" id="home-prices"></div>
-        </div>
-
         <div class="home-section" id="home-suppliers-section" style="display:none">
             <div class="home-section-header">
                 <span class="home-section-title">Proveedores</span>
                 <button class="home-section-link" onclick="navigate('suppliers')">Ver todos &rarr;</button>
             </div>
             <div class="supplier-grid" id="home-suppliers"></div>
+        </div>
+
+        <div class="home-section" id="home-prices-section" style="display:none">
+            <div class="home-section-header">
+                <span class="home-section-title">Precios</span>
+                <button class="home-section-link" onclick="navigate('prices')">Ver todos &rarr;</button>
+            </div>
+            <div class="price-grid" id="home-prices"></div>
         </div>
     `;
 
@@ -637,9 +639,80 @@ function selectCategory(cat) {
 function heroSearch() {
     const input = document.getElementById('hero-search-input');
     state.searchQuery = (input?.value || '').trim();
+    const sugEl = document.getElementById('hero-suggestions');
+    if (sugEl) sugEl.style.display = 'none';
     if (state.searchQuery.length >= 2) {
-        navigate('prices');
+        // Search both prices and suppliers on home page
+        heroSearchResults(state.searchQuery);
+    } else {
+        // Reset to default home view
+        loadHomeSuppliers();
+        loadHomePrices();
     }
+}
+
+let _heroSuggestTimer;
+function debounceHeroSuggest() {
+    clearTimeout(_heroSuggestTimer);
+    _heroSuggestTimer = setTimeout(heroSuggest, 300);
+}
+
+async function heroSuggest() {
+    const input = document.getElementById('hero-search-input');
+    const q = (input?.value || '').trim();
+    const sugEl = document.getElementById('hero-suggestions');
+    if (!sugEl) return;
+    if (q.length < 2) { sugEl.style.display = 'none'; return; }
+
+    try {
+        const resp = await API.publicSuppliers(`?q=${encodeURIComponent(q)}&limit=5`);
+        if (!resp.ok || !resp.data.length) { sugEl.style.display = 'none'; return; }
+
+        sugEl.innerHTML = resp.data.map(s => {
+            const desc = s.description ? `<span class="hero-sug-desc">${esc(s.description).substring(0, 60)}...</span>` : '';
+            return `<div class="hero-sug-item" onclick="showPublicSupplierDetail(${s.id});document.getElementById('hero-suggestions').style.display='none'">
+                <div class="hero-sug-name">${icon('building', 14)} ${esc(s.trade_name || s.name)}</div>
+                ${desc}
+            </div>`;
+        }).join('') + `<div class="hero-sug-item hero-sug-action" onclick="heroSearch()">
+            ${icon('search', 14)} Buscar "${esc(q)}" en precios y proveedores
+        </div>`;
+        sugEl.style.display = '';
+    } catch { sugEl.style.display = 'none'; }
+}
+
+async function heroSearchResults(q) {
+    const suppSection = document.getElementById('home-suppliers-section');
+    const suppContainer = document.getElementById('home-suppliers');
+    const priceSection = document.getElementById('home-prices-section');
+    const priceContainer = document.getElementById('home-prices');
+
+    // Load matching suppliers
+    try {
+        const resp = await API.publicSuppliers(`?q=${encodeURIComponent(q)}&limit=12`);
+        if (resp.ok && resp.data.length) {
+            suppContainer.innerHTML = resp.data.map(renderSupplierCard).join('');
+            suppSection.style.display = '';
+            // Update section title
+            const title = suppSection.querySelector('.home-section-title');
+            if (title) title.textContent = `Proveedores para "${q}"`;
+        } else {
+            suppSection.style.display = 'none';
+        }
+    } catch {}
+
+    // Load matching prices
+    try {
+        const resp = await API.publicPrices(`?q=${encodeURIComponent(q)}&limit=12`);
+        if (resp.ok && resp.data.length) {
+            priceContainer.innerHTML = resp.data.map(renderPriceCard).join('');
+            priceSection.style.display = '';
+            const title = priceSection.querySelector('.home-section-title');
+            if (title) title.textContent = `Precios para "${q}"`;
+        } else {
+            priceSection.style.display = 'none';
+        }
+    } catch {}
 }
 
 // ── Render: Supplier card (reusable) ───────────────────────────
@@ -7294,3 +7367,9 @@ async function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// Close hero suggestions when clicking outside
+document.addEventListener('click', (e) => {
+    const sugEl = document.getElementById('hero-suggestions');
+    if (sugEl && !e.target.closest('.home-search-wrap')) sugEl.style.display = 'none';
+});
