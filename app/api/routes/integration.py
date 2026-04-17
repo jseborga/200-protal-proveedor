@@ -566,6 +566,32 @@ async def purge_all_data(
     }
 
 
+# ── Admin SQL cleanup ─────────────────────────────────────────
+@router.post("/admin/sql")
+async def run_admin_sql(
+    body: dict,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Run a pre-approved admin SQL statement. Requires confirm=yes."""
+    if body.get("confirm") != "yes":
+        raise HTTPException(status_code=400, detail="Set confirm=yes")
+
+    sql = body.get("sql", "").strip()
+    if not sql:
+        raise HTTPException(status_code=400, detail="No SQL provided")
+
+    # Safety: only allow DELETE/SELECT
+    first_word = sql.split()[0].upper() if sql else ""
+    if first_word not in ("DELETE", "SELECT"):
+        raise HTTPException(status_code=400, detail="Only DELETE and SELECT allowed")
+
+    result = await db.execute(text(sql))
+    rowcount = result.rowcount if hasattr(result, "rowcount") else 0
+
+    return {"ok": True, "sql": sql[:200], "rowcount": rowcount}
+
+
 # ── Stats ──────────────────────────────────────────────────────
 @router.get("/stats")
 async def integration_stats(
