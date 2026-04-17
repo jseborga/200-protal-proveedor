@@ -540,20 +540,22 @@ async function renderHome() {
 
         <div id="home-stats" class="home-stats"></div>
 
-        <div class="home-section" id="home-suppliers-section" style="display:none">
-            <div class="home-section-header">
-                <span class="home-section-title">Proveedores</span>
-                <button class="home-section-link" onclick="navigate('suppliers')">Ver todos &rarr;</button>
-            </div>
-            <div class="supplier-grid" id="home-suppliers"></div>
-        </div>
+        <div id="search-summary" class="search-summary" style="display:none"></div>
 
         <div class="home-section" id="home-prices-section" style="display:none">
             <div class="home-section-header">
-                <span class="home-section-title">Precios</span>
+                <span class="home-section-title">Actualizados recientemente</span>
                 <button class="home-section-link" onclick="navigate('prices')">Ver todos &rarr;</button>
             </div>
             <div class="price-grid" id="home-prices"></div>
+        </div>
+
+        <div class="home-section" id="home-suppliers-section" style="display:none">
+            <div class="home-section-header">
+                <span class="home-section-title">Proveedores destacados</span>
+                <button class="home-section-link" onclick="navigate('suppliers')">Ver todos &rarr;</button>
+            </div>
+            <div class="supplier-grid" id="home-suppliers"></div>
         </div>
     `;
 
@@ -592,13 +594,15 @@ async function loadHomeSuppliers() {
         const section = document.getElementById('home-suppliers-section');
         if (resp.ok && resp.data.length) {
             container.innerHTML = resp.data.map(renderSupplierCard).join('');
+            const title = section?.querySelector('.home-section-title');
+            if (title) title.textContent = 'Proveedores destacados';
             if (section) section.style.display = '';
         }
     } catch {}
 }
 
 async function loadHomePrices() {
-    let params = '?limit=8';
+    let params = '?limit=8&sort=recent';
     if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
 
     try {
@@ -607,6 +611,9 @@ async function loadHomePrices() {
         const section = document.getElementById('home-prices-section');
         if (resp.ok && resp.data.length) {
             container.innerHTML = resp.data.map(renderPriceCard).join('');
+            // Reset title in case we came back from a search
+            const title = section?.querySelector('.home-section-title');
+            if (title) title.textContent = 'Actualizados recientemente';
             if (section) section.style.display = '';
         }
     } catch {}
@@ -651,6 +658,8 @@ function heroSearch() {
         heroSearchResults(state.searchQuery);
     } else {
         // Reset to default home view
+        const summary = document.getElementById('search-summary');
+        if (summary) { summary.style.display = 'none'; summary.innerHTML = ''; }
         loadHomeSuppliers();
         loadHomePrices();
     }
@@ -691,33 +700,89 @@ async function heroSearchResults(q) {
     const suppContainer = document.getElementById('home-suppliers');
     const priceSection = document.getElementById('home-prices-section');
     const priceContainer = document.getElementById('home-prices');
+    const summary = document.getElementById('search-summary');
 
-    // Load matching suppliers
-    try {
-        const resp = await API.publicSuppliers(`?q=${encodeURIComponent(q)}&limit=12`);
-        if (resp.ok && resp.data.length) {
-            suppContainer.innerHTML = resp.data.map(renderSupplierCard).join('');
-            suppSection.style.display = '';
-            // Update section title
-            const title = suppSection.querySelector('.home-section-title');
-            if (title) title.textContent = `Proveedores para "${q}"`;
-        } else {
-            suppSection.style.display = 'none';
-        }
-    } catch {}
+    // Build query params with active filters
+    let suppParams = `?q=${encodeURIComponent(q)}&limit=12`;
+    let priceParams = `?q=${encodeURIComponent(q)}&limit=12`;
+    if (state.selectedCategory) {
+        suppParams += `&category=${encodeURIComponent(state.selectedCategory)}`;
+        priceParams += `&category=${encodeURIComponent(state.selectedCategory)}`;
+    }
+    if (state.selectedDepartment) {
+        suppParams += `&department=${encodeURIComponent(state.selectedDepartment)}`;
+    }
 
-    // Load matching prices
-    try {
-        const resp = await API.publicPrices(`?q=${encodeURIComponent(q)}&limit=12`);
-        if (resp.ok && resp.data.length) {
-            priceContainer.innerHTML = resp.data.map(renderPriceCard).join('');
-            priceSection.style.display = '';
-            const title = priceSection.querySelector('.home-section-title');
-            if (title) title.textContent = `Precios para "${q}"`;
-        } else {
-            priceSection.style.display = 'none';
+    // Fetch in parallel
+    const [priceResp, suppResp] = await Promise.all([
+        API.publicPrices(priceParams).catch(() => ({ ok: false })),
+        API.publicSuppliers(suppParams).catch(() => ({ ok: false })),
+    ]);
+
+    const priceCount = priceResp.ok ? (priceResp.total ?? priceResp.data?.length ?? 0) : 0;
+    const suppCount = suppResp.ok ? (suppResp.total ?? suppResp.data?.length ?? 0) : 0;
+
+    // Render prices (primary result)
+    if (priceResp.ok && priceResp.data?.length) {
+        priceContainer.innerHTML = priceResp.data.map(renderPriceCard).join('');
+        priceSection.style.display = '';
+        const title = priceSection.querySelector('.home-section-title');
+        if (title) title.textContent = `Materiales para "${q}"`;
+    } else {
+        priceSection.style.display = 'none';
+    }
+
+    // Render suppliers (secondary result)
+    if (suppResp.ok && suppResp.data?.length) {
+        suppContainer.innerHTML = suppResp.data.map(renderSupplierCard).join('');
+        suppSection.style.display = '';
+        const title = suppSection.querySelector('.home-section-title');
+        if (title) title.textContent = `Proveedores para "${q}"`;
+    } else {
+        suppSection.style.display = 'none';
+    }
+
+    // Render summary bar at top
+    if (summary) {
+        const filterChips = [];
+        if (state.selectedCategory) {
+            const meta = CATEGORY_META[state.selectedCategory] || { label: state.selectedCategory };
+            filterChips.push(`<span class="search-summary-filter">${esc(meta.label || state.selectedCategory)}</span>`);
         }
-    } catch {}
+        if (state.selectedDepartment) {
+            filterChips.push(`<span class="search-summary-filter">${esc(state.selectedDepartment)}</span>`);
+        }
+        const filterHtml = filterChips.length ? ` · ${filterChips.join(' ')}` : '';
+
+        if (priceCount === 0 && suppCount === 0) {
+            summary.innerHTML = `
+                <div class="search-summary-inner">
+                    <span class="search-summary-empty">Sin resultados para <strong>"${esc(q)}"</strong>${filterHtml}</span>
+                    <button class="search-summary-clear" onclick="clearHeroSearch()">Limpiar busqueda</button>
+                </div>`;
+        } else {
+            summary.innerHTML = `
+                <div class="search-summary-inner">
+                    <span class="search-summary-counts">
+                        <strong>${priceCount}</strong> ${priceCount === 1 ? 'material' : 'materiales'} ·
+                        <strong>${suppCount}</strong> ${suppCount === 1 ? 'proveedor' : 'proveedores'}
+                        para <strong>"${esc(q)}"</strong>${filterHtml}
+                    </span>
+                    <button class="search-summary-clear" onclick="clearHeroSearch()">Limpiar</button>
+                </div>`;
+        }
+        summary.style.display = '';
+    }
+}
+
+function clearHeroSearch() {
+    const input = document.getElementById('hero-search-input');
+    if (input) input.value = '';
+    state.searchQuery = '';
+    const summary = document.getElementById('search-summary');
+    if (summary) { summary.style.display = 'none'; summary.innerHTML = ''; }
+    loadHomeSuppliers();
+    loadHomePrices();
 }
 
 // ── Render: Supplier card (reusable) ───────────────────────────

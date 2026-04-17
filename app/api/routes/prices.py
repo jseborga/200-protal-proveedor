@@ -59,6 +59,7 @@ async def public_prices(
     q: str | None = Query(None),
     category: str | None = Query(None),
     region: str | None = Query(None),
+    sort: str | None = Query(None, description="recent = ordenar por updated_at desc"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
@@ -71,7 +72,8 @@ async def public_prices(
         query = query.where(Insumo.category == category)
 
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
-    result = await db.execute(query.order_by(Insumo.name).offset(offset).limit(limit))
+    order_clause = Insumo.updated_at.desc() if sort == "recent" else Insumo.name
+    result = await db.execute(query.order_by(order_clause).offset(offset).limit(limit))
     insumos = result.scalars().all()
 
     data = []
