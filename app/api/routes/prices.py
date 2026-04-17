@@ -2,12 +2,13 @@ import json
 from datetime import date, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.rate_limit import PUBLIC_LIMIT, SEARCH_LIMIT, limiter
 from app.core.security import get_current_user, get_current_user_optional
 from app.models.insumo import Insumo, InsumoRegionalPrice
 from app.models.insumo_group import InsumoGroup
@@ -52,12 +53,14 @@ class RegionalPriceInput(BaseModel):
 
 # ── Public endpoints (precios publicos) ─────────────────────────
 @router.get("/public")
+@limiter.limit(PUBLIC_LIMIT)
 async def public_prices(
+    request: Request,
     q: str | None = Query(None),
     category: str | None = Query(None),
     region: str | None = Query(None),
     offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
     """Public price list — no auth required."""
@@ -89,12 +92,14 @@ async def public_prices(
 
 
 @router.get("/public/grouped")
+@limiter.limit(PUBLIC_LIMIT)
 async def public_grouped_prices(
+    request: Request,
     q: str | None = Query(None),
     category: str | None = Query(None),
     region: str | None = Query(None),
     offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
     """Public grouped price list: groups with variants + standalone insumos."""
@@ -190,10 +195,12 @@ async def public_grouped_prices(
 
 
 @router.get("/public/search")
+@limiter.limit(SEARCH_LIMIT)
 async def search_prices(
+    request: Request,
     q: str = Query(..., min_length=2),
     region: str | None = Query(None),
-    limit: int = Query(20, ge=1, le=100),
+    limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
     """Trigram similarity search on insumo names — public."""

@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.core.security import get_current_user
+from app.core.rate_limit import PUBLIC_LIMIT, limiter
+from app.core.security import get_current_user, get_current_user_optional
 from app.api.deps import require_manager, require_staff
 from sqlalchemy.orm import selectinload
 
@@ -52,14 +53,17 @@ class SupplierUpdate(BaseModel):
 
 # ── Public endpoints ────────────────────────────────────────────
 @router.get("/public")
+@limiter.limit(PUBLIC_LIMIT)
 async def public_suppliers(
+    request: Request,
     q: str | None = Query(None),
     city: str | None = Query(None),
     department: str | None = Query(None),
     category: str | None = Query(None),
     offset: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(50, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
     """Public supplier directory — no auth required."""
     query = select(Supplier).where(
@@ -93,17 +97,20 @@ async def public_suppliers(
     )
     suppliers = result.scalars().all()
 
+    reveal = user is not None
     return {
         "ok": True,
-        "data": [_public_supplier_dict(s) for s in suppliers],
+        "data": [_public_supplier_dict(s, reveal_contacts=reveal) for s in suppliers],
         "total": total,
         "offset": offset,
         "limit": limit,
+        "contacts_locked": not reveal,
     }
 
 
 @router.get("/public/cities")
-async def public_cities(db: AsyncSession = Depends(get_db)):
+@limiter.limit(PUBLIC_LIMIT)
+async def public_cities(request: Request, db: AsyncSession = Depends(get_db)):
     """List cities with verified suppliers."""
     result = await db.execute(
         select(Supplier.city, Supplier.department, func.count(Supplier.id))
@@ -125,7 +132,8 @@ async def public_cities(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/public/categories")
-async def public_supplier_categories(db: AsyncSession = Depends(get_db)):
+@limiter.limit(PUBLIC_LIMIT)
+async def public_supplier_categories(request: Request, db: AsyncSession = Depends(get_db)):
     """List distinct supplier categories with counts."""
     result = await db.execute(
         select(func.unnest(Supplier.categories).label("cat"))
@@ -141,9 +149,12 @@ async def public_supplier_categories(db: AsyncSession = Depends(get_db)):
 
 # ── Public supplier detail ────────────────────────────────────
 @router.get("/public/{supplier_id}")
+@limiter.limit(PUBLIC_LIMIT)
 async def public_supplier_detail(
+    request: Request,
     supplier_id: int,
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
     """Detalle publico de un proveedor verificado, con sucursales y contactos."""
     result = await db.execute(
@@ -162,6 +173,8 @@ async def public_supplier_detail(
     if not supplier:
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
 
+    reveal = user is not None
+
     branches = []
     for b in supplier.branches:
         if not b.is_active:
@@ -170,9 +183,12 @@ async def public_supplier_detail(
             {
                 "full_name": c.full_name,
                 "position": c.position,
-                "phone": c.phone,
-                "whatsapp": c.whatsapp,
-                "email": c.email,
+                "phone": c.phone if reveal else None,
+                "whatsapp": c.whatsapp if reveal else None,
+                "email": c.email if reveal else None,
+                "has_phone": bool(c.phone),
+                "has_whatsapp": bool(c.whatsapp),
+                "has_email": bool(c.email),
             }
             for c in b.contacts
             if c.is_active
@@ -183,9 +199,12 @@ async def public_supplier_detail(
             "city": b.city,
             "department": b.department,
             "address": b.address,
-            "phone": b.phone,
-            "whatsapp": b.whatsapp,
-            "email": b.email,
+            "phone": b.phone if reveal else None,
+            "whatsapp": b.whatsapp if reveal else None,
+            "email": b.email if reveal else None,
+            "has_phone": bool(b.phone),
+            "has_whatsapp": bool(b.whatsapp),
+            "has_email": bool(b.email),
             "latitude": b.latitude,
             "longitude": b.longitude,
             "is_main": b.is_main,
@@ -209,15 +228,21 @@ async def public_supplier_detail(
             "name": supplier.name,
             "trade_name": supplier.trade_name,
             "description": supplier.description,
-            "phone": supplier.phone,
-            "phone2": supplier.phone2,
-            "whatsapp": supplier.whatsapp,
-            "email": supplier.email,
+            "phone": supplier.phone if reveal else None,
+            "phone2": supplier.phone2 if reveal else None,
+            "whatsapp": supplier.whatsapp if reveal else None,
+            "email": supplier.email if reveal else None,
+            "website": supplier.website if reveal else None,
+            "has_phone": bool(supplier.phone),
+            "has_phone2": bool(supplier.phone2),
+            "has_whatsapp": bool(supplier.whatsapp),
+            "has_email": bool(supplier.email),
+            "has_website": bool(supplier.website),
+            "contacts_locked": not reveal,
             "city": supplier.city,
             "department": supplier.department,
             "operating_cities": supplier.operating_cities or [],
             "address": supplier.address,
-            "website": supplier.website,
             "categories": supplier.categories or [],
             "rating": supplier.rating,
             "latitude": supplier.latitude,
@@ -230,14 +255,18 @@ async def public_supplier_detail(
 
 # ── Nearby endpoint (public) ───────────────────────────────────
 @router.get("/public/nearby")
+@limiter.limit(PUBLIC_LIMIT)
 async def nearby_suppliers(
+    request: Request,
     lat: float = Query(..., description="Latitude"),
     lon: float = Query(..., description="Longitude"),
-    radius_km: float = Query(50, ge=1, le=500),
-    limit: int = Query(20, ge=1, le=100),
+    radius_km: float = Query(50, ge=1, le=200),
+    limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
 ):
     """Find nearest suppliers with known coordinates."""
+    reveal = user is not None
     result = await db.execute(text("""
         SELECT *, (
             6371 * acos(
@@ -255,10 +284,14 @@ async def nearby_suppliers(
     rows = result.mappings().all()
     return {
         "ok": True,
+        "contacts_locked": not reveal,
         "data": [
             {
                 "id": r["id"], "name": r["name"], "trade_name": r["trade_name"],
-                "whatsapp": r["whatsapp"], "phone": r["phone"],
+                "whatsapp": r["whatsapp"] if reveal else None,
+                "phone": r["phone"] if reveal else None,
+                "has_whatsapp": bool(r["whatsapp"]),
+                "has_phone": bool(r["phone"]),
                 "city": r["city"], "department": r["department"],
                 "latitude": r["latitude"], "longitude": r["longitude"],
                 "distance_km": round(r["distance_km"], 1),
@@ -429,17 +462,19 @@ async def get_supplier_products(
 
 
 # ── Helpers ─────────────────────────────────────────────────────
-def _public_supplier_dict(s: Supplier) -> dict:
-    """Public-safe fields — includes description and contact info."""
-    return {
+def _public_supplier_dict(s: Supplier, reveal_contacts: bool = False) -> dict:
+    """Public-safe fields.
+
+    reveal_contacts=True (usuario autenticado): devuelve telefonos, whatsapp,
+    email y website reales.
+    reveal_contacts=False (anonimo): los campos de contacto se devuelven como
+    None y se anade `has_*` (boolean) + `contacts_locked=True` para que la UI
+    muestre "Registrate para ver contacto".
+    """
+    d = {
         "id": s.id,
         "name": s.name,
         "trade_name": s.trade_name,
-        "phone": s.phone,
-        "phone2": s.phone2,
-        "whatsapp": s.whatsapp,
-        "email": s.email,
-        "website": s.website,
         "city": s.city,
         "department": s.department,
         "description": s.description,
@@ -448,7 +483,30 @@ def _public_supplier_dict(s: Supplier) -> dict:
         "rating": s.rating,
         "latitude": s.latitude,
         "longitude": s.longitude,
+        "has_phone": bool(s.phone),
+        "has_phone2": bool(s.phone2),
+        "has_whatsapp": bool(s.whatsapp),
+        "has_email": bool(s.email),
+        "has_website": bool(s.website),
+        "contacts_locked": not reveal_contacts,
     }
+    if reveal_contacts:
+        d.update({
+            "phone": s.phone,
+            "phone2": s.phone2,
+            "whatsapp": s.whatsapp,
+            "email": s.email,
+            "website": s.website,
+        })
+    else:
+        d.update({
+            "phone": None,
+            "phone2": None,
+            "whatsapp": None,
+            "email": None,
+            "website": None,
+        })
+    return d
 
 
 def _supplier_to_dict(s: Supplier) -> dict:

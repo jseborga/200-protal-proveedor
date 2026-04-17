@@ -1,13 +1,19 @@
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import select, text
 
+from app.core.banlist import BanCheckMiddleware
 from app.core.config import settings
 from app.core.database import engine, async_session
+from app.core.rate_limit import limiter
 from app.models.base import Base
 
 
@@ -172,6 +178,9 @@ async def lifespan(app: FastAPI):
     from app.core.plans import load_plans_from_db
     async with async_session() as db:
         await load_plans_from_db(db)
+    # Load banned IPs into memory cache
+    from app.core.banlist import reload_ban_cache
+    await reload_ban_cache()
     # Start scheduled tasks (cron jobs)
     from app.core.scheduler import start_scheduler, stop_scheduler
     start_scheduler()
@@ -181,13 +190,25 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
+_expose_docs = settings.is_dev or settings.app_debug
+
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    docs_url="/api/docs" if _expose_docs else None,
+    redoc_url="/api/redoc" if _expose_docs else None,
+    openapi_url="/api/openapi.json" if _expose_docs else None,
     lifespan=lifespan,
 )
+
+# Rate limiting (anti-scraping)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
+
+# Ban list (honeypot + burst detection) - se evalua antes que el rate limit
+# porque Starlette ejecuta middlewares en orden inverso al registro.
+app.add_middleware(BanCheckMiddleware)
 
 # CORS
 app.add_middleware(
@@ -220,6 +241,51 @@ app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["
 @app.get("/api/health")
 async def health():
     return {"ok": True, "app": settings.app_name, "env": settings.app_env}
+
+
+# ── robots.txt (anti-scraping / SEO) ───────────────────────────
+_ROBOTS_TXT = """User-agent: *
+Allow: /$
+Allow: /manifest.json
+Allow: /icon.svg
+Allow: /assets/
+Disallow: /api/
+Disallow: /mcp/
+Disallow: /api/v1/prices/internal-dump
+Disallow: /api/v1/suppliers/export-all
+Disallow: /api/v1/admin/full-export
+
+# Bots agresivos / scrapers comerciales
+User-agent: GPTBot
+Disallow: /
+User-agent: CCBot
+Disallow: /
+User-agent: ClaudeBot
+Disallow: /
+User-agent: Google-Extended
+Disallow: /
+User-agent: anthropic-ai
+Disallow: /
+User-agent: PerplexityBot
+Disallow: /
+User-agent: Bytespider
+Disallow: /
+User-agent: AhrefsBot
+Disallow: /
+User-agent: SemrushBot
+Disallow: /
+User-agent: MJ12bot
+Disallow: /
+User-agent: DotBot
+Disallow: /
+User-agent: DataForSeoBot
+Disallow: /
+"""
+
+
+@app.get("/robots.txt", include_in_schema=False)
+async def robots_txt():
+    return PlainTextResponse(_ROBOTS_TXT, media_type="text/plain")
 
 
 # ── One-time data purge (remove after use) ─────────────────────
@@ -271,7 +337,8 @@ SEO_DEFAULTS = {
 
 
 @app.get("/api/v1/site-config")
-async def site_config():
+@limiter.limit("120/minute")
+async def site_config(request: Request):
     """Config publica del sitio (SEO, branding). No requiere auth."""
     from app.models.system_setting import SystemSetting
     async with async_session() as db:
@@ -300,15 +367,30 @@ from starlette.requests import Request as StarletteRequest
 
 
 class NoCacheAssetsMiddleware(BaseHTTPMiddleware):
-    """Add no-cache headers to critical frontend assets so browsers always check for updates."""
+    """Cabeceras de cache para assets criticos y endpoints publicos.
+
+    - Assets del SPA: no-cache (siempre revalidar)
+    - Endpoints publicos de datos: cache corto (permite CDN absorber scraping)
+    """
 
     NO_CACHE_PATHS = {"/sw.js", "/assets/app.js", "/assets/app.css", "/"}
+    PUBLIC_DATA_PREFIXES = (
+        "/api/v1/prices/public",
+        "/api/v1/suppliers/public",
+        "/api/v1/site-config",
+    )
 
     async def dispatch(self, request: StarletteRequest, call_next):
         response = await call_next(request)
-        if request.url.path in self.NO_CACHE_PATHS:
+        path = request.url.path
+        if path in self.NO_CACHE_PATHS:
             response.headers["Cache-Control"] = "no-cache, must-revalidate"
             response.headers["Pragma"] = "no-cache"
+        elif request.method == "GET" and path.startswith(self.PUBLIC_DATA_PREFIXES):
+            # 60s de cache publico, 5min para CDN con stale-while-revalidate
+            response.headers["Cache-Control"] = (
+                "public, max-age=60, s-maxage=300, stale-while-revalidate=60"
+            )
         return response
 
 
