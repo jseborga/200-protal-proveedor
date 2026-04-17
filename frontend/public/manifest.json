@@ -1,7 +1,7 @@
 {
-  "name": "APU Marketplace",
-  "short_name": "APU MKT",
-  "description": "Portal de Precios Unitarios de Construccion",
+  "name": "Nexo Base - Precios y Proveedores de Construccion Bolivia",
+  "short_name": "Nexo Base",
+  "description": "Plataforma de precios unitarios (APU) y directorio de proveedores de materiales de construccion en Bolivia. Compara precios reales, contacta proveedores verificados y cotiza para tus obras.",
   "start_url": "/",
   "display": "standalone",
   "orientation": "any",

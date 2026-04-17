@@ -360,7 +360,7 @@ function renderApp() {
                         <path d="M12 36V16l12-6 12 6v20" stroke="white" stroke-width="2.5" fill="none"/>
                         <path d="M20 36V26h8v10" stroke="white" stroke-width="2"/>
                     </svg>
-                    <span>${_siteConfig?.site_name || 'APU Marketplace'}</span>
+                    <span>${_siteConfig?.site_name || 'Nexo Base'}</span>
                 </div>
                 <div class="footer-text">${_siteConfig?.footer_text || 'Precios de construccion actualizados'}</div>
                 <div class="footer-links">
@@ -431,7 +431,7 @@ function renderTopbar(publicPages, authPages) {
                     <path d="M12 36V16l12-6 12 6v20" stroke="white" stroke-width="2.5" fill="none"/>
                     <path d="M20 36V26h8v10" stroke="white" stroke-width="2"/>
                 </svg>
-                APU MKT
+                NEXO BASE
             </div>
             <div class="topbar-nav">
                 ${navItems}${authNav}
@@ -5818,11 +5818,11 @@ async function renderAdminSEO() {
         <form id="seo-form" onsubmit="handleSaveSEO(event)">
             <div class="form-group">
                 <label class="form-label">Nombre del sitio</label>
-                <input class="form-input" name="site_name" value="${esc(cfg.site_name || '')}" placeholder="APU Marketplace">
+                <input class="form-input" name="site_name" value="${esc(cfg.site_name || '')}" placeholder="Nexo Base">
             </div>
             <div class="form-group">
                 <label class="form-label">Titulo de la pagina (title tag)</label>
-                <input class="form-input" name="site_title" value="${esc(cfg.site_title || '')}" placeholder="Precios de Construccion en Bolivia | APU Marketplace">
+                <input class="form-input" name="site_title" value="${esc(cfg.site_title || '')}" placeholder="Nexo Base | Precios y Proveedores de Construccion en Bolivia">
             </div>
             <div class="form-group">
                 <label class="form-label">Meta descripcion</label>
@@ -5847,7 +5847,7 @@ async function renderAdminSEO() {
             </div>
             <div class="form-group">
                 <label class="form-label">Texto del footer</label>
-                <input class="form-input" name="footer_text" value="${esc(cfg.footer_text || '')}" placeholder="APU Marketplace - Precios de construccion actualizados">
+                <input class="form-input" name="footer_text" value="${esc(cfg.footer_text || '')}" placeholder="Nexo Base - Precios y proveedores de construccion en Bolivia">
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                 <div class="form-group">
@@ -5870,7 +5870,7 @@ async function renderAdminSEO() {
 
         <div style="margin-top:24px;padding:16px;background:var(--gray-50);border-radius:10px">
             <h3 style="font-size:14px;margin-bottom:8px">Vista previa en buscadores</h3>
-            <div style="font-size:16px;color:#1a0dab;font-weight:500">${esc(cfg.site_title || 'Precios de Construccion en Bolivia | APU Marketplace')}</div>
+            <div style="font-size:16px;color:#1a0dab;font-weight:500">${esc(cfg.site_title || 'Nexo Base | Precios y Proveedores de Construccion en Bolivia')}</div>
             <div style="font-size:13px;color:#006621;margin:2px 0">${window.location.origin}</div>
             <div style="font-size:13px;color:#545454">${esc((cfg.site_description || 'Portal de precios unitarios de materiales de construccion en Bolivia.').substring(0, 160))}</div>
         </div>
@@ -7461,7 +7461,7 @@ function applySiteConfig(cfg) {
 // ── Legal / Terminos de Uso ────────────────────────────────────
 function renderLegal() {
     const page = document.getElementById('page-content');
-    const siteName = esc(_siteConfig?.site_name || 'APU Marketplace');
+    const siteName = esc(_siteConfig?.site_name || 'Nexo Base');
     const email = _siteConfig?.contact_email ? esc(_siteConfig.contact_email) : 'contacto@apumarketplace.com';
     const whatsapp = _siteConfig?.contact_whatsapp ? esc(_siteConfig.contact_whatsapp) : '';
     const updated = '17 de abril de 2026';
