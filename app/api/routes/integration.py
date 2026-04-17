@@ -41,6 +41,8 @@ class SupplierIn(BaseModel):
     is_active: bool | None = None
     latitude: float | None = None
     longitude: float | None = None
+    is_featured: bool | None = None
+    subscription_tier: str | None = None  # none, basic, premium
 
 
 class SupplierUpdateIn(BaseModel):
@@ -64,6 +66,8 @@ class SupplierUpdateIn(BaseModel):
     is_active: bool | None = None
     latitude: float | None = None
     longitude: float | None = None
+    is_featured: bool | None = None
+    subscription_tier: str | None = None  # none, basic, premium
 
 
 class SupplierRubroIn(BaseModel):
@@ -723,6 +727,9 @@ def _sup_dict(s: Supplier) -> dict:
         "city": s.city, "department": s.department,
         "description": s.description, "operating_cities": s.operating_cities,
         "categories": s.categories, "verification_state": s.verification_state,
+        "latitude": s.latitude, "longitude": s.longitude,
+        "is_featured": bool(getattr(s, "is_featured", False)),
+        "subscription_tier": getattr(s, "subscription_tier", "none") or "none",
     }
 
 

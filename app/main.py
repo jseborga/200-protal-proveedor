@@ -75,6 +75,16 @@ async def _init_db():
         await conn.execute(text(
             "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS image_url VARCHAR(500)"
         ))
+        # Featured / subscription tier para priorizar proveedores en listas y mapa
+        await conn.execute(text(
+            "ALTER TABLE mkt_supplier ADD COLUMN IF NOT EXISTS is_featured BOOLEAN NOT NULL DEFAULT FALSE"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE mkt_supplier ADD COLUMN IF NOT EXISTS subscription_tier VARCHAR(20) NOT NULL DEFAULT 'none'"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_mkt_supplier_featured ON mkt_supplier(is_featured DESC, rating DESC)"
+        ))
 
 
 async def _ensure_superadmin():

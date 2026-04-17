@@ -60,12 +60,17 @@ async def public_suppliers(
     city: str | None = Query(None),
     department: str | None = Query(None),
     category: str | None = Query(None),
+    insumo_id: int | None = Query(None, description="Solo proveedores que vendieron este insumo"),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user_optional),
 ):
-    """Public supplier directory — no auth required."""
+    """Public supplier directory — no auth required.
+
+    Orden: is_featured desc, rating desc, name. Los proveedores suscritos /
+    destacados salen primero.
+    """
     query = select(Supplier).where(
         Supplier.is_active == True,
         Supplier.verification_state == "verified",
@@ -88,12 +93,29 @@ async def public_suppliers(
         query = query.where(Supplier.department == department)
     if category:
         query = query.where(Supplier.categories.contains([category]))
+    if insumo_id is not None:
+        insumo_suppliers = text(
+            "SELECT DISTINCT supplier_id FROM mkt_price_history WHERE insumo_id = :iid"
+        ).bindparams(iid=insumo_id)
+        ids_result = await db.execute(insumo_suppliers)
+        matched_ids = [r[0] for r in ids_result.all()]
+        if not matched_ids:
+            return {
+                "ok": True, "data": [], "total": 0,
+                "offset": offset, "limit": limit,
+                "contacts_locked": user is None,
+            }
+        query = query.where(Supplier.id.in_(matched_ids))
 
     total_q = select(func.count()).select_from(query.subquery())
     total = (await db.execute(total_q)).scalar() or 0
 
     result = await db.execute(
-        query.order_by(Supplier.name).offset(offset).limit(limit)
+        query.order_by(
+            Supplier.is_featured.desc(),
+            Supplier.rating.desc(),
+            Supplier.name,
+        ).offset(offset).limit(limit)
     )
     suppliers = result.scalars().all()
 
@@ -156,6 +178,7 @@ async def public_suppliers_map(
     q: str | None = Query(None),
     category: str | None = Query(None),
     department: str | None = Query(None),
+    insumo_id: int | None = Query(None, description="Solo proveedores que vendieron este insumo"),
     db: AsyncSession = Depends(get_db),
 ):
     """Retorna proveedores + sucursales con coordenadas para renderizar en mapa.
@@ -163,12 +186,14 @@ async def public_suppliers_map(
     Payload liviano (sin contactos). Incluye tanto la sede principal del proveedor
     (cuando tiene lat/lon en `mkt_supplier`) como cada sucursal activa con coords
     en `mkt_supplier_branch`. El frontend puede distinguir sede vs sucursal via
-    `is_branch`.
+    `is_branch`. Los destacados (`is_featured`) se marcan para que el frontend
+    los renderice con prioridad.
     """
     # Sede principal del supplier
     sup_sql = """
         SELECT s.id, s.name, s.trade_name, s.city, s.department,
-               s.latitude, s.longitude, s.categories
+               s.latitude, s.longitude, s.categories,
+               s.is_featured, s.subscription_tier, s.rating
         FROM mkt_supplier s
         WHERE s.is_active = true
           AND s.verification_state = 'verified'
@@ -184,6 +209,15 @@ async def public_suppliers_map(
     if department:
         sup_sql += " AND s.department = :dept"
         params["dept"] = department
+    if insumo_id is not None:
+        sup_sql += """
+          AND EXISTS (
+              SELECT 1 FROM mkt_price_history ph
+              WHERE ph.supplier_id = s.id AND ph.insumo_id = :insumo_id
+          )
+        """
+        params["insumo_id"] = insumo_id
+    sup_sql += " ORDER BY s.is_featured DESC, s.rating DESC, s.name"
 
     sup_rows = (await db.execute(text(sup_sql), params)).mappings().all()
 
@@ -191,7 +225,8 @@ async def public_suppliers_map(
     br_sql = """
         SELECT b.id, b.supplier_id, b.branch_name, b.city, b.department,
                b.latitude, b.longitude, b.is_main,
-               s.name AS supplier_name, s.categories
+               s.name AS supplier_name, s.categories,
+               s.is_featured, s.subscription_tier, s.rating
         FROM mkt_supplier_branch b
         JOIN mkt_supplier s ON s.id = b.supplier_id
         WHERE b.is_active = true
@@ -205,6 +240,14 @@ async def public_suppliers_map(
         br_sql += " AND :cat = ANY(s.categories)"
     if department:
         br_sql += " AND b.department = :dept"
+    if insumo_id is not None:
+        br_sql += """
+          AND EXISTS (
+              SELECT 1 FROM mkt_price_history ph
+              WHERE ph.supplier_id = s.id AND ph.insumo_id = :insumo_id
+          )
+        """
+    br_sql += " ORDER BY s.is_featured DESC, s.rating DESC, s.name"
 
     br_rows = (await db.execute(text(br_sql), params)).mappings().all()
 
@@ -221,6 +264,9 @@ async def public_suppliers_map(
             "longitude": r["longitude"],
             "categories": r["categories"] or [],
             "is_branch": False,
+            "is_featured": bool(r["is_featured"]),
+            "subscription_tier": r["subscription_tier"] or "none",
+            "rating": r["rating"],
         })
     for r in br_rows:
         data.append({
@@ -235,6 +281,9 @@ async def public_suppliers_map(
             "categories": r["categories"] or [],
             "is_branch": True,
             "is_main_branch": r["is_main"],
+            "is_featured": bool(r["is_featured"]),
+            "subscription_tier": r["subscription_tier"] or "none",
+            "rating": r["rating"],
         })
 
     return {"ok": True, "data": data, "total": len(data)}
@@ -269,6 +318,7 @@ async def nearby_suppliers(
             s.id, s.name, s.trade_name, s.whatsapp, s.phone,
             s.city, s.department, s.latitude, s.longitude, s.categories,
             s.verification_state, s.rating,
+            s.is_featured, s.subscription_tier,
             (
                 6371 * acos(
                     LEAST(1.0, cos(radians(:lat)) * cos(radians(s.latitude)) *
@@ -301,7 +351,8 @@ async def nearby_suppliers(
         sql += " AND :cat = ANY(s.categories)"
         params["cat"] = category
 
-    sql += " ORDER BY distance_km LIMIT :lim"
+    # Destacados primero dentro del radio; luego por cercania.
+    sql += " ORDER BY s.is_featured DESC, distance_km LIMIT :lim"
 
     result = await db.execute(text(sql), params)
     rows = result.mappings().all()
@@ -322,6 +373,8 @@ async def nearby_suppliers(
                 "rubros": r["rubros"] or [],
                 "verified": r["verification_state"] == "verified",
                 "rating": r["rating"],
+                "is_featured": bool(r["is_featured"]),
+                "subscription_tier": r["subscription_tier"] or "none",
             }
             for r in rows if r["distance_km"] <= radius_km
         ],
@@ -677,6 +730,8 @@ def _public_supplier_dict(s: Supplier, reveal_contacts: bool = False) -> dict:
         "rating": s.rating,
         "latitude": s.latitude,
         "longitude": s.longitude,
+        "is_featured": bool(getattr(s, "is_featured", False)),
+        "subscription_tier": getattr(s, "subscription_tier", "none") or "none",
         "has_phone": bool(s.phone),
         "has_phone2": bool(s.phone2),
         "has_whatsapp": bool(s.whatsapp),

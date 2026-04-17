@@ -46,6 +46,12 @@ class Supplier(TimestampMixin, Base):
     quotation_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     avg_response_days: Mapped[float | None] = mapped_column(Float, nullable=True)
 
+    # Promocion / suscripcion (prioriza en listados y mapas)
+    is_featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    subscription_tier: Mapped[str] = mapped_column(
+        String(20), default="none", nullable=False
+    )  # none, basic, premium
+
     # Preferred channels for RFQ delivery
     preferred_channel: Mapped[str] = mapped_column(
         String(20), default="email", nullable=False
