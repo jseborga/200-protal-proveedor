@@ -31,7 +31,9 @@ limiter = Limiter(
     key_func=_client_key,
     default_limits=[],
     storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
-    headers_enabled=True,
+    headers_enabled=False,  # slowapi requiere response: Response en la firma
+    # del endpoint para inyectar los headers; lo desactivamos para no
+    # tener que anadir el parametro a cada endpoint decorado.
 )
 
 # Limites por tipo de endpoint (override via env si se requiere)

@@ -7,7 +7,6 @@ from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import select, text
 
 from app.core.banlist import BanCheckMiddleware
@@ -201,13 +200,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# Rate limiting (anti-scraping)
+# Rate limiting (anti-scraping): usamos solo el decorador @limiter.limit
+# y el exception handler. SlowAPIMiddleware se omite porque es un
+# BaseHTTPMiddleware que apila mal con otros middlewares de Starlette y
+# no aporta nada cuando default_limits esta vacio.
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-app.add_middleware(SlowAPIMiddleware)
 
-# Ban list (honeypot + burst detection) - se evalua antes que el rate limit
-# porque Starlette ejecuta middlewares en orden inverso al registro.
+# Ban list (honeypot + burst detection) - ASGI puro.
 app.add_middleware(BanCheckMiddleware)
 
 # CORS
@@ -361,16 +361,15 @@ except Exception as e:
     print(f"[MCP] Failed to mount: {e}")
 
 # ── Static / SPA ────────────────────────────────────────────────
-# Middleware: prevent browser caching of critical assets (sw.js, app.js, app.css)
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request as StarletteRequest
+# Middleware ASGI puro para cabeceras de cache. Se evita BaseHTTPMiddleware
+# porque stackear varios BaseHTTPMiddleware rompe POST con body.
 
 
-class NoCacheAssetsMiddleware(BaseHTTPMiddleware):
+class NoCacheAssetsMiddleware:
     """Cabeceras de cache para assets criticos y endpoints publicos.
 
-    - Assets del SPA: no-cache (siempre revalidar)
-    - Endpoints publicos de datos: cache corto (permite CDN absorber scraping)
+    - Assets del SPA: no-cache (siempre revalidar).
+    - Endpoints publicos de datos: cache corto (permite CDN absorber scraping).
     """
 
     NO_CACHE_PATHS = {"/sw.js", "/assets/app.js", "/assets/app.css", "/"}
@@ -380,18 +379,41 @@ class NoCacheAssetsMiddleware(BaseHTTPMiddleware):
         "/api/v1/site-config",
     )
 
-    async def dispatch(self, request: StarletteRequest, call_next):
-        response = await call_next(request)
-        path = request.url.path
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        method = scope.get("method", "GET")
+
+        cache_header: bytes | None = None
+        pragma_header: bytes | None = None
         if path in self.NO_CACHE_PATHS:
-            response.headers["Cache-Control"] = "no-cache, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-        elif request.method == "GET" and path.startswith(self.PUBLIC_DATA_PREFIXES):
-            # 60s de cache publico, 5min para CDN con stale-while-revalidate
-            response.headers["Cache-Control"] = (
-                "public, max-age=60, s-maxage=300, stale-while-revalidate=60"
-            )
-        return response
+            cache_header = b"no-cache, must-revalidate"
+            pragma_header = b"no-cache"
+        elif method == "GET" and path.startswith(self.PUBLIC_DATA_PREFIXES):
+            cache_header = b"public, max-age=60, s-maxage=300, stale-while-revalidate=60"
+
+        if cache_header is None:
+            await self.app(scope, receive, send)
+            return
+
+        async def send_wrapper(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                # Remove any existing Cache-Control / Pragma
+                headers = [(k, v) for (k, v) in headers if k.lower() not in (b"cache-control", b"pragma")]
+                headers.append((b"cache-control", cache_header))
+                if pragma_header is not None:
+                    headers.append((b"pragma", pragma_header))
+                message["headers"] = headers
+            await send(message)
+
+        await self.app(scope, receive, send_wrapper)
 
 
 app.add_middleware(NoCacheAssetsMiddleware)
