@@ -14,6 +14,9 @@ const state = {
     selectedCategory: null,
     selectedDepartment: null,
     cart: [],
+    // Proveedores page: modo de busqueda ('supplier' | 'material') + filtro por insumo
+    supplierSearchMode: 'supplier',
+    insumoFilter: null, // { id, name }
 };
 
 // ── API Client ─────────────────────────────────────────────────
@@ -302,6 +305,8 @@ const ICONS = {
     globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
     mail: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>',
     layers: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 2,7 12,12 22,7"/><polyline points="2,17 12,22 22,17"/><polyline points="2,12 12,17 22,12"/></svg>',
+    package: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16.5 9.4l-9-5.19M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27,6.96 12,12.01 20.73,6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>',
+    filter: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>',
     'chevron-down': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6,9 12,15 18,9"/></svg>',
     'chevron-up': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="18,15 12,9 6,15"/></svg>',
     'shopping-cart': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></svg>',
@@ -864,11 +869,16 @@ function renderSupplierCard(s) {
         ? `<div class="supplier-opcities">${icon('map-pin', 12)} ${s.operating_cities.join(', ')}</div>`
         : '';
 
+    const featuredBadge = s.is_featured
+        ? `<span class="supplier-featured" title="Proveedor destacado${s.subscription_tier && s.subscription_tier !== 'none' ? ' - ' + esc(s.subscription_tier) : ''}">${icon('star', 12)} Destacado</span>`
+        : '';
+    const cardClass = s.is_featured ? 'supplier-card supplier-card-featured' : 'supplier-card';
+
     return `
-        <div class="supplier-card" onclick="showPublicSupplierDetail(${s.id})" style="cursor:pointer">
+        <div class="${cardClass}" onclick="showPublicSupplierDetail(${s.id})" style="cursor:pointer">
             <div class="supplier-card-header">
                 <div>
-                    <div class="supplier-name">${esc(s.trade_name || s.name)}</div>
+                    <div class="supplier-name">${esc(s.trade_name || s.name)} ${featuredBadge}</div>
                     <div class="supplier-location">${icon('map', 14)} ${location || 'Bolivia'}</div>
                 </div>
                 ${rating}
@@ -888,6 +898,7 @@ function renderSupplierCard(s) {
 function renderPriceCard(p) {
     if (p.type === 'group') return renderGroupCard(p);
     const addBtn = state.user ? `<button class="btn-cart-add" onclick="event.stopPropagation();addToCart(${p.id || 'null'},'${esc(p.name).replace(/'/g,"\\'")}','${esc(p.uom||'')}',${p.ref_price||'null'})" title="Agregar al carrito">${icon('plus',14)}</button>` : '';
+    const mapBtn = p.id ? `<button class="btn-map-suppliers" onclick="event.stopPropagation();viewSuppliersForInsumo(${p.id}, '${esc(p.name).replace(/'/g,"\\'")}')" title="Ver proveedores de este material en el mapa">${icon('map-pin', 14)}</button>` : '';
     const specLink = p.spec_url ? `<a href="${esc(p.spec_url)}" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()" title="Ficha tecnica">${icon('file-text',13)} Ficha</a>` : '';
     const clickAttr = p.id ? `onclick="openProduct(${p.id})" style="cursor:pointer"` : '';
     return `
@@ -896,15 +907,20 @@ function renderPriceCard(p) {
                 <div class="price-name">${esc(p.name)}</div>
                 <div class="price-detail">${p.category ? esc(p.category) : ''} ${p.uom ? '&middot; ' + esc(p.uom) : ''} ${specLink}</div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
+            <div style="display:flex;align-items:center;gap:6px">
                 <div class="price-value">
                     ${p.ref_price ? p.ref_price.toFixed(2) : '--.--'}
                     <span class="price-currency">${esc(p.ref_currency || 'BOB')}</span>
                 </div>
+                ${mapBtn}
                 ${addBtn}
             </div>
         </div>
     `;
+}
+
+function viewSuppliersForInsumo(insumoId, insumoName) {
+    navigate('suppliers', { insumoId, insumoName });
 }
 
 function renderGroupCard(g) {
@@ -1695,6 +1711,29 @@ let _supplierMapMode = false;
 
 // ── Render: Public Suppliers page ──────────────────────────────
 async function renderPublicSuppliers() {
+    // Deep-link: si vienen params con insumoId, se preselecciona filtro
+    if (state.currentParams && state.currentParams.insumoId) {
+        state.supplierSearchMode = 'material';
+        state.insumoFilter = {
+            id: state.currentParams.insumoId,
+            name: state.currentParams.insumoName || `Material #${state.currentParams.insumoId}`,
+        };
+        // Consumir params para no re-aplicar en renders posteriores
+        state.currentParams = null;
+    }
+
+    const mode = state.supplierSearchMode || 'supplier';
+    const placeholder = mode === 'material'
+        ? 'Buscar material (ej: cemento, fierro)...'
+        : 'Buscar proveedor por nombre, descripcion o rubro...';
+
+    const filterPill = state.insumoFilter
+        ? `<div class="filter-pill">
+              ${icon('filter', 14)} Proveedores que venden: <strong>${esc(state.insumoFilter.name)}</strong>
+              <button class="filter-pill-x" onclick="clearMaterialFilter()" title="Quitar filtro">${icon('x', 14)}</button>
+           </div>`
+        : '';
+
     const page = document.getElementById('page-content');
     page.innerHTML = `
         <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
@@ -1704,8 +1743,19 @@ async function renderPublicSuppliers() {
             </div>
             ${state.user ? `<button class="btn btn-primary" onclick="showSuggestSupplierModal()">${icon('user-plus',16)} Sugerir Proveedor</button>` : ''}
         </div>
+        <div class="search-mode-tabs">
+            <button class="search-mode-tab${mode === 'supplier' ? ' active' : ''}" onclick="setSupplierSearchMode('supplier')">
+                ${icon('users', 14)} Buscar proveedor
+            </button>
+            <button class="search-mode-tab${mode === 'material' ? ' active' : ''}" onclick="setSupplierSearchMode('material')">
+                ${icon('package', 14)} Buscar por material
+            </button>
+        </div>
         <div class="search-bar">
-            <input class="form-input" id="supplier-search" placeholder="Buscar proveedor..." oninput="debounceSupplierSearch()">
+            <div style="flex:1;position:relative">
+                <input class="form-input" id="supplier-search" placeholder="${placeholder}" oninput="onSupplierSearchInput()" autocomplete="off">
+                <div id="material-suggestions" class="material-suggestions" style="display:none"></div>
+            </div>
             <select class="form-select" id="supplier-dept-filter" onchange="filterSupplierDept()" style="max-width:180px">
                 <option value="">Todos los departamentos</option>
                 ${DEPARTMENTS.map(d => `<option value="${d}"${state.selectedDepartment === d ? ' selected' : ''}>${d}</option>`).join('')}
@@ -1717,6 +1767,7 @@ async function renderPublicSuppliers() {
                 ${icon('map-pin',16)} Cerca de mi
             </button>
         </div>
+        <div id="active-filter-pill">${filterPill}</div>
         <div class="categories-bar" id="supplier-categories"></div>
         <div id="supplier-map-container" style="height:450px;border-radius:8px;margin-bottom:16px;display:${_supplierMapMode ? 'block' : 'none'}"></div>
         <div class="supplier-grid" id="suppliers-list" style="display:${_supplierMapMode ? 'none' : 'grid'}">
@@ -1726,6 +1777,83 @@ async function renderPublicSuppliers() {
 
     loadSupplierCategoryChips();
     loadPublicSuppliers();
+    if (_supplierMapMode) {
+        MapUtils.createMap('supplier-map-container');
+        loadSuppliersOnMap();
+    }
+}
+
+function setSupplierSearchMode(mode) {
+    state.supplierSearchMode = mode;
+    // Cerrar sugerencias si cambia de modo
+    const sug = document.getElementById('material-suggestions');
+    if (sug) { sug.style.display = 'none'; sug.innerHTML = ''; }
+    // Re-render del header completo para actualizar tabs + placeholder
+    renderPublicSuppliers();
+}
+
+function clearMaterialFilter() {
+    state.insumoFilter = null;
+    const pill = document.getElementById('active-filter-pill');
+    if (pill) pill.innerHTML = '';
+    loadPublicSuppliers();
+    if (_supplierMapMode) loadSuppliersOnMap();
+}
+
+let _materialSearchTimer;
+function onSupplierSearchInput() {
+    const mode = state.supplierSearchMode || 'supplier';
+    if (mode === 'material') {
+        clearTimeout(_materialSearchTimer);
+        _materialSearchTimer = setTimeout(searchMaterialSuggestions, 250);
+    } else {
+        debounceSupplierSearch();
+    }
+}
+
+async function searchMaterialSuggestions() {
+    const input = document.getElementById('supplier-search');
+    const sug = document.getElementById('material-suggestions');
+    if (!input || !sug) return;
+    const q = input.value.trim();
+    if (q.length < 2) { sug.style.display = 'none'; sug.innerHTML = ''; return; }
+    try {
+        const resp = await API.publicPrices(`?q=${encodeURIComponent(q)}&limit=8`);
+        const items = (resp && resp.ok && resp.data) ? resp.data.filter(p => p.id) : [];
+        if (!items.length) {
+            sug.innerHTML = '<div class="material-sug-empty">Sin materiales para ese texto</div>';
+            sug.style.display = '';
+            return;
+        }
+        sug.innerHTML = items.map(p => {
+            const price = p.ref_price ? `<span class="material-sug-price">${p.ref_price.toFixed(2)} ${esc(p.ref_currency || 'BOB')}</span>` : '';
+            return `<div class="material-sug-item" onclick="selectMaterialFilter(${p.id}, '${esc(p.name).replace(/'/g, "\\'")}')">
+                <div>
+                    <div class="material-sug-name">${esc(p.name)}</div>
+                    <div class="material-sug-meta">${p.category ? esc(p.category) : ''}${p.uom ? ' · ' + esc(p.uom) : ''}</div>
+                </div>
+                ${price}
+            </div>`;
+        }).join('');
+        sug.style.display = '';
+    } catch { sug.style.display = 'none'; }
+}
+
+function selectMaterialFilter(insumoId, insumoName) {
+    state.insumoFilter = { id: insumoId, name: insumoName };
+    const sug = document.getElementById('material-suggestions');
+    if (sug) { sug.style.display = 'none'; sug.innerHTML = ''; }
+    const input = document.getElementById('supplier-search');
+    if (input) input.value = '';
+    const pill = document.getElementById('active-filter-pill');
+    if (pill) {
+        pill.innerHTML = `<div class="filter-pill">
+            ${icon('filter', 14)} Proveedores que venden: <strong>${esc(insumoName)}</strong>
+            <button class="filter-pill-x" onclick="clearMaterialFilter()" title="Quitar filtro">${icon('x', 14)}</button>
+        </div>`;
+    }
+    loadPublicSuppliers();
+    if (_supplierMapMode) loadSuppliersOnMap();
 }
 
 function toggleSupplierMap() {
@@ -1748,11 +1876,13 @@ function toggleSupplierMap() {
 }
 
 async function loadSuppliersOnMap() {
-    const q = document.getElementById('supplier-search')?.value?.trim() || '';
+    const mode = state.supplierSearchMode || 'supplier';
+    const q = (mode === 'supplier') ? (document.getElementById('supplier-search')?.value?.trim() || '') : '';
     let params = '?';
     if (q) params += `q=${encodeURIComponent(q)}&`;
     if (state.selectedCategory) params += `category=${encodeURIComponent(state.selectedCategory)}&`;
     if (state.selectedDepartment) params += `department=${encodeURIComponent(state.selectedDepartment)}&`;
+    if (state.insumoFilter && state.insumoFilter.id) params += `insumo_id=${state.insumoFilter.id}&`;
 
     try {
         const resp = await API.publicSuppliersMap(params);
@@ -1856,11 +1986,14 @@ function debounceSupplierSearch() {
 }
 
 async function loadPublicSuppliers() {
-    const q = document.getElementById('supplier-search')?.value?.trim() || '';
+    const mode = state.supplierSearchMode || 'supplier';
+    // En modo material, el input sirve para elegir insumo (via chips), no para q directo.
+    const q = (mode === 'supplier') ? (document.getElementById('supplier-search')?.value?.trim() || '') : '';
     let params = '?limit=50';
     if (q) params += `&q=${encodeURIComponent(q)}`;
     if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
     if (state.selectedDepartment) params += `&department=${encodeURIComponent(state.selectedDepartment)}`;
+    if (state.insumoFilter && state.insumoFilter.id) params += `&insumo_id=${state.insumoFilter.id}`;
 
     try {
         const resp = await API.publicSuppliers(params);

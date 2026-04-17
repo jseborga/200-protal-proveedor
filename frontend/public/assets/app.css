@@ -604,6 +604,61 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .search-bar { display: flex; gap: 8px; margin-bottom: 16px; }
 .search-bar .form-input { flex: 1; }
 
+/* ── Search mode tabs (Proveedores page) ──────────────────── */
+.search-mode-tabs { display: flex; gap: 4px; margin-bottom: 10px; border-bottom: 1px solid var(--gray-200); }
+.search-mode-tab {
+    background: transparent; border: 0; padding: 8px 14px; cursor: pointer;
+    font-size: 14px; color: var(--gray-500); border-bottom: 2px solid transparent;
+    display: inline-flex; align-items: center; gap: 6px; font-weight: 500;
+    transition: color 0.15s, border-color 0.15s;
+}
+.search-mode-tab:hover { color: var(--primary); }
+.search-mode-tab.active { color: var(--primary); border-bottom-color: var(--primary); }
+
+/* ── Material filter pill ─────────────────────────────────── */
+.filter-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: #eef6ff; color: var(--primary-dark);
+    padding: 6px 10px; border-radius: 20px; font-size: 13px;
+    border: 1px solid #cfe3ff; margin-bottom: 12px;
+}
+.filter-pill strong { font-weight: 600; }
+.filter-pill-x {
+    background: transparent; border: 0; cursor: pointer; color: var(--primary-dark);
+    padding: 2px; display: inline-flex; align-items: center; border-radius: 50%;
+}
+.filter-pill-x:hover { background: #d3e5ff; }
+
+/* ── Material search suggestions ──────────────────────────── */
+.material-suggestions {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+    background: white; border: 1px solid var(--gray-200); border-radius: 8px;
+    box-shadow: var(--shadow-lg); z-index: 50; max-height: 340px; overflow-y: auto;
+}
+.material-sug-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 10px 12px; cursor: pointer; border-bottom: 1px solid var(--gray-100);
+}
+.material-sug-item:last-child { border-bottom: 0; }
+.material-sug-item:hover { background: var(--gray-50); }
+.material-sug-name { font-size: 14px; color: var(--gray-800); font-weight: 500; }
+.material-sug-meta { font-size: 12px; color: var(--gray-500); }
+.material-sug-price { font-size: 13px; font-weight: 600; color: var(--primary); white-space: nowrap; }
+.material-sug-empty { padding: 14px; text-align: center; color: var(--gray-400); font-size: 13px; }
+
+/* ── Featured supplier badge ──────────────────────────────── */
+.supplier-card-featured {
+    border: 1px solid #f59e0b;
+    box-shadow: 0 0 0 1px #fbbf24 inset, var(--shadow);
+}
+.supplier-featured {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: linear-gradient(135deg, #f59e0b, #d97706); color: white;
+    font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
+    text-transform: uppercase; letter-spacing: 0.3px; vertical-align: middle;
+    margin-left: 6px;
+}
+
 /* ── Empty state ───────────────────────────────────────────── */
 .empty-state { text-align: center; padding: 40px 20px; color: var(--gray-400); }
 .empty-state p { font-size: 15px; }
@@ -794,6 +849,15 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 }
 .btn-cart-add:hover { background: var(--primary); color: white; }
 .btn-cart-sm { width: 22px; height: 22px; }
+
+.btn-map-suppliers {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; border-radius: 50%; border: 1.5px solid #059669;
+    background: white; color: #059669; cursor: pointer; padding: 0;
+    transition: all .15s;
+}
+.btn-map-suppliers:hover { background: #059669; color: white; }
+
 .cart-badge {
     position: absolute; top: -4px; right: -4px;
     background: #dc2626; color: white; font-size: 10px; font-weight: 700;
