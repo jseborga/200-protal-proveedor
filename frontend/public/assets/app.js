@@ -1085,15 +1085,23 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
         </div>`;
 
     const canEdit = isManager();
-    const imgHtml = p.image_url
-        ? `<div class="pd-hero-img"><img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">${canEdit ? `<button class="pd-img-edit" onclick="openInsumoImageUpload(${p.id})" title="Cambiar imagen">${icon('edit', 14)}</button>` : ''}</div>`
-        : (canEdit ? `<div class="pd-hero-img pd-hero-img-empty" onclick="openInsumoImageUpload(${p.id})">${icon('image', 32)}<span>Subir imagen</span></div>` : '');
+    // Imagen: solo se muestra si existe. Se ubica al final del detalle.
+    // Los managers pueden subir/cambiar la imagen via el boton pequeno en el
+    // encabezado.
+    const imgSectionHtml = p.image_url
+        ? `<div class="pd-image-section">
+               <img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">
+               ${canEdit ? `<button class="pd-img-edit" onclick="openInsumoImageUpload(${p.id})" title="Cambiar imagen">${icon('edit', 14)}</button>` : ''}
+           </div>`
+        : '';
+    const imgUploadBtn = (canEdit && !p.image_url)
+        ? `<button class="btn btn-secondary btn-sm pd-img-upload-btn" onclick="openInsumoImageUpload(${p.id})">${icon('image', 14)} Subir imagen</button>`
+        : '';
 
     return `
         <div class="product-detail${inModal ? ' product-detail-modal' : ''}">
             ${breadcrumbHtml}
-            <div class="pd-hero${imgHtml ? ' pd-hero-with-img' : ''}">
-                ${imgHtml}
+            <div class="pd-hero">
                 <div class="pd-hero-main">
                     <h1 class="pd-title">${esc(p.name)}</h1>
                     <div class="pd-meta">
@@ -1110,6 +1118,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
                     <div class="pd-actions">
                         ${specBtn}
                         ${state.user ? `<button class="btn btn-primary" onclick="addToCart(${p.id},'${esc(p.name).replace(/'/g,"\\'")}','${esc(p.uom||'')}',${p.ref_price||'null'})">${icon('plus', 14)} Agregar al carrito</button>` : ''}
+                        ${imgUploadBtn}
                     </div>
                 </div>
             </div>
@@ -1118,6 +1127,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
             ${groupHtml}
             ${supHtml}
             ${relHtml}
+            ${imgSectionHtml}
             ${disclaimerHtml}
         </div>
     `;
