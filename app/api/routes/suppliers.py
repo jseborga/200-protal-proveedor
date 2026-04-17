@@ -8,7 +8,7 @@ from app.core.security import get_current_user
 from app.api.deps import require_manager, require_staff
 from sqlalchemy.orm import selectinload
 
-from app.models.supplier import Supplier, SupplierBranch, SupplierBranchContact
+from app.models.supplier import Supplier, SupplierBranch, SupplierBranchContact, SupplierRubro
 from app.models.user import User
 
 router = APIRouter()
@@ -67,7 +67,16 @@ async def public_suppliers(
         Supplier.verification_state == "verified",
     )
     if q:
-        query = query.where(Supplier.name.ilike(f"%{q}%"))
+        # Search in name, description, and rubros (product lines)
+        rubro_match = select(SupplierRubro.supplier_id).where(
+            SupplierRubro.is_active == True,
+            (SupplierRubro.rubro.ilike(f"%{q}%") | SupplierRubro.description.ilike(f"%{q}%")),
+        ).correlate(None)
+        query = query.where(
+            Supplier.name.ilike(f"%{q}%")
+            | Supplier.description.ilike(f"%{q}%")
+            | Supplier.id.in_(rubro_match)
+        )
     if city:
         query = query.where(Supplier.city == city)
     if department:
@@ -139,7 +148,8 @@ async def public_supplier_detail(
     result = await db.execute(
         select(Supplier)
         .options(
-            selectinload(Supplier.branches).selectinload(SupplierBranch.contacts)
+            selectinload(Supplier.branches).selectinload(SupplierBranch.contacts),
+            selectinload(Supplier.rubros),
         )
         .where(
             Supplier.id == supplier_id,
@@ -181,23 +191,37 @@ async def public_supplier_detail(
             "contacts": contacts,
         })
 
+    rubros = [
+        {
+            "rubro": r.rubro,
+            "description": r.description,
+            "category_key": r.category_key,
+        }
+        for r in supplier.rubros
+        if r.is_active
+    ]
+
     return {
         "ok": True,
         "data": {
             "id": supplier.id,
             "name": supplier.name,
             "trade_name": supplier.trade_name,
+            "description": supplier.description,
             "phone": supplier.phone,
+            "phone2": supplier.phone2,
             "whatsapp": supplier.whatsapp,
             "email": supplier.email,
             "city": supplier.city,
             "department": supplier.department,
+            "operating_cities": supplier.operating_cities or [],
             "address": supplier.address,
             "website": supplier.website,
             "categories": supplier.categories or [],
             "rating": supplier.rating,
             "latitude": supplier.latitude,
             "longitude": supplier.longitude,
+            "rubros": rubros,
             "branches": branches,
         },
     }
@@ -405,15 +429,20 @@ async def get_supplier_products(
 
 # ── Helpers ─────────────────────────────────────────────────────
 def _public_supplier_dict(s: Supplier) -> dict:
-    """Public-safe fields only — no email, NIT, or internal data."""
+    """Public-safe fields — includes description and contact info."""
     return {
         "id": s.id,
         "name": s.name,
         "trade_name": s.trade_name,
         "phone": s.phone,
+        "phone2": s.phone2,
         "whatsapp": s.whatsapp,
+        "email": s.email,
+        "website": s.website,
         "city": s.city,
         "department": s.department,
+        "description": s.description,
+        "operating_cities": s.operating_cities,
         "categories": s.categories,
         "rating": s.rating,
         "latitude": s.latitude,

@@ -195,6 +195,8 @@ input, select, textarea { font: inherit; }
 .supplier-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px; }
 .supplier-name { font-size: 17px; font-weight: 600; color: var(--gray-800); }
 .supplier-location { font-size: 13px; color: var(--gray-500); margin-top: 2px; }
+.supplier-desc { font-size: 13px; color: var(--gray-600); margin-top: 6px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.supplier-opcities { font-size: 12px; color: var(--gray-400); margin-top: 4px; display: flex; align-items: center; gap: 4px; }
 .supplier-categories { display: flex; flex-wrap: wrap; gap: 4px; margin: 10px 0; }
 .supplier-cat {
     font-size: 11px; padding: 2px 8px; border-radius: 10px;

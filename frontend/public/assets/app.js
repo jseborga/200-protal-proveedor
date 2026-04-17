@@ -668,6 +668,14 @@ function renderSupplierCard(s) {
         ? `<span style="color:#f59e0b;font-size:13px">${icon('star', 14)} ${s.rating.toFixed(1)}</span>`
         : '';
 
+    const desc = s.description
+        ? `<div class="supplier-desc">${esc(s.description)}</div>`
+        : '';
+
+    const opCities = (s.operating_cities || []).length > 1
+        ? `<div class="supplier-opcities">${icon('map-pin', 12)} ${s.operating_cities.join(', ')}</div>`
+        : '';
+
     return `
         <div class="supplier-card" onclick="showPublicSupplierDetail(${s.id})" style="cursor:pointer">
             <div class="supplier-card-header">
@@ -677,6 +685,8 @@ function renderSupplierCard(s) {
                 </div>
                 ${rating}
             </div>
+            ${desc}
+            ${opCities}
             <div class="supplier-categories">${cats || '<span style="font-size:12px;color:var(--gray-400)">Sin categorias</span>'}</div>
             <div class="supplier-actions">
                 ${waBtn}
@@ -1156,6 +1166,26 @@ async function showPublicSupplierDetail(supplierId) {
                 </div>`;
         }).join('');
 
+        const opCities = (s.operating_cities || []).length > 0
+            ? `<div style="color:var(--gray-500);font-size:13px;margin-top:2px">${icon('map-pin',13)} Opera en: ${s.operating_cities.join(', ')}</div>`
+            : '';
+
+        const phone2Btn = s.phone2
+            ? `<a href="tel:${s.phone2}" class="btn-call" onclick="event.stopPropagation()">${icon('phone', 16)} ${esc(s.phone2)}</a>`
+            : '';
+
+        const rubrosHtml = (s.rubros || []).length > 0
+            ? `<div style="margin-bottom:16px">
+                <h3 style="font-size:15px;margin-bottom:8px;border-bottom:1px solid var(--gray-200);padding-bottom:6px">Productos y Servicios</h3>
+                ${s.rubros.map(r => `
+                    <div style="padding:8px 0;border-bottom:1px solid var(--gray-100)">
+                        <div style="font-weight:600;font-size:14px">${esc(r.rubro)}</div>
+                        ${r.description ? `<div style="font-size:13px;color:var(--gray-500);margin-top:2px">${esc(r.description)}</div>` : ''}
+                    </div>
+                `).join('')}
+            </div>`
+            : '';
+
         c.innerHTML = `
             <div style="margin-bottom:16px">
                 <div style="display:flex;justify-content:space-between;align-items:start">
@@ -1166,13 +1196,17 @@ async function showPublicSupplierDetail(supplierId) {
                     ${rating}
                 </div>
                 <div style="color:var(--gray-500);margin-top:4px">${icon('map',14)} ${location || 'Bolivia'}</div>
+                ${opCities}
                 ${s.address ? `<div style="color:var(--gray-500);font-size:13px;margin-top:2px">${esc(s.address)}</div>` : ''}
-                ${s.email ? `<div style="margin-top:4px;font-size:13px">${icon('mail',13)} <a href="mailto:${esc(s.email)}">${esc(s.email)}</a></div>` : ''}
+                ${s.description ? `<div style="margin-top:8px;font-size:14px;color:var(--gray-600);line-height:1.4">${esc(s.description)}</div>` : ''}
+                ${s.email ? `<div style="margin-top:6px;font-size:13px">${icon('mail',13)} <a href="mailto:${esc(s.email)}">${esc(s.email)}</a></div>` : ''}
+                ${s.website ? `<div style="font-size:13px;margin-top:2px">${icon('globe',13)} <a href="https://${esc(s.website)}" target="_blank" rel="noopener">${esc(s.website)}</a></div>` : ''}
             </div>
             <div class="supplier-categories" style="margin-bottom:12px">${cats || ''}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
-                ${waBtn}${callBtn}${webBtn}
+                ${waBtn}${callBtn}${phone2Btn}${webBtn}
             </div>
+            ${rubrosHtml}
             ${showMap ? `<div id="supplier-detail-map" style="height:220px;border-radius:8px;margin-bottom:16px"></div>` : ''}
             ${(s.branches || []).length > 0 ? `
                 <h3 style="font-size:15px;margin-bottom:8px;border-bottom:1px solid var(--gray-200);padding-bottom:6px">Sucursales (${s.branches.length})</h3>
