@@ -599,15 +599,27 @@ async def get_uploaded_image(token: str) -> list:
 @mcp.tool()
 async def get_uploaded_excel(token: str) -> str:
     """Retrieve an uploaded Excel file by token. Parses the Excel and returns
-    the data as JSON (rows with headers). Use this for Excel files sent by Telegram users."""
+    the data as JSON (rows with headers). Use this for Excel files sent by Telegram users.
+
+    If parsing fails, returns error details. In that case, notify the user
+    via notify_telegram explaining the issue."""
     from app.services.temp_files import get_temp_file
-    from app.services.ai_extract import _extract_from_excel
 
     entry = get_temp_file(token)
     if not entry:
-        return json.dumps({"error": f"Token '{token}' not found or expired."})
+        return json.dumps({"error": f"Token '{token}' not found or expired. The file may have been cleaned up (max 1 hour)."})
 
-    result = _extract_from_excel(entry["data"], entry["filename"])
+    try:
+        from app.services.ai_extract import _extract_from_excel
+        result = _extract_from_excel(entry["data"], entry["filename"])
+    except Exception as e:
+        return json.dumps({
+            "error": f"Excel parsing error: {str(e)[:200]}",
+            "filename": entry["filename"],
+            "size": len(entry["data"]),
+            "hint": "The file may be corrupted, password-protected, or in an unsupported format (.xls old format).",
+        })
+
     if result and result.get("lines"):
         return json.dumps({
             "ok": True,
@@ -615,7 +627,14 @@ async def get_uploaded_excel(token: str) -> str:
             "items": result["lines"],
             "metadata": result.get("metadata", {}),
         }, ensure_ascii=False)
-    return json.dumps({"error": "Could not parse Excel file.", "filename": entry["filename"]})
+
+    return json.dumps({
+        "error": "No data could be extracted from the Excel file.",
+        "filename": entry["filename"],
+        "size": len(entry["data"]),
+        "hint": "The file may not contain a price list format (needs columns for product name and price). "
+                "Try sending a screenshot of the relevant sheet instead.",
+    })
 
 
 def get_mcp_sse_app():

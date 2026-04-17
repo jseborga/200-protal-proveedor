@@ -643,10 +643,19 @@ async def handle_telegram_message(db, msg: dict):
                 session_url = routine_result.get("url", "")
                 type_label = "PDF" if source_type == "pdf" else ("Excel" if source_type == "excel" else "Foto")
                 pages_info = f" ({len(saved)} paginas)" if source_type == "pdf" and len(saved) > 1 else ""
+
+                if source_type == "excel":
+                    action_desc = "leera el Excel, extraera los datos"
+                elif source_type == "pdf":
+                    action_desc = "analizara las imagenes del PDF, extraera los datos"
+                else:
+                    action_desc = "analizara la imagen, extraera los datos"
+
                 reply = (
-                    f"{type_label}{pages_info} enviada a Claude Code.\n"
-                    f"Claude Code analizara la imagen, extraera los datos "
-                    f"y registrara productos y precios automaticamente."
+                    f"{type_label}{pages_info} enviado a Claude Code.\n"
+                    f"Claude Code {action_desc} "
+                    f"y registrara productos y precios automaticamente.\n"
+                    f"Recibiras una confirmacion cuando termine."
                 )
                 if user_hint:
                     reply += f"\nNota: {user_hint}"
@@ -796,6 +805,13 @@ def _build_routine_task_for_media(
         parts.append("  Categorias: acero(4), ferreteria(3), cemento(1)")
         parts.append("  <b>Precios:</b> 8 registrados")
         parts.append("  <b>Obs:</b> Precio de Fierro 12mm (85 Bs/varilla) parece alto vs promedio (72 Bs)'")
+        parts.append("")
+        parts.append("MANEJO DE ERRORES:")
+        parts.append(f"  Si ocurre CUALQUIER error (token expirado, Excel no parseable, imagen ilegible,")
+        parts.append(f"  error en MCP tools), SIEMPRE llama notify_telegram con chat_id='{chat_id}'")
+        parts.append(f"  informando el problema. El usuario debe saber que paso. Ejemplo:")
+        parts.append("  '<b>Error procesando documento</b>\\nNo se pudo leer el archivo Excel.\\n")
+        parts.append("  El formato no es compatible. Intenta enviar una captura de pantalla.'")
     else:
         parts.append("PASO 6 — Reporta un resumen detallado de lo procesado.")
 
