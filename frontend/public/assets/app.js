@@ -310,6 +310,7 @@ const ICONS = {
     play: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5,3 19,12 5,21"/></svg>',
     server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
     lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>',
+    info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -950,35 +951,29 @@ function toggleGroupVariants(groupId) {
 
 function openProduct(id) {
     if (!id) return;
-    navigate('productDetail', { id });
+    // Desktop: overlay modal keeps search context. Mobile: route to /p/{id}.
+    const isDesktop = window.matchMedia('(min-width: 768px)').matches;
+    if (isDesktop) {
+        showProductModal(id);
+    } else {
+        navigate('productDetail', { id });
+    }
 }
 
-// ── Render: Product Detail (/p/{id}) ───────────────────────────
-async function renderProductDetail() {
-    const page = document.getElementById('page-content');
-    const id = state.currentParams && state.currentParams.id;
-    if (!id) { navigate('home'); return; }
+async function _fetchProductData(id) {
+    const [detail, suppliers] = await Promise.all([
+        API.publicInsumoDetail(id),
+        API.publicInsumoSuppliers(id),
+    ]);
+    if (!detail.ok || !detail.data) return null;
+    return {
+        data: detail.data,
+        suppliers: (suppliers && suppliers.ok) ? suppliers.data : [],
+    };
+}
 
-    page.innerHTML = `<div class="product-detail-loading">${icon('clock', 20)} Cargando producto...</div>`;
-
-    let detail, suppliers;
-    try {
-        [detail, suppliers] = await Promise.all([
-            API.publicInsumoDetail(id),
-            API.publicInsumoSuppliers(id),
-        ]);
-    } catch (e) {
-        page.innerHTML = `<div class="empty-state">${icon('x', 32)}<p>Error al cargar el producto</p><button class="btn" onclick="navigate('prices')">Volver a Precios</button></div>`;
-        return;
-    }
-    if (!detail.ok || !detail.data) {
-        page.innerHTML = `<div class="empty-state">${icon('layers', 32)}<p>Producto no encontrado</p><button class="btn" onclick="navigate('prices')">Ver todos los precios</button></div>`;
-        return;
-    }
-
-    const p = detail.data;
-    const sups = (suppliers && suppliers.ok) ? suppliers.data : [];
-
+function _renderProductDetailHtml(p, sups, opts = {}) {
+    const inModal = !!opts.inModal;
     const priceTxt = p.ref_price
         ? `${p.ref_price.toFixed(2)} <span class="pd-currency">${esc(p.ref_currency || 'BOB')}</span>`
         : '<span class="pd-no-price">Precio bajo consulta</span>';
@@ -1025,7 +1020,7 @@ async function renderProductDetail() {
                        const loc = [s.city, s.department].filter(Boolean).join(', ');
                        const wa = s.whatsapp ? `<a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" rel="noopener" class="pd-sup-wa" onclick="event.stopPropagation()">${icon('whatsapp', 14)} WhatsApp</a>` : '';
                        return `
-                           <div class="pd-sup-card" onclick="showPublicSupplierDetail(${s.supplier_id})">
+                           <div class="pd-sup-card" onclick="${inModal ? 'closeModal();' : ''}showPublicSupplierDetail(${s.supplier_id})">
                                <div class="pd-sup-info">
                                    <div class="pd-sup-name">${esc(s.supplier_name)}</div>
                                    <div class="pd-sup-meta">${loc ? icon('map-pin', 12) + ' ' + esc(loc) : ''} ${s.order_count > 0 ? ' &middot; ' + s.order_count + ' pedido' + (s.order_count > 1 ? 's' : '') : ''}</div>
@@ -1052,15 +1047,25 @@ async function renderProductDetail() {
            </div>`
         : '';
 
-    page.innerHTML = `
-        <div class="product-detail">
-            <div class="pd-breadcrumb">
-                <a href="#" onclick="event.preventDefault();navigate('home')">Inicio</a>
-                <span>&rsaquo;</span>
-                <a href="#" onclick="event.preventDefault();navigate('prices')">Precios</a>
-                ${p.category ? `<span>&rsaquo;</span><a href="#" onclick="event.preventDefault();state.searchQuery='';state.selectedCategory='${esc(p.category).replace(/'/g,"\\'")}';navigate('prices')">${esc(p.category)}</a>` : ''}
-            </div>
+    const disclaimerHtml = `
+        <div class="pd-disclaimer">
+            ${icon('info', 14)}
+            <span>Precio <strong>referencial</strong>, actualizado periodicamente. Puede variar segun zona, temporada, volumen o condiciones del proveedor.
+            <strong>No constituye una oferta vinculante</strong>: para precio en firme, contacta al proveedor y solicita cotizacion.
+            <a href="#" onclick="event.preventDefault();${inModal ? 'closeModal();' : ''}navigate('legal')">Ver terminos completos</a>.</span>
+        </div>`;
 
+    const breadcrumbHtml = inModal ? '' : `
+        <div class="pd-breadcrumb">
+            <a href="#" onclick="event.preventDefault();navigate('home')">Inicio</a>
+            <span>&rsaquo;</span>
+            <a href="#" onclick="event.preventDefault();navigate('prices')">Precios</a>
+            ${p.category ? `<span>&rsaquo;</span><a href="#" onclick="event.preventDefault();state.searchQuery='';state.selectedCategory='${esc(p.category).replace(/'/g,"\\'")}';navigate('prices')">${esc(p.category)}</a>` : ''}
+        </div>`;
+
+    return `
+        <div class="product-detail${inModal ? ' product-detail-modal' : ''}">
+            ${breadcrumbHtml}
             <div class="pd-hero">
                 <div class="pd-hero-main">
                     <h1 class="pd-title">${esc(p.name)}</h1>
@@ -1086,11 +1091,67 @@ async function renderProductDetail() {
             ${groupHtml}
             ${supHtml}
             ${relHtml}
+            ${disclaimerHtml}
         </div>
     `;
+}
 
-    // Update document title for in-page browser tab (SSR already set it for initial load)
-    document.title = `${p.name} — Precio en Bolivia | Nexo Base`;
+// ── Render: Product Detail (/p/{id} — mobile / direct URL) ─────
+async function renderProductDetail() {
+    const page = document.getElementById('page-content');
+    const id = state.currentParams && state.currentParams.id;
+    if (!id) { navigate('home'); return; }
+
+    page.innerHTML = `<div class="product-detail-loading">${icon('clock', 20)} Cargando producto...</div>`;
+
+    let result;
+    try {
+        result = await _fetchProductData(id);
+    } catch (e) {
+        page.innerHTML = `<div class="empty-state">${icon('x', 32)}<p>Error al cargar el producto</p><button class="btn" onclick="navigate('prices')">Volver a Precios</button></div>`;
+        return;
+    }
+    if (!result) {
+        page.innerHTML = `<div class="empty-state">${icon('layers', 32)}<p>Producto no encontrado</p><button class="btn" onclick="navigate('prices')">Ver todos los precios</button></div>`;
+        return;
+    }
+
+    page.innerHTML = _renderProductDetailHtml(result.data, result.suppliers, { inModal: false });
+    document.title = `${result.data.name} — Precio en Bolivia | Nexo Base`;
+}
+
+// ── Modal: Product Detail (desktop) ────────────────────────────
+async function showProductModal(id) {
+    const existing = document.querySelector('.modal-overlay');
+    if (existing) existing.remove();
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay modal-overlay-product';
+    overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+    overlay.innerHTML = `
+        <div class="modal modal-product">
+            <button class="modal-close modal-close-floating" onclick="closeModal()" aria-label="Cerrar">&times;</button>
+            <div class="modal-body" id="product-modal-body">
+                <div class="product-detail-loading">${icon('clock', 20)} Cargando producto...</div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+
+    let result;
+    try {
+        result = await _fetchProductData(id);
+    } catch {
+        document.getElementById('product-modal-body').innerHTML =
+            `<div class="empty-state">${icon('x', 32)}<p>Error al cargar el producto</p></div>`;
+        return;
+    }
+    if (!result) {
+        document.getElementById('product-modal-body').innerHTML =
+            `<div class="empty-state">${icon('layers', 32)}<p>Producto no encontrado</p></div>`;
+        return;
+    }
+    const body = document.getElementById('product-modal-body');
+    if (body) body.innerHTML = _renderProductDetailHtml(result.data, result.suppliers, { inModal: true });
 }
 
 // ── Render: Public Prices page ─────────────────────────────────
@@ -7706,11 +7767,14 @@ function renderLegal() {
 
             <section class="legal-section">
                 <h2>5. Naturaleza de los precios publicados</h2>
-                <p>Los precios publicados son <strong>referenciales</strong>, obtenidos a partir de cotizaciones
-                enviadas por los proveedores a traves de los distintos canales habilitados. En consecuencia:</p>
+                <p>Los precios publicados son <strong>referenciales</strong> y se <strong>actualizan periodicamente</strong>
+                a partir de cotizaciones enviadas por los proveedores a traves de los distintos canales habilitados.
+                El precio mostrado <strong>no garantiza que el proveedor venda a ese precio</strong>; por eso se
+                solicita al usuario contactar al proveedor y realizar la cotizacion correspondiente. En consecuencia:</p>
                 <ul>
                     <li>No constituyen una oferta vinculante ni una promesa de venta.</li>
-                    <li>Pueden variar segun disponibilidad, tributos (IVA), volumen, plazos de entrega, ubicacion y condiciones particulares de cada proveedor.</li>
+                    <li>Pueden variar segun <strong>zona, temporada</strong>, disponibilidad, tributos (IVA), volumen,
+                    plazos de entrega, ubicacion y condiciones particulares de cada proveedor.</li>
                     <li>Aunque se aplica un proceso de validacion humana y analisis estadistico, ${siteName} no garantiza la exactitud absoluta, vigencia o idoneidad de los precios para un proyecto especifico.</li>
                     <li>Para un precio en firme, el usuario debe contactar directamente al proveedor o enviar una RFQ.</li>
                 </ul>
