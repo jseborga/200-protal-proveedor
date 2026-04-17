@@ -1041,7 +1041,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
         ? `<div class="pd-section">
                <div class="pd-section-head">
                    <h3 class="pd-section-title">${sups.length} proveedor${sups.length > 1 ? 'es' : ''} lo ofrece${sups.length > 1 ? 'n' : ''}</h3>
-                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${esc(p.category || '').replace(/'/g,"\\'")}', ${inModal ? 'true' : 'false'})">
+                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${esc(p.category || '').replace(/'/g,"\\'")}', ${inModal ? 'true' : 'false'}, '${esc(p.name || '').replace(/'/g,"\\'")}')">
                        ${icon('map-pin', 14)} Cerca de mi
                    </button>
                </div>
@@ -1064,7 +1064,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
         : `<div class="pd-section">
                <div class="pd-section-head">
                    <p class="pd-empty-hint">Aun no hay proveedores registrados para este producto.</p>
-                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${esc(p.category || '').replace(/'/g,"\\'")}', ${inModal ? 'true' : 'false'})">
+                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${esc(p.category || '').replace(/'/g,"\\'")}', ${inModal ? 'true' : 'false'}, '${esc(p.name || '').replace(/'/g,"\\'")}')">
                        ${icon('map-pin', 14)} Buscar cerca de mi
                    </button>
                </div>
@@ -1208,201 +1208,17 @@ async function showProductModal(id) {
 }
 
 // ── Product: Find suppliers near me (by insumo_id or category) ─
-function findSuppliersNearForProduct(insumoId, category, fromModal) {
-    if (!navigator.geolocation) {
-        toast('Geolocalizacion no disponible en tu navegador', 'error');
-        return;
-    }
-    toast('Obteniendo tu ubicacion...', 'info');
-    navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-            const { latitude, longitude } = pos.coords;
-            // Try with insumo_id first (suppliers that actually sold this product)
-            let resp = await API.get(
-                `/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=40&insumo_id=${insumoId}`
-            ).catch(() => null);
-            // Fallback to category if no product-specific matches
-            if ((!resp || !resp.ok || !resp.data.length) && category) {
-                resp = await API.get(
-                    `/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=40&category=${encodeURIComponent(category)}`
-                ).catch(() => null);
-            }
-            if (!resp || !resp.ok || !resp.data.length) {
-                toast('No se encontraron proveedores cercanos con ubicacion', 'info');
-                return;
-            }
-            if (fromModal) closeModal();
-            showNearbyProductMap(latitude, longitude, resp.data, insumoId);
-        },
-        () => { toast('No se pudo obtener tu ubicacion', 'error'); },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 }
-    );
-}
-
-let _nearbyState = null;
-
-function showNearbyProductMap(userLat, userLon, suppliers, insumoId) {
-    const existing = document.querySelector('.modal-overlay-nearby');
-    if (existing) existing.remove();
-    _nearbyState = {
-        userLat, userLon, insumoId,
-        rawSuppliers: suppliers,
-        radius: 100,
-        category: '',
-        query: '',
-    };
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay modal-overlay-nearby';
-    overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
-    const mapId = 'nearby-map-' + Date.now();
-    // Collect unique categories from suppliers
-    const catSet = new Set();
-    suppliers.forEach(s => (s.categories || []).forEach(c => catSet.add(c)));
-    const catOptions = ['<option value="">Todas las categorias</option>']
-        .concat([...catSet].sort().map(c => `<option value="${esc(c)}">${esc(c)}</option>`))
-        .join('');
-    overlay.innerHTML = `
-        <div class="modal modal-nearby">
-            <div class="modal-header">
-                <h3 id="nearby-title">${icon('map-pin',16)} ${suppliers.length} proveedor${suppliers.length > 1 ? 'es' : ''} cerca de ti</h3>
-                <button class="modal-close" onclick="closeModal()" aria-label="Cerrar">&times;</button>
-            </div>
-            <div class="nearby-filters">
-                <div class="nearby-filter-row">
-                    <label class="nearby-filter-label">
-                        Radio: <strong id="nearby-radius-label">100 km</strong>
-                    </label>
-                    <input type="range" id="nearby-radius" min="5" max="200" step="5" value="100"
-                           oninput="onNearbyRadiusChange(this.value)" onchange="applyNearbyRadius(this.value)"
-                           class="nearby-slider">
-                </div>
-                <div class="nearby-filter-row">
-                    <input type="text" class="form-input" id="nearby-search" placeholder="Buscar proveedor..."
-                           oninput="onNearbyFilterChange()" style="flex:1;min-width:140px">
-                    <select class="form-select" id="nearby-cat" onchange="onNearbyFilterChange()" style="flex:1;min-width:140px">
-                        ${catOptions}
-                    </select>
-                </div>
-            </div>
-            <div class="modal-body nearby-body">
-                <div id="${mapId}" class="nearby-map"></div>
-                <div class="nearby-list" id="nearby-list"></div>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-    _nearbyState.mapId = mapId;
-
-    // Init map after overlay is in DOM
-    setTimeout(() => {
-        MapUtils.createMap(mapId, [userLat, userLon], 12);
-        L.marker([userLat, userLon], {
-            icon: L.divIcon({
-                className: 'user-marker',
-                html: '<div style="background:#1e40af;width:14px;height:14px;border-radius:50%;border:3px solid white;box-shadow:0 0 6px rgba(0,0,0,0.4)"></div>',
-                iconSize: [20, 20], iconAnchor: [10, 10],
-            })
-        }).addTo(MapUtils._map).bindPopup('<strong>Tu ubicacion</strong>');
-        renderNearbyResults();
-    }, 50);
-}
-
-function onNearbyRadiusChange(v) {
-    const lbl = document.getElementById('nearby-radius-label');
-    if (lbl) lbl.textContent = `${v} km`;
-}
-
-async function applyNearbyRadius(v) {
-    if (!_nearbyState) return;
-    const newRadius = parseInt(v, 10);
-    _nearbyState.radius = newRadius;
-    // Re-query server if expanding beyond what we loaded
-    const { userLat, userLon, insumoId } = _nearbyState;
-    toast('Actualizando radio...', 'info');
-    let resp = await API.get(
-        `/suppliers/public/nearby?lat=${userLat}&lon=${userLon}&radius_km=${newRadius}&limit=80&insumo_id=${insumoId}`
-    ).catch(() => null);
-    if (!resp || !resp.ok || !resp.data.length) {
-        // Try without insumo filter
-        resp = await API.get(
-            `/suppliers/public/nearby?lat=${userLat}&lon=${userLon}&radius_km=${newRadius}&limit=80`
-        ).catch(() => null);
-    }
-    if (resp && resp.ok) {
-        _nearbyState.rawSuppliers = resp.data;
-        renderNearbyResults();
-    }
-}
-
-function onNearbyFilterChange() {
-    if (!_nearbyState) return;
-    _nearbyState.query = (document.getElementById('nearby-search')?.value || '').toLowerCase().trim();
-    _nearbyState.category = document.getElementById('nearby-cat')?.value || '';
-    renderNearbyResults();
-}
-
-function _filteredNearby() {
-    const { rawSuppliers, radius, category, query } = _nearbyState;
-    return rawSuppliers.filter(s => {
-        if (s.distance_km > radius) return false;
-        if (category && !(s.categories || []).includes(category)) return false;
-        if (query && !s.name.toLowerCase().includes(query)) return false;
-        return true;
+function findSuppliersNearForProduct(insumoId, category, fromModal, insumoName) {
+    if (fromModal) closeModal();
+    navigate('suppliers', {
+        insumoId,
+        insumoName: insumoName || '',
+        category: category || '',
+        openMap: true,
+        useGeo: true,
     });
 }
 
-function _supplierCardHtml(s) {
-    const loc = [s.city, s.department].filter(Boolean).join(', ');
-    const wa = s.has_whatsapp && s.whatsapp
-        ? `<a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" rel="noopener" class="nearby-wa" onclick="event.stopPropagation()">${icon('whatsapp',14)}</a>` : '';
-    const rubros = (s.rubros || []).slice(0, 3).join(' &middot; ');
-    const verifBadge = s.verified ? `<span class="nearby-badge-ok">${icon('check-circle',10)} verificado</span>` : '';
-    const directionsBtn = s.latitude && s.longitude
-        ? `<a href="https://www.google.com/maps/dir/?api=1&destination=${s.latitude},${s.longitude}" target="_blank" rel="noopener" class="nearby-dir" onclick="event.stopPropagation()" title="Como llegar">${icon('navigation',13)}</a>`
-        : '';
-    return `
-        <div class="nearby-card" onclick="closeModal();showPublicSupplierDetail(${s.id})">
-            <div class="nearby-card-head">
-                <span class="nearby-name">${esc(s.name)}</span>
-                <span class="nearby-dist">${s.distance_km} km</span>
-            </div>
-            <div class="nearby-meta">${loc ? icon('map-pin',11) + ' ' + esc(loc) : ''} ${verifBadge}</div>
-            ${rubros ? `<div class="nearby-rubros">${esc(rubros)}</div>` : ''}
-            <div class="nearby-actions">${directionsBtn}${wa}</div>
-        </div>`;
-}
-
-function renderNearbyResults() {
-    if (!_nearbyState) return;
-    const list = _filteredNearby();
-    const listEl = document.getElementById('nearby-list');
-    const titleEl = document.getElementById('nearby-title');
-    if (titleEl) {
-        titleEl.innerHTML = `${icon('map-pin',16)} ${list.length} proveedor${list.length === 1 ? '' : 'es'} en ${_nearbyState.radius} km`;
-    }
-    if (listEl) {
-        listEl.innerHTML = list.length
-            ? list.map(_supplierCardHtml).join('')
-            : `<div style="padding:20px;text-align:center;color:#6b7280;font-size:13px">Sin coincidencias con estos filtros</div>`;
-    }
-    if (!MapUtils._map) return;
-    MapUtils.clearMarkers();
-    list.forEach(s => {
-        if (!s.latitude || !s.longitude) return;
-        const rubros = (s.rubros || []).slice(0, 4).join(', ');
-        const waLink = s.has_whatsapp && s.whatsapp
-            ? `<br><a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" style="color:#25d366">WhatsApp</a>` : '';
-        const dirLink = `<br><a href="https://www.google.com/maps/dir/?api=1&destination=${s.latitude},${s.longitude}" target="_blank" style="color:#1e40af">&#8594; Como llegar</a>`;
-        MapUtils.addMarker(s.latitude, s.longitude,
-            `<strong>${esc(s.name)}</strong><br>
-             <small>${s.distance_km} km &middot; ${esc([s.city, s.department].filter(Boolean).join(', '))}</small>
-             ${rubros ? `<br><em style="color:#6b7280;font-size:11px">${esc(rubros)}</em>` : ''}
-             ${waLink}${dirLink}
-             <br><a href="#" onclick="event.preventDefault();closeModal();showPublicSupplierDetail(${s.id})">Ver detalles &rarr;</a>`
-        );
-    });
-    if (list.length) MapUtils.fitToMarkers();
-}
 
 // ── Admin: Upload product image ────────────────────────────────
 function openInsumoImageUpload(insumoId) {
@@ -1491,106 +1307,17 @@ function filterPriceCategory(cat) {
 }
 
 // ── Side map: suppliers matching current material search ──────
-async function openMaterialSuppliersMap() {
+// Cambio: en vez de abrir modal flotante, navegamos a Proveedores con
+// filtro + mapa activo, para que la experiencia ocurra en la ventana actual.
+function openMaterialSuppliersMap() {
     const q = (document.getElementById('price-search')?.value || '').trim();
     const cat = state.selectedCategory || '';
-
-    // If geolocation available, prefer /nearby (with distances). Fallback to /map.
-    if (navigator.geolocation) {
-        toast('Obteniendo tu ubicacion...', 'info');
-        navigator.geolocation.getCurrentPosition(
-            async (pos) => {
-                const { latitude, longitude } = pos.coords;
-                // Try category-filtered nearby first
-                let url = `/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=80`;
-                if (cat) url += `&category=${encodeURIComponent(cat)}`;
-                let resp = await API.get(url).catch(() => null);
-                // If no results with category, retry without it
-                if ((!resp || !resp.ok || !resp.data.length) && cat) {
-                    resp = await API.get(
-                        `/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=80`
-                    ).catch(() => null);
-                }
-                if (!resp || !resp.ok || !resp.data.length) {
-                    return showAllSuppliersMapPanel(q, cat);
-                }
-                // Further filter by search query (client side)
-                let list = resp.data;
-                if (q) {
-                    const qLow = q.toLowerCase();
-                    list = list.filter(s =>
-                        (s.name || '').toLowerCase().includes(qLow) ||
-                        (s.rubros || []).some(r => (r || '').toLowerCase().includes(qLow))
-                    );
-                    if (!list.length) list = resp.data;
-                }
-                showNearbyProductMap(latitude, longitude, list, null);
-            },
-            () => showAllSuppliersMapPanel(q, cat),
-            { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
-        );
-    } else {
-        showAllSuppliersMapPanel(q, cat);
-    }
-}
-
-async function showAllSuppliersMapPanel(q, cat) {
-    let params = '?';
-    if (q) params += `q=${encodeURIComponent(q)}&`;
-    if (cat) params += `category=${encodeURIComponent(cat)}&`;
-    const resp = await API.publicSuppliersMap(params).catch(() => null);
-    if (!resp || !resp.ok || !resp.data.length) {
-        toast('Sin proveedores con ubicacion para mostrar', 'info');
-        return;
-    }
-    const overlay = document.createElement('div');
-    overlay.className = 'modal-overlay modal-overlay-nearby';
-    overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
-    const mapId = 'side-map-' + Date.now();
-    const title = q ? `Proveedores con "${esc(q)}"` : 'Todos los proveedores en el mapa';
-    overlay.innerHTML = `
-        <div class="modal modal-nearby">
-            <div class="modal-header">
-                <h3>${icon('map-pin',16)} ${title} (${resp.data.length})</h3>
-                <button class="modal-close" onclick="closeModal()" aria-label="Cerrar">&times;</button>
-            </div>
-            <div class="modal-body nearby-body">
-                <div id="${mapId}" class="nearby-map"></div>
-                <div class="nearby-list" id="nearby-list"></div>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(overlay);
-    setTimeout(() => {
-        MapUtils.createMap(mapId, [-16.5, -64.5], 6);
-        const groups = {}; // dedupe supplier cards
-        resp.data.forEach(s => {
-            if (!s.latitude || !s.longitude) return;
-            const cats = (s.categories || []).join(', ');
-            const label = s.is_branch ? ` &mdash; ${esc(s.branch_name || '')}` : '';
-            const html =
-                `<strong>${esc(s.name)}</strong>${label}<br>` +
-                `<small>${[s.city, s.department].filter(Boolean).map(esc).join(', ')}</small>` +
-                (cats ? `<br><em style="color:#6b7280;font-size:11px">${esc(cats)}</em>` : '') +
-                `<br><a href="#" onclick="event.preventDefault();closeModal();showPublicSupplierDetail(${s.supplier_id})">Ver detalle &rarr;</a>`;
-            if (s.is_branch) MapUtils.addBranchMarker(s.latitude, s.longitude, html);
-            else MapUtils.addMarker(s.latitude, s.longitude, html);
-            if (!groups[s.supplier_id]) groups[s.supplier_id] = s;
-        });
-        MapUtils.fitToMarkers();
-        const listEl = document.getElementById('nearby-list');
-        if (listEl) {
-            const uniq = Object.values(groups);
-            listEl.innerHTML = uniq.length
-                ? uniq.map(s => `
-                    <div class="nearby-card" onclick="closeModal();showPublicSupplierDetail(${s.supplier_id})">
-                        <div class="nearby-card-head"><span class="nearby-name">${esc(s.name)}</span></div>
-                        <div class="nearby-meta">${[s.city, s.department].filter(Boolean).map(esc).join(', ')}</div>
-                    </div>
-                `).join('')
-                : `<div style="padding:20px;text-align:center;color:#6b7280;font-size:13px">Sin proveedores</div>`;
-        }
-    }, 50);
+    navigate('suppliers', {
+        q,
+        category: cat,
+        openMap: true,
+        useGeo: true,
+    });
 }
 
 let _priceTimer;
@@ -1711,14 +1438,24 @@ let _supplierMapMode = false;
 
 // ── Render: Public Suppliers page ──────────────────────────────
 async function renderPublicSuppliers() {
-    // Deep-link: si vienen params con insumoId, se preselecciona filtro
-    if (state.currentParams && state.currentParams.insumoId) {
-        state.supplierSearchMode = 'material';
-        state.insumoFilter = {
-            id: state.currentParams.insumoId,
-            name: state.currentParams.insumoName || `Material #${state.currentParams.insumoId}`,
-        };
-        // Consumir params para no re-aplicar en renders posteriores
+    // Deep-link: los params vienen de Precios ("ver proveedores en mapa") o del
+    // detalle de producto ("cerca de mi"). Se consumen para no re-aplicar en
+    // siguientes renders.
+    let queuedGeo = false;
+    let deepQ = '';
+    if (state.currentParams) {
+        const p = state.currentParams;
+        if (p.insumoId) {
+            state.supplierSearchMode = 'material';
+            state.insumoFilter = {
+                id: p.insumoId,
+                name: p.insumoName || `Material #${p.insumoId}`,
+            };
+        }
+        if (p.q) { state.supplierSearchMode = 'supplier'; deepQ = p.q; }
+        if (p.category) state.selectedCategory = p.category;
+        if (p.openMap) _supplierMapMode = true;
+        if (p.useGeo) queuedGeo = true;
         state.currentParams = null;
     }
 
@@ -1775,11 +1512,17 @@ async function renderPublicSuppliers() {
         </div>
     `;
 
+    // Si llega q por deep-link, preseteamos el input y lanzamos busqueda
+    const inputEl = document.getElementById('supplier-search');
+    if (inputEl && deepQ) inputEl.value = deepQ;
+
     loadSupplierCategoryChips();
     loadPublicSuppliers();
     if (_supplierMapMode) {
         MapUtils.createMap('supplier-map-container');
         loadSuppliersOnMap();
+        // Cerca de mi en la misma ventana (tras dar tiempo a que el mapa inicie)
+        if (queuedGeo) setTimeout(findNearbySuppliers, 200);
     }
 }
 
@@ -1919,7 +1662,10 @@ async function findNearbySuppliers() {
     navigator.geolocation.getCurrentPosition(async (pos) => {
         const { latitude, longitude } = pos.coords;
         try {
-            const resp = await API.get(`/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=30`);
+            let url = `/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=30`;
+            if (state.insumoFilter && state.insumoFilter.id) url += `&insumo_id=${state.insumoFilter.id}`;
+            if (state.selectedCategory) url += `&category=${encodeURIComponent(state.selectedCategory)}`;
+            const resp = await API.get(url);
             if (resp.ok && resp.data.length) {
                 _supplierMapMode = true;
                 const mapEl = document.getElementById('supplier-map-container');
