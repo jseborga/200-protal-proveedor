@@ -74,6 +74,7 @@ const API = {
     publicPrices: (params = '') => API.get(`/prices/public${params}`),
     searchPrices: (q) => API.get(`/prices/public/search?q=${encodeURIComponent(q)}`),
     publicSuppliers: (params = '') => API.get(`/suppliers/public${params}`),
+    publicSuppliersMap: (params = '') => API.get(`/suppliers/public/map${params}`),
     supplierCategories: () => API.get('/suppliers/public/categories'),
     supplierCities: () => API.get('/suppliers/public/cities'),
     publicSupplierDetail: (id) => API.get(`/suppliers/public/${id}`),
@@ -1420,6 +1421,9 @@ async function renderPublicPrices() {
         <div class="search-bar">
             <input class="form-input" id="price-search" placeholder="Buscar material, insumo..."
                    value="${esc(state.searchQuery)}" oninput="debouncePriceSearch()">
+            <button class="btn btn-secondary" onclick="openMaterialSuppliersMap()" title="Ver proveedores del material buscado en el mapa">
+                ${icon('map-pin',16)} Proveedores en mapa
+            </button>
         </div>
         <div class="categories-bar" id="price-categories"></div>
         <div id="prices-list"><div class="empty-state"><p>Cargando...</p></div></div>
@@ -1458,6 +1462,109 @@ function filterPriceCategory(cat) {
     if (searchInput) searchInput.value = '';
     loadPriceCategories();
     loadPublicPrices();
+}
+
+// ── Side map: suppliers matching current material search ──────
+async function openMaterialSuppliersMap() {
+    const q = (document.getElementById('price-search')?.value || '').trim();
+    const cat = state.selectedCategory || '';
+
+    // If geolocation available, prefer /nearby (with distances). Fallback to /map.
+    if (navigator.geolocation) {
+        toast('Obteniendo tu ubicacion...', 'info');
+        navigator.geolocation.getCurrentPosition(
+            async (pos) => {
+                const { latitude, longitude } = pos.coords;
+                // Try category-filtered nearby first
+                let url = `/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=80`;
+                if (cat) url += `&category=${encodeURIComponent(cat)}`;
+                let resp = await API.get(url).catch(() => null);
+                // If no results with category, retry without it
+                if ((!resp || !resp.ok || !resp.data.length) && cat) {
+                    resp = await API.get(
+                        `/suppliers/public/nearby?lat=${latitude}&lon=${longitude}&radius_km=100&limit=80`
+                    ).catch(() => null);
+                }
+                if (!resp || !resp.ok || !resp.data.length) {
+                    return showAllSuppliersMapPanel(q, cat);
+                }
+                // Further filter by search query (client side)
+                let list = resp.data;
+                if (q) {
+                    const qLow = q.toLowerCase();
+                    list = list.filter(s =>
+                        (s.name || '').toLowerCase().includes(qLow) ||
+                        (s.rubros || []).some(r => (r || '').toLowerCase().includes(qLow))
+                    );
+                    if (!list.length) list = resp.data;
+                }
+                showNearbyProductMap(latitude, longitude, list, null);
+            },
+            () => showAllSuppliersMapPanel(q, cat),
+            { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+        );
+    } else {
+        showAllSuppliersMapPanel(q, cat);
+    }
+}
+
+async function showAllSuppliersMapPanel(q, cat) {
+    let params = '?';
+    if (q) params += `q=${encodeURIComponent(q)}&`;
+    if (cat) params += `category=${encodeURIComponent(cat)}&`;
+    const resp = await API.publicSuppliersMap(params).catch(() => null);
+    if (!resp || !resp.ok || !resp.data.length) {
+        toast('Sin proveedores con ubicacion para mostrar', 'info');
+        return;
+    }
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay modal-overlay-nearby';
+    overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
+    const mapId = 'side-map-' + Date.now();
+    const title = q ? `Proveedores con "${esc(q)}"` : 'Todos los proveedores en el mapa';
+    overlay.innerHTML = `
+        <div class="modal modal-nearby">
+            <div class="modal-header">
+                <h3>${icon('map-pin',16)} ${title} (${resp.data.length})</h3>
+                <button class="modal-close" onclick="closeModal()" aria-label="Cerrar">&times;</button>
+            </div>
+            <div class="modal-body nearby-body">
+                <div id="${mapId}" class="nearby-map"></div>
+                <div class="nearby-list" id="nearby-list"></div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(overlay);
+    setTimeout(() => {
+        MapUtils.createMap(mapId, [-16.5, -64.5], 6);
+        const groups = {}; // dedupe supplier cards
+        resp.data.forEach(s => {
+            if (!s.latitude || !s.longitude) return;
+            const cats = (s.categories || []).join(', ');
+            const label = s.is_branch ? ` &mdash; ${esc(s.branch_name || '')}` : '';
+            const html =
+                `<strong>${esc(s.name)}</strong>${label}<br>` +
+                `<small>${[s.city, s.department].filter(Boolean).map(esc).join(', ')}</small>` +
+                (cats ? `<br><em style="color:#6b7280;font-size:11px">${esc(cats)}</em>` : '') +
+                `<br><a href="#" onclick="event.preventDefault();closeModal();showPublicSupplierDetail(${s.supplier_id})">Ver detalle &rarr;</a>`;
+            if (s.is_branch) MapUtils.addBranchMarker(s.latitude, s.longitude, html);
+            else MapUtils.addMarker(s.latitude, s.longitude, html);
+            if (!groups[s.supplier_id]) groups[s.supplier_id] = s;
+        });
+        MapUtils.fitToMarkers();
+        const listEl = document.getElementById('nearby-list');
+        if (listEl) {
+            const uniq = Object.values(groups);
+            listEl.innerHTML = uniq.length
+                ? uniq.map(s => `
+                    <div class="nearby-card" onclick="closeModal();showPublicSupplierDetail(${s.supplier_id})">
+                        <div class="nearby-card-head"><span class="nearby-name">${esc(s.name)}</span></div>
+                        <div class="nearby-meta">${[s.city, s.department].filter(Boolean).map(esc).join(', ')}</div>
+                    </div>
+                `).join('')
+                : `<div style="padding:20px;text-align:center;color:#6b7280;font-size:13px">Sin proveedores</div>`;
+        }
+    }, 50);
 }
 
 let _priceTimer;
@@ -1554,6 +1661,19 @@ const MapUtils = {
         this._markers.push(marker);
         return marker;
     },
+    addBranchMarker(lat, lon, popup) {
+        if (!this._map) return null;
+        const branchIcon = L.divIcon({
+            className: 'branch-marker',
+            html: '<div style="background:#16a34a;width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 3px rgba(0,0,0,0.4)"></div>',
+            iconSize: [16, 16],
+            iconAnchor: [8, 8],
+        });
+        const marker = L.marker([lat, lon], { icon: branchIcon }).addTo(this._map);
+        if (popup) marker.bindPopup(popup);
+        this._markers.push(marker);
+        return marker;
+    },
     fitToMarkers() {
         if (!this._map || !this._markers.length) return;
         const group = L.featureGroup(this._markers);
@@ -1619,22 +1739,30 @@ function toggleSupplierMap() {
 
 async function loadSuppliersOnMap() {
     const q = document.getElementById('supplier-search')?.value?.trim() || '';
-    let params = '?limit=200';
-    if (q) params += `&q=${encodeURIComponent(q)}`;
-    if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
-    if (state.selectedDepartment) params += `&department=${encodeURIComponent(state.selectedDepartment)}`;
+    let params = '?';
+    if (q) params += `q=${encodeURIComponent(q)}&`;
+    if (state.selectedCategory) params += `category=${encodeURIComponent(state.selectedCategory)}&`;
+    if (state.selectedDepartment) params += `department=${encodeURIComponent(state.selectedDepartment)}&`;
 
     try {
-        const resp = await API.publicSuppliers(params);
+        const resp = await API.publicSuppliersMap(params);
         MapUtils.clearMarkers();
         if (resp.ok && resp.data) {
             resp.data.forEach(s => {
-                if (s.latitude && s.longitude) {
-                    const cats = (s.categories || []).map(c => esc(c)).join(', ');
-                    const wa = s.whatsapp ? `<br><a href="https://wa.me/${s.whatsapp}" target="_blank" style="color:#25d366">WhatsApp</a>` : '';
-                    MapUtils.addMarker(s.latitude, s.longitude,
-                        `<strong>${esc(s.name)}</strong><br>${esc(s.city || '')} - ${esc(s.department || '')}<br><small>${cats}</small>${wa}`
-                    );
+                if (!s.latitude || !s.longitude) return;
+                const cats = (s.categories || []).map(c => esc(c)).join(', ');
+                const branchLabel = s.is_branch
+                    ? `<br><em style="color:var(--primary)">Sucursal: ${esc(s.branch_name || '')}</em>`
+                    : '';
+                const html =
+                    `<strong>${esc(s.name)}</strong>${branchLabel}` +
+                    `<br>${esc(s.city || '')} - ${esc(s.department || '')}` +
+                    (cats ? `<br><small>${cats}</small>` : '') +
+                    `<br><a href="#" onclick="event.preventDefault();showPublicSupplierDetail(${s.supplier_id})">Ver detalle</a>`;
+                if (s.is_branch) {
+                    MapUtils.addBranchMarker(s.latitude, s.longitude, html);
+                } else {
+                    MapUtils.addMarker(s.latitude, s.longitude, html);
                 }
             });
             MapUtils.fitToMarkers();

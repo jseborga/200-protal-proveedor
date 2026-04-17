@@ -147,6 +147,99 @@ async def public_supplier_categories(request: Request, db: AsyncSession = Depend
     }
 
 
+# ── Map endpoint (public) ──────────────────────────────────────
+# IMPORTANTE: /public/map va ANTES de /public/{supplier_id}.
+@router.get("/public/map")
+@limiter.limit(PUBLIC_LIMIT)
+async def public_suppliers_map(
+    request: Request,
+    q: str | None = Query(None),
+    category: str | None = Query(None),
+    department: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Retorna proveedores + sucursales con coordenadas para renderizar en mapa.
+
+    Payload liviano (sin contactos). Incluye tanto la sede principal del proveedor
+    (cuando tiene lat/lon en `mkt_supplier`) como cada sucursal activa con coords
+    en `mkt_supplier_branch`. El frontend puede distinguir sede vs sucursal via
+    `is_branch`.
+    """
+    # Sede principal del supplier
+    sup_sql = """
+        SELECT s.id, s.name, s.trade_name, s.city, s.department,
+               s.latitude, s.longitude, s.categories
+        FROM mkt_supplier s
+        WHERE s.is_active = true
+          AND s.verification_state = 'verified'
+          AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+    """
+    params: dict = {}
+    if q:
+        sup_sql += " AND (s.name ILIKE :q OR s.description ILIKE :q)"
+        params["q"] = f"%{q}%"
+    if category:
+        sup_sql += " AND :cat = ANY(s.categories)"
+        params["cat"] = category
+    if department:
+        sup_sql += " AND s.department = :dept"
+        params["dept"] = department
+
+    sup_rows = (await db.execute(text(sup_sql), params)).mappings().all()
+
+    # Sucursales activas con coords
+    br_sql = """
+        SELECT b.id, b.supplier_id, b.branch_name, b.city, b.department,
+               b.latitude, b.longitude, b.is_main,
+               s.name AS supplier_name, s.categories
+        FROM mkt_supplier_branch b
+        JOIN mkt_supplier s ON s.id = b.supplier_id
+        WHERE b.is_active = true
+          AND s.is_active = true
+          AND s.verification_state = 'verified'
+          AND b.latitude IS NOT NULL AND b.longitude IS NOT NULL
+    """
+    if q:
+        br_sql += " AND (s.name ILIKE :q OR b.branch_name ILIKE :q OR s.description ILIKE :q)"
+    if category:
+        br_sql += " AND :cat = ANY(s.categories)"
+    if department:
+        br_sql += " AND b.department = :dept"
+
+    br_rows = (await db.execute(text(br_sql), params)).mappings().all()
+
+    data = []
+    for r in sup_rows:
+        data.append({
+            "id": r["id"],
+            "supplier_id": r["id"],
+            "name": r["name"],
+            "trade_name": r["trade_name"],
+            "city": r["city"],
+            "department": r["department"],
+            "latitude": r["latitude"],
+            "longitude": r["longitude"],
+            "categories": r["categories"] or [],
+            "is_branch": False,
+        })
+    for r in br_rows:
+        data.append({
+            "id": r["id"],
+            "supplier_id": r["supplier_id"],
+            "name": r["supplier_name"],
+            "branch_name": r["branch_name"],
+            "city": r["city"],
+            "department": r["department"],
+            "latitude": r["latitude"],
+            "longitude": r["longitude"],
+            "categories": r["categories"] or [],
+            "is_branch": True,
+            "is_main_branch": r["is_main"],
+        })
+
+    return {"ok": True, "data": data, "total": len(data)}
+
+
 # ── Nearby endpoint (public) ───────────────────────────────────
 # IMPORTANTE: /public/nearby va ANTES de /public/{supplier_id}; si no,
 # FastAPI matchea 'nearby' como supplier_id y falla 422.
