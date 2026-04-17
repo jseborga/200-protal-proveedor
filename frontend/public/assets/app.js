@@ -341,7 +341,11 @@ function renderApp() {
         admin:     { title: 'Admin',        icon: 'settings',   render: renderAdmin },
     } : {};
 
-    const allPages = { ...publicPages, ...(state.user ? { ...authPages, ...staffPages } : {}) };
+    const hiddenPages = {
+        legal: { title: 'Aviso Legal y Terminos de Uso', render: renderLegal },
+    };
+
+    const allPages = { ...publicPages, ...hiddenPages, ...(state.user ? { ...authPages, ...staffPages } : {}) };
 
     app.innerHTML = `
         ${renderTopbar(publicPages, { ...authPages, ...staffPages })}
@@ -362,6 +366,7 @@ function renderApp() {
                 <div class="footer-links">
                     ${_siteConfig?.contact_email ? `<a href="mailto:${esc(_siteConfig.contact_email)}">${icon('mail',14)} ${esc(_siteConfig.contact_email)}</a>` : ''}
                     ${_siteConfig?.contact_whatsapp ? `<a href="https://wa.me/${_siteConfig.contact_whatsapp.replace(/[^0-9]/g,'')}" target="_blank" rel="noopener">${icon('whatsapp',14)} WhatsApp</a>` : ''}
+                    <a href="#" onclick="event.preventDefault();navigate('legal')">${icon('lock',14)} Aviso Legal y Terminos</a>
                 </div>
             </div>
         </div>
@@ -1365,6 +1370,10 @@ function showRegisterModal(e) {
                 <div class="form-group"><label class="form-label">Telefono</label><input class="form-input" name="phone"></div>
             </div>
             <div class="form-group"><label class="form-label">Contrasena</label><input class="form-input" type="password" name="password" required minlength="6"></div>
+            <label class="form-terms">
+                <input type="checkbox" name="accept_terms" required>
+                <span>He leido y acepto el <a href="#" onclick="event.preventDefault();closeModal();navigate('legal')">Aviso Legal, Terminos de Uso y Politica de Privacidad</a>.</span>
+            </label>
             <button type="submit" class="btn btn-primary" style="width:100%;justify-content:center">Crear Cuenta</button>
             <div style="text-align:center;margin-top:12px;font-size:13px;color:var(--gray-500)">
                 Ya tienes cuenta? <a href="#" onclick="showLoginModal()">Ingresa aqui</a>
@@ -1376,6 +1385,10 @@ function showRegisterModal(e) {
 async function handleRegister(e) {
     e.preventDefault();
     const f = e.target;
+    if (f.accept_terms && !f.accept_terms.checked) {
+        toast('Debes aceptar el Aviso Legal y los Terminos de Uso', 'error');
+        return;
+    }
     try {
         const resp = await API.register({
             full_name: f.full_name.value,
@@ -1391,6 +1404,7 @@ async function handleRegister(e) {
             localStorage.setItem('_mkt_token', state.token);
             localStorage.setItem('_mkt_refresh', state.refreshToken);
             localStorage.setItem('_mkt_user', JSON.stringify(state.user));
+            localStorage.setItem('_mkt_terms_accepted', new Date().toISOString());
             closeModal();
             toast('Cuenta creada. Bienvenido!', 'success');
             renderApp();
@@ -7336,6 +7350,226 @@ function applySiteConfig(cfg) {
     setOg('og:url', window.location.href);
     // Store for footer/other components
     _siteConfig = cfg;
+}
+
+// ── Legal / Terminos de Uso ────────────────────────────────────
+function renderLegal() {
+    const page = document.getElementById('page-content');
+    const siteName = esc(_siteConfig?.site_name || 'APU Marketplace');
+    const email = _siteConfig?.contact_email ? esc(_siteConfig.contact_email) : 'contacto@apumarketplace.com';
+    const whatsapp = _siteConfig?.contact_whatsapp ? esc(_siteConfig.contact_whatsapp) : '';
+    const updated = '17 de abril de 2026';
+    const acceptedAt = localStorage.getItem('_mkt_terms_accepted');
+
+    page.innerHTML = `
+        <div class="legal-page">
+            <header class="page-header">
+                <h1 class="page-title">Aviso Legal, Terminos de Uso y Politica de Privacidad</h1>
+                <p class="page-subtitle">Ultima actualizacion: ${updated}</p>
+            </header>
+
+            <section class="legal-section">
+                <h2>1. Identificacion del titular</h2>
+                <p>Este portal es operado por <strong>${siteName}</strong>, plataforma independiente dedicada a la
+                publicacion de precios unitarios referenciales de materiales de construccion, al registro de proveedores
+                y al servicio de cotizaciones en Bolivia.</p>
+                <ul>
+                    <li><strong>Nombre comercial:</strong> ${siteName}</li>
+                    <li><strong>Correo de contacto:</strong> <a href="mailto:${email}">${email}</a></li>
+                    ${whatsapp ? `<li><strong>WhatsApp:</strong> ${whatsapp}</li>` : ''}
+                    <li><strong>Ambito:</strong> Estado Plurinacional de Bolivia</li>
+                </ul>
+            </section>
+
+            <section class="legal-section">
+                <h2>2. Objeto del portal y servicios ofrecidos</h2>
+                <p>${siteName} es un <em>marketplace</em> de informacion de precios de construccion. Los servicios
+                incluidos bajo estos terminos son:</p>
+                <ul>
+                    <li><strong>Portal publico de precios unitarios:</strong> consulta libre y gratuita de precios
+                    de materiales de construccion agrupados por categoria, region y proveedor.</li>
+                    <li><strong>Portal de proveedores:</strong> registro y publicacion de catalogos, sucursales y
+                    cotizaciones por parte de empresas proveedoras.</li>
+                    <li><strong>Carga de cotizaciones por multiples canales:</strong> formulario web, archivos
+                    Excel, archivos PDF, fotografias, WhatsApp (via Evolution API) y Telegram (via Bot API oficial).</li>
+                    <li><strong>Motor de matching semantico:</strong> vinculacion automatica de nombres de insumos
+                    del proveedor con el catalogo estandarizado, siempre con validacion humana antes de publicar.</li>
+                    <li><strong>Analisis estadistico de precios:</strong> calculo de promedios, medianas y evolucion
+                    historica a partir de las cotizaciones recibidas.</li>
+                    <li><strong>Modulo RFQ (Request For Quotation):</strong> envio de solicitudes de cotizacion a
+                    proveedores seleccionados por el usuario.</li>
+                    <li><strong>API REST de integracion:</strong> consumo programatico por parte de ERPs
+                    (Odoo, SAP y similares) mediante claves de API.</li>
+                    <li><strong>Extraccion asistida por IA:</strong> procesamiento de documentos (Excel, PDF, imagenes)
+                    mediante proveedores de modelos de lenguaje para extraer listas de precios.</li>
+                </ul>
+            </section>
+
+            <section class="legal-section">
+                <h2>3. Aceptacion de los terminos</h2>
+                <p>El acceso y uso del portal implica la aceptacion plena y sin reservas de este documento. Para
+                crear una cuenta es obligatorio marcar la casilla de aceptacion en el formulario de registro. Si no
+                esta de acuerdo con alguno de los puntos aqui descritos, debe abstenerse de utilizar los servicios.</p>
+                ${acceptedAt ? `<p class="legal-note">Usted acepto estos terminos el <strong>${esc(new Date(acceptedAt).toLocaleString('es-BO'))}</strong> desde este dispositivo.</p>` : ''}
+            </section>
+
+            <section class="legal-section">
+                <h2>4. Condiciones de uso</h2>
+                <ul>
+                    <li>El acceso al portal publico es libre y no requiere registro.</li>
+                    <li>El registro es necesario para crear pedidos, enviar RFQs, publicar cotizaciones y gestionar una empresa proveedora.</li>
+                    <li>El usuario se compromete a proporcionar datos veraces, completos y actualizados.</li>
+                    <li>Queda prohibido el uso del portal para fines ilicitos, difamatorios, fraudulentos o contrarios a la moral y al orden publico.</li>
+                    <li>Queda prohibido el scraping masivo, el uso automatizado no autorizado y cualquier accion que
+                    afecte la disponibilidad o seguridad del servicio. Las integraciones programaticas deben realizarse
+                    unicamente a traves de la API REST oficial con una clave valida.</li>
+                    <li>${siteName} podra suspender o cancelar cuentas que incumplan estas condiciones.</li>
+                </ul>
+            </section>
+
+            <section class="legal-section">
+                <h2>5. Naturaleza de los precios publicados</h2>
+                <p>Los precios publicados son <strong>referenciales</strong>, obtenidos a partir de cotizaciones
+                enviadas por los proveedores a traves de los distintos canales habilitados. En consecuencia:</p>
+                <ul>
+                    <li>No constituyen una oferta vinculante ni una promesa de venta.</li>
+                    <li>Pueden variar segun disponibilidad, tributos (IVA), volumen, plazos de entrega, ubicacion y condiciones particulares de cada proveedor.</li>
+                    <li>Aunque se aplica un proceso de validacion humana y analisis estadistico, ${siteName} no garantiza la exactitud absoluta, vigencia o idoneidad de los precios para un proyecto especifico.</li>
+                    <li>Para un precio en firme, el usuario debe contactar directamente al proveedor o enviar una RFQ.</li>
+                </ul>
+            </section>
+
+            <section class="legal-section">
+                <h2>6. Responsabilidad de los proveedores</h2>
+                <p>Los proveedores registrados son los unicos responsables de la veracidad, legalidad y actualizacion
+                de la informacion que publican (catalogos, precios, sucursales, datos de contacto, imagenes y documentos
+                cargados). ${siteName} actua como intermediario tecnologico y no asume responsabilidad por operaciones
+                comerciales acordadas directamente entre proveedor y comprador.</p>
+            </section>
+
+            <section class="legal-section">
+                <h2>7. Limitacion de responsabilidad</h2>
+                <p>${siteName} no sera responsable por:</p>
+                <ul>
+                    <li>Decisiones de compra, obra o presupuesto tomadas con base en los precios referenciales publicados.</li>
+                    <li>Errores, omisiones o interpretaciones en la extraccion automatica de datos por IA.</li>
+                    <li>Interrupciones del servicio por fuerza mayor, caidas de proveedores externos (WhatsApp, Telegram, SMTP, proveedores de IA, infraestructura cloud) o mantenimiento programado.</li>
+                    <li>Contenidos publicados por terceros (proveedores, usuarios) en la plataforma.</li>
+                </ul>
+            </section>
+
+            <section class="legal-section">
+                <h2>8. Propiedad intelectual</h2>
+                <ul>
+                    <li>La marca, el logo, el diseno, el codigo fuente del portal y la estructura del catalogo estandarizado son propiedad de ${siteName}.</li>
+                    <li>Los datos, logos e imagenes aportados por cada proveedor siguen siendo propiedad del proveedor; al publicarlos concede a ${siteName} una licencia no exclusiva para exhibirlos en el portal y en los canales oficiales relacionados.</li>
+                    <li>Se autoriza la consulta de precios con fines personales, academicos o profesionales. La reproduccion masiva, reventa o redistribucion requiere autorizacion previa y por escrito.</li>
+                </ul>
+            </section>
+
+            <section class="legal-section">
+                <h2>9. Politica de privacidad y tratamiento de datos</h2>
+                <p>El tratamiento de datos personales se realiza conforme al articulo 21 numeral 2 de la Constitucion
+                Politica del Estado Plurinacional de Bolivia, la Ley N.o 164 General de Telecomunicaciones y TIC, y
+                demas normativa concordante.</p>
+
+                <h3>9.1 Datos recolectados</h3>
+                <ul>
+                    <li><strong>Registro:</strong> nombre completo, correo electronico, telefono, nombre de empresa, contrasena (almacenada con hash).</li>
+                    <li><strong>Uso:</strong> direccion IP, tipo de navegador, paginas visitadas, dispositivo.</li>
+                    <li><strong>Proveedores:</strong> razon social, NIT, sucursales, ubicacion (latitud/longitud), catalogo de productos.</li>
+                    <li><strong>Cotizaciones:</strong> archivos cargados (Excel, PDF, imagenes), mensajes recibidos por WhatsApp o Telegram.</li>
+                </ul>
+
+                <h3>9.2 Finalidad del tratamiento</h3>
+                <ul>
+                    <li>Operar el portal publico de precios y el portal de proveedores.</li>
+                    <li>Generar estadisticas agregadas y evolucion historica de precios.</li>
+                    <li>Enviar notificaciones transaccionales (confirmacion de registro, respuestas a RFQ, estado de pedidos).</li>
+                    <li>Permitir la integracion via API REST con sistemas ERP autorizados por el usuario.</li>
+                    <li>Prevenir fraude, abuso y proteger la seguridad del servicio.</li>
+                </ul>
+
+                <h3>9.3 Base legal</h3>
+                <p>El tratamiento se basa en el consentimiento expreso del usuario al aceptar estos terminos durante
+                el registro, asi como en el interes legitimo de ${siteName} para mantener la seguridad y continuidad
+                del servicio.</p>
+
+                <h3>9.4 Comunicacion a terceros</h3>
+                <ul>
+                    <li>${siteName} <strong>no vende ni cede</strong> datos personales con fines publicitarios.</li>
+                    <li>Los datos de contacto se comparten con un proveedor solo cuando el usuario envia una RFQ o solicita explicitamente ser contactado.</li>
+                    <li>Se utilizan servicios de terceros como proveedores tecnologicos: Evolution API (WhatsApp), Telegram Bot API, OpenRouter / Anthropic / OpenAI / Google (extraccion IA), SMTP (correos transaccionales) e infraestructura en la nube. Estos actuan como encargados del tratamiento.</li>
+                </ul>
+
+                <h3>9.5 Derechos del titular</h3>
+                <p>Usted puede ejercer en cualquier momento los derechos de acceso, rectificacion, cancelacion, oposicion y
+                portabilidad sobre sus datos, escribiendo a <a href="mailto:${email}">${email}</a>. La solicitud sera
+                atendida en un plazo razonable no mayor a 30 dias habiles.</p>
+
+                <h3>9.6 Conservacion</h3>
+                <p>Los datos se conservan mientras la cuenta exista y, posteriormente, durante los plazos legales
+                aplicables (contables, tributarios). Los registros historicos de precios anonimizados pueden conservarse
+                indefinidamente para fines estadisticos.</p>
+
+                <h3>9.7 Seguridad</h3>
+                <p>Se aplican medidas tecnicas y organizativas razonables: cifrado TLS en transito, autenticacion JWT,
+                control de acceso por roles, claves de API revocables, hashing de contrasenas, copias de seguridad
+                periodicas y registros de auditoria.</p>
+            </section>
+
+            <section class="legal-section">
+                <h2>10. Uso de cookies y almacenamiento local</h2>
+                <p>El portal utiliza unicamente tecnologias necesarias para su funcionamiento:</p>
+                <ul>
+                    <li><strong>localStorage:</strong> almacenamiento del token de sesion, preferencias de idioma y carrito de cotizaciones.</li>
+                    <li><strong>Cookies tecnicas:</strong> mantenimiento de sesion y seguridad.</li>
+                    <li><strong>Service Worker / PWA:</strong> cache offline para una experiencia mas rapida.</li>
+                </ul>
+                <p>No se usan cookies de publicidad ni herramientas de rastreo de terceros con fines comerciales.</p>
+            </section>
+
+            <section class="legal-section">
+                <h2>11. Canales alternativos (WhatsApp, Telegram, email)</h2>
+                <p>Al enviar informacion por WhatsApp o Telegram, el usuario entiende que los mensajes se procesan
+                automaticamente y quedan registrados en la plataforma con el mismo tratamiento descrito en la seccion 9.
+                El uso de estos canales esta ademas sujeto a los terminos de servicio propios de Meta Platforms, Inc.
+                (WhatsApp) y de Telegram FZ-LLC.</p>
+            </section>
+
+            <section class="legal-section">
+                <h2>12. Uso de inteligencia artificial</h2>
+                <p>Para acelerar la carga de catalogos, el portal utiliza modelos de lenguaje (Claude, GPT, Gemini u otros)
+                que procesan los archivos enviados por el proveedor. Al cargar un documento, el usuario autoriza su
+                procesamiento por estos servicios unicamente con fines de extraccion de datos estructurados. Los
+                resultados son revisados por operadores humanos antes de publicarse.</p>
+            </section>
+
+            <section class="legal-section">
+                <h2>13. Modificaciones</h2>
+                <p>${siteName} se reserva el derecho de modificar el presente documento en cualquier momento. Los cambios
+                se publicaran en esta misma pagina con indicacion de la fecha de actualizacion. El uso continuado del
+                servicio tras la publicacion de los cambios implica su aceptacion.</p>
+            </section>
+
+            <section class="legal-section">
+                <h2>14. Legislacion aplicable y jurisdiccion</h2>
+                <p>Estos terminos se rigen por las leyes del Estado Plurinacional de Bolivia. Para cualquier controversia,
+                las partes se someten a la jurisdiccion de los tribunales competentes de la ciudad de La Paz, Bolivia,
+                renunciando a cualquier otro fuero que pudiera corresponderles.</p>
+            </section>
+
+            <section class="legal-section">
+                <h2>15. Contacto</h2>
+                <p>Para consultas sobre privacidad, ejercicio de derechos o aclaraciones legales, puede escribir a
+                <a href="mailto:${email}">${email}</a>${whatsapp ? ` o contactarnos por WhatsApp al ${whatsapp}` : ''}.</p>
+            </section>
+
+            <div class="legal-actions">
+                <button class="btn btn-primary" onclick="navigate('home')">Volver al inicio</button>
+            </div>
+        </div>
+    `;
 }
 
 // ── Init ───────────────────────────────────────────────────────

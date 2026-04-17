@@ -1003,3 +1003,49 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 }
 .spec-link:hover { background: #dbeafe; text-decoration: none; }
 .spec-link svg { width: 13px; height: 13px; }
+
+/* ── Legal / Terms Page ────────────────────────────────────── */
+.legal-page {
+    max-width: 820px;
+    margin: 0 auto;
+    background: white;
+    padding: 32px 28px;
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    color: var(--gray-700);
+    line-height: 1.65;
+}
+.legal-page .page-header { border-bottom: 1px solid var(--gray-200); padding-bottom: 16px; margin-bottom: 20px; }
+.legal-section { margin-top: 24px; }
+.legal-section h2 {
+    font-size: 18px; font-weight: 700; color: var(--primary-dark);
+    margin-bottom: 10px;
+}
+.legal-section h3 {
+    font-size: 15px; font-weight: 600; color: var(--gray-800);
+    margin-top: 14px; margin-bottom: 6px;
+}
+.legal-section p { margin-bottom: 10px; font-size: 14px; }
+.legal-section ul { margin: 8px 0 12px 22px; font-size: 14px; }
+.legal-section li { margin-bottom: 6px; }
+.legal-section a { color: var(--primary); }
+.legal-note {
+    background: #eff6ff; border-left: 3px solid var(--primary);
+    padding: 10px 14px; border-radius: 4px; font-size: 13px; color: var(--gray-700);
+}
+.legal-actions { margin-top: 28px; text-align: center; }
+
+/* Register terms checkbox */
+.form-terms {
+    display: flex; align-items: flex-start; gap: 8px;
+    font-size: 13px; color: var(--gray-600);
+    margin: 8px 0 16px;
+    line-height: 1.45;
+}
+.form-terms input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; cursor: pointer; }
+.form-terms a { color: var(--primary); text-decoration: underline; }
+
+@media (max-width: 600px) {
+    .legal-page { padding: 20px 16px; }
+    .legal-section h2 { font-size: 16px; }
+}
