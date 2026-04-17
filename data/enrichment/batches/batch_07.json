@@ -1,0 +1,168 @@
+[
+  {
+    "id": 3351,
+    "name": "Inno Domotics",
+    "trade_name": "Inno Domotics",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 3 3393974",
+    "phone2": "+591 4 4580368",
+    "whatsapp": "",
+    "email": "sc@innodomotics.com",
+    "website": "www.innodomotics.com",
+    "categories": [
+      "electrico"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "CBBA"
+    ]
+  },
+  {
+    "id": 3380,
+    "name": "San Rafael",
+    "trade_name": "Grupo San Rafael",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 76920124",
+    "phone2": "+591 69258625",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.sanrafael.com.bo",
+    "categories": [
+      "sanitario",
+      "maquinaria"
+    ],
+    "operating_cities": [
+      "CBBA",
+      "SCZ",
+      "ORU"
+    ]
+  },
+  {
+    "id": 3356,
+    "name": "Isolcruz",
+    "trade_name": "Isolcruz",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 3 3888774",
+    "phone2": "+591 71343157",
+    "whatsapp": "",
+    "email": "info@isolcruz.com",
+    "website": "www.isolcruz.com",
+    "categories": [
+      "aislantes"
+    ],
+    "operating_cities": [
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3524,
+    "name": "Insucons - Referencial",
+    "trade_name": "Insucons",
+    "city": "NACIONAL",
+    "department": "Nacional",
+    "phone": "",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "",
+    "website": "www.insucons.com",
+    "categories": [
+      "servicios"
+    ],
+    "operating_cities": [
+      "NACIONAL"
+    ]
+  },
+  {
+    "id": 3361,
+    "name": "Marcav",
+    "trade_name": "Marcav",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 77110060",
+    "phone2": "+591 72881248",
+    "whatsapp": "",
+    "email": "empresamarcav@gmail.com",
+    "website": "empresamarcav.com",
+    "categories": [
+      "impermeabilizantes",
+      "plomeria"
+    ],
+    "operating_cities": [
+      "CBBA",
+      "CHQ",
+      "LPZ",
+      "ORU",
+      "PSI",
+      "SCZ",
+      "TJA"
+    ]
+  },
+  {
+    "id": 3314,
+    "name": "Acermax",
+    "trade_name": "Acermax",
+    "city": "EL ALTO",
+    "department": "La Paz",
+    "phone": "+591 67007501",
+    "phone2": "+591 2 2830778",
+    "whatsapp": "",
+    "email": "info@acermax.com.bo",
+    "website": "www.acermax.com.bo",
+    "categories": [
+      "acero",
+      "techos"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "EL ALTO",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3339,
+    "name": "Ferrotodo",
+    "trade_name": "Ferrotodo",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 3 3711000",
+    "phone2": "+591 4 4440908",
+    "whatsapp": "",
+    "email": null,
+    "website": null,
+    "categories": [
+      "acero",
+      "ferreteria"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "LPZ",
+      "CBBA",
+      "CHQ"
+    ]
+  },
+  {
+    "id": 3315,
+    "name": "Aceros Arequipa",
+    "trade_name": "Aceros Arequipa",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 76303499",
+    "phone2": "+591 77641656",
+    "whatsapp": "",
+    "email": null,
+    "website": null,
+    "categories": [
+      "acero",
+      "ferreteria"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "LPZ",
+      "CBBA",
+      "EL ALTO"
+    ]
+  }
+]

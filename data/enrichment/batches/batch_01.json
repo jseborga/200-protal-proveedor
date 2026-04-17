@@ -1,0 +1,375 @@
+[
+  {
+    "id": 3326,
+    "name": "Ceratech",
+    "trade_name": "Ceratech",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 77299721",
+    "phone2": "+591 2 2795029",
+    "whatsapp": "",
+    "email": "ceratechsrl@hotmail.com",
+    "website": "www.ceratech-bo.com",
+    "categories": [
+      "techos",
+      "ceramica"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3317,
+    "name": "Acustica.bo",
+    "trade_name": "Acustica.bo",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 69830577",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "contacto@acustica.bo",
+    "website": "www.acustica.bo",
+    "categories": [
+      "aislantes"
+    ],
+    "operating_cities": [
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3335,
+    "name": "Faboce",
+    "trade_name": "Faboce",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 4 4746485",
+    "phone2": "+591 3 3465454",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.faboce.com.bo",
+    "categories": [
+      "ceramica"
+    ],
+    "operating_cities": [
+      "CBBA",
+      "SCZ",
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3341,
+    "name": "Gestual Arquitectura",
+    "trade_name": "Gestual Arquitectura",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 62322006",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "",
+    "website": null,
+    "categories": [],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3318,
+    "name": "Ayudante de tu Hogar",
+    "trade_name": "Ayudante de tu Hogar",
+    "city": "NACIONAL",
+    "department": "Nacional",
+    "phone": "+591 75221344",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "contacto@ayudantedetuhogar.com",
+    "website": "www.ayudantedetuhogar.com",
+    "categories": [
+      "herramientas"
+    ],
+    "operating_cities": [
+      "NACIONAL"
+    ]
+  },
+  {
+    "id": 3344,
+    "name": "Hidronyx",
+    "trade_name": "Hidronyx",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 70120080",
+    "phone2": "+591 64125477",
+    "whatsapp": "",
+    "email": "hidronyx@gmail.com",
+    "website": null,
+    "categories": [
+      "sanitario",
+      "plomeria"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3313,
+    "name": "GUTIERREZ ROMERO JOSE LUIS",
+    "trade_name": "GUTIERREZ ROMERO JOSE LUIS",
+    "city": "La Paz",
+    "department": "La Paz",
+    "phone": "",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "",
+    "website": null,
+    "categories": [
+      "sanitario",
+      "plomeria",
+      "ferreteria"
+    ],
+    "operating_cities": []
+  },
+  {
+    "id": 3365,
+    "name": "Picmetrica S.R.L.",
+    "trade_name": "Picmetrica S.R.L.",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 63091512",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "gerenciageneral@picmetrica.com",
+    "website": "constructorapicmetrica-srl.com",
+    "categories": [],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3353,
+    "name": "Inkaforte (Brizio)",
+    "trade_name": "Inkaforte (Brizio)",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 735952554",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "inkaforte@inka-forte.com",
+    "website": "www.inka-forte.com",
+    "categories": [
+      "cemento",
+      "ceramica"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3384,
+    "name": "Synergy",
+    "trade_name": "Synergy",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 3 3420345",
+    "phone2": "+591 4 4496372",
+    "whatsapp": "",
+    "email": null,
+    "website": "synergy.com.bo",
+    "categories": [
+      "acero",
+      "techos"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "CBBA",
+      "LPZ",
+      "TJA"
+    ]
+  },
+  {
+    "id": 3377,
+    "name": "REMOC Cimentaciones",
+    "trade_name": "REMOC Cimentaciones",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 72152000",
+    "phone2": "+591 73710666",
+    "whatsapp": "",
+    "email": null,
+    "website": null,
+    "categories": [
+      "prefabricados"
+    ],
+    "operating_cities": [
+      "CBBA"
+    ]
+  },
+  {
+    "id": 3379,
+    "name": "SACOCI S.R.L.",
+    "trade_name": "SACOCI S.R.L.",
+    "city": "EL ALTO",
+    "department": "La Paz",
+    "phone": "+591 2 2818834",
+    "phone2": "+591 77777726",
+    "whatsapp": "+591 77295388",
+    "email": "sacoci_bol@yahoo.es",
+    "website": "www.sacocisrl.com",
+    "categories": [
+      "maquinaria"
+    ],
+    "operating_cities": [
+      "EL ALTO"
+    ]
+  },
+  {
+    "id": 3391,
+    "name": "Termocruz",
+    "trade_name": "Termocruz",
+    "city": "SCZ",
+    "department": "Santa Cruz",
+    "phone": "+591 70860219",
+    "phone2": "+591 79054874",
+    "whatsapp": "",
+    "email": "cvebozo@outlook.com",
+    "website": null,
+    "categories": [
+      "aislantes"
+    ],
+    "operating_cities": [
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3359,
+    "name": "Maqualq S.R.L.",
+    "trade_name": "Maqualq S.R.L.",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2912823",
+    "phone2": "+591 77706766",
+    "whatsapp": "",
+    "email": "quiroga.maqalq@hotmail.com",
+    "website": null,
+    "categories": [
+      "maquinaria"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3376,
+    "name": "Ready Mix Bolivia / SOBOCE",
+    "trade_name": "Ready Mix Bolivia / SOBOCE",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 3 3499395",
+    "phone2": "+591 2 2612630",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.soboce.com",
+    "categories": [
+      "cemento"
+    ],
+    "operating_cities": [
+      "SCZ",
+      "LPZ",
+      "CBBA"
+    ]
+  },
+  {
+    "id": 3396,
+    "name": "Valkure Bolivia",
+    "trade_name": "Valkure Bolivia",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2772488",
+    "phone2": "+591 61000354",
+    "whatsapp": "",
+    "email": "comercial@valkurebolivia.com",
+    "website": null,
+    "categories": [
+      "cemento"
+    ],
+    "operating_cities": [
+      "LPZ"
+    ]
+  },
+  {
+    "id": 3394,
+    "name": "TrabajAhora",
+    "trade_name": "TrabajAhora",
+    "city": "NACIONAL",
+    "department": "Nacional",
+    "phone": "+591 75221344",
+    "phone2": null,
+    "whatsapp": "",
+    "email": "contact-info@andystfort.com",
+    "website": "www.trabajahora.andystfort.com",
+    "categories": [
+      "herramientas"
+    ],
+    "operating_cities": [
+      "NACIONAL"
+    ]
+  },
+  {
+    "id": 3343,
+    "name": "Hansa",
+    "trade_name": "Hansa",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 4 4441824",
+    "phone2": "+591 2 2407777",
+    "whatsapp": "",
+    "email": null,
+    "website": "www.hansa.com.bo",
+    "categories": [
+      "acero",
+      "maquinaria"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "CBBA",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3319,
+    "name": "Bacheo.com.bo",
+    "trade_name": "Bacheo.com.bo",
+    "city": "LPZ",
+    "department": "La Paz",
+    "phone": "+591 2 2118292",
+    "phone2": "+591 3 3112390",
+    "whatsapp": "+591 71643556",
+    "email": null,
+    "website": "www.bacheo.com.bo",
+    "categories": [
+      "agregados"
+    ],
+    "operating_cities": [
+      "LPZ",
+      "SCZ"
+    ]
+  },
+  {
+    "id": 3354,
+    "name": "Intermec S.R.L.",
+    "trade_name": "Intermec S.R.L.",
+    "city": "CBBA",
+    "department": "Cochabamba",
+    "phone": "+591 4 4449686",
+    "phone2": "+591 60700143",
+    "whatsapp": "",
+    "email": "intermec.bo@gmail.com",
+    "website": "www.intermecsrl.com",
+    "categories": [
+      "acero",
+      "vidrios"
+    ],
+    "operating_cities": [
+      "CBBA",
+      "LPZ"
+    ]
+  }
+]
