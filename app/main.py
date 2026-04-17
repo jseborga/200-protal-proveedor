@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from sqlalchemy import select, text
 
+from app.core.banlist import BanCheckMiddleware
 from app.core.config import settings
 from app.core.database import engine, async_session
 from app.core.rate_limit import limiter
@@ -177,6 +178,9 @@ async def lifespan(app: FastAPI):
     from app.core.plans import load_plans_from_db
     async with async_session() as db:
         await load_plans_from_db(db)
+    # Load banned IPs into memory cache
+    from app.core.banlist import reload_ban_cache
+    await reload_ban_cache()
     # Start scheduled tasks (cron jobs)
     from app.core.scheduler import start_scheduler, stop_scheduler
     start_scheduler()
@@ -201,6 +205,10 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+
+# Ban list (honeypot + burst detection) - se evalua antes que el rate limit
+# porque Starlette ejecuta middlewares en orden inverso al registro.
+app.add_middleware(BanCheckMiddleware)
 
 # CORS
 app.add_middleware(
@@ -243,6 +251,9 @@ Allow: /icon.svg
 Allow: /assets/
 Disallow: /api/
 Disallow: /mcp/
+Disallow: /api/v1/prices/internal-dump
+Disallow: /api/v1/suppliers/export-all
+Disallow: /api/v1/admin/full-export
 
 # Bots agresivos / scrapers comerciales
 User-agent: GPTBot

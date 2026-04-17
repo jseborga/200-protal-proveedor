@@ -2235,3 +2235,80 @@ async def purge_all_data(
         "message": f"Datos purgados: {total} registros eliminados",
         "details": counts,
     }
+
+
+# ── Banned IPs management ──────────────────────────────────────
+from app.models.banned_ip import BannedIP
+from app.core.banlist import reload_ban_cache, ban_ip
+from datetime import datetime, timezone
+
+
+@router.get("/banned-ips")
+async def list_banned_ips(
+    active_only: bool = Query(True),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Lista IPs baneadas (honeypot, burst, manual)."""
+    q = select(BannedIP).order_by(BannedIP.updated_at.desc()).limit(limit)
+    if active_only:
+        now = datetime.now(timezone.utc)
+        q = q.where((BannedIP.expires_at.is_(None)) | (BannedIP.expires_at > now))
+    result = await db.execute(q)
+    items = result.scalars().all()
+    return {
+        "ok": True,
+        "data": [
+            {
+                "id": b.id,
+                "ip": b.ip,
+                "reason": b.reason,
+                "path": b.path,
+                "user_agent": b.user_agent,
+                "hits": b.hits,
+                "banned_at": b.created_at.isoformat() if b.created_at else None,
+                "expires_at": b.expires_at.isoformat() if b.expires_at else None,
+                "permanent": b.expires_at is None,
+            }
+            for b in items
+        ],
+    }
+
+
+class BanIPRequest(BaseModel):
+    ip: str
+    reason: str = "manual"
+    minutes: int | None = None  # None = permanente
+
+
+@router.post("/banned-ips")
+async def ban_ip_manual(
+    body: BanIPRequest,
+    user: User = Depends(require_admin),
+):
+    """Banea una IP manualmente."""
+    await ban_ip(
+        ip=body.ip,
+        reason=body.reason,
+        path=None,
+        user_agent=f"manual:{user.email}",
+        minutes=body.minutes,
+    )
+    return {"ok": True, "ip": body.ip, "permanent": body.minutes is None}
+
+
+@router.delete("/banned-ips/{ban_id}")
+async def unban_ip(
+    ban_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Elimina un baneo y refresca la cache en memoria."""
+    ban = await db.get(BannedIP, ban_id)
+    if not ban:
+        raise HTTPException(404, "Ban no encontrado")
+    await db.delete(ban)
+    await db.commit()
+    await reload_ban_cache()
+    return {"ok": True}
