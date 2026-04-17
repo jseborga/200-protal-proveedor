@@ -279,6 +279,100 @@ async def delete_supplier_rubro(
     return {"ok": True, "action": "deleted", "id": rubro_id}
 
 
+# ── Supplier Branches (integraciones con API key) ─────────────
+class SupplierBranchIn(BaseModel):
+    supplier_id: int
+    branch_name: str
+    city: str | None = None
+    department: str | None = None
+    address: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+    email: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    is_main: bool = False
+
+
+@router.get("/supplier-branches/{supplier_id}")
+async def list_supplier_branches(
+    supplier_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    from app.models.supplier import SupplierBranch
+    result = await db.execute(
+        select(SupplierBranch)
+        .where(SupplierBranch.supplier_id == supplier_id)
+        .order_by(SupplierBranch.is_main.desc(), SupplierBranch.branch_name)
+    )
+    branches = result.scalars().all()
+    return {
+        "ok": True,
+        "data": [
+            {
+                "id": b.id, "branch_name": b.branch_name,
+                "city": b.city, "department": b.department,
+                "address": b.address, "phone": b.phone,
+                "whatsapp": b.whatsapp, "email": b.email,
+                "latitude": b.latitude, "longitude": b.longitude,
+                "is_main": b.is_main, "is_active": b.is_active,
+            }
+            for b in branches
+        ],
+    }
+
+
+@router.post("/supplier-branches")
+async def create_supplier_branch(
+    body: SupplierBranchIn,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Crea una sucursal para un proveedor. Upsert por supplier_id + branch_name."""
+    from app.models.supplier import SupplierBranch
+
+    supplier = await db.get(Supplier, body.supplier_id)
+    if not supplier:
+        raise HTTPException(status_code=404, detail="Supplier not found")
+
+    existing = await db.execute(
+        select(SupplierBranch).where(
+            SupplierBranch.supplier_id == body.supplier_id,
+            SupplierBranch.branch_name == body.branch_name,
+        ).limit(1)
+    )
+    branch = existing.scalar_one_or_none()
+    fields = body.model_dump(exclude={"supplier_id"})
+    if branch:
+        for k, v in fields.items():
+            if v is not None:
+                setattr(branch, k, v)
+        await db.flush()
+        action = "updated"
+    else:
+        branch = SupplierBranch(supplier_id=body.supplier_id, **fields)
+        db.add(branch)
+        await db.flush()
+        action = "created"
+    return {"ok": True, "action": action, "id": branch.id}
+
+
+@router.delete("/supplier-branches/{branch_id}")
+async def delete_supplier_branch(
+    branch_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    from app.models.supplier import SupplierBranch
+    branch = await db.get(SupplierBranch, branch_id)
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+    branch.is_active = False
+    await db.flush()
+    return {"ok": True, "action": "deleted", "id": branch_id}
+
+
 # ── Products ───────────────────────────────────────────────────
 @router.post("/products")
 async def create_product(

@@ -80,14 +80,16 @@ def is_full(code: str) -> bool:
     if not is_valid(code):
         return False
     code = _clean(code)
+    # Full codes siempre tienen el separator en la posicion 8
+    if code.index(SEPARATOR) != SEPARATOR_POSITION:
+        return False
     # First character encodes 20 deg of latitude (0..17 valid)
     first_lat = CODE_ALPHABET.index(code[0]) * ENCODING_BASE
     if first_lat >= LATITUDE_MAX * 2:
         return False
-    if len(code) >= 2:
-        first_lon = CODE_ALPHABET.index(code[1]) * ENCODING_BASE
-        if first_lon >= LONGITUDE_MAX * 2:
-            return False
+    first_lon = CODE_ALPHABET.index(code[1]) * ENCODING_BASE
+    if first_lon >= LONGITUDE_MAX * 2:
+        return False
     return True
 
 
