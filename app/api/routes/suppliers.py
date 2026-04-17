@@ -147,6 +147,94 @@ async def public_supplier_categories(request: Request, db: AsyncSession = Depend
     }
 
 
+# ── Nearby endpoint (public) ───────────────────────────────────
+# IMPORTANTE: /public/nearby va ANTES de /public/{supplier_id}; si no,
+# FastAPI matchea 'nearby' como supplier_id y falla 422.
+@router.get("/public/nearby")
+@limiter.limit(PUBLIC_LIMIT)
+async def nearby_suppliers(
+    request: Request,
+    lat: float = Query(..., description="Latitude"),
+    lon: float = Query(..., description="Longitude"),
+    radius_km: float = Query(50, ge=1, le=500),
+    limit: int = Query(30, ge=1, le=100),
+    insumo_id: int | None = Query(None, description="Solo proveedores que venden este insumo"),
+    category: str | None = Query(None, description="Filtrar por categoria (ej: cemento)"),
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(get_current_user_optional),
+):
+    """Proveedores cercanos con coordenadas conocidas.
+
+    Filtros opcionales:
+    - insumo_id: solo proveedores que tienen historial de precio del insumo
+    - category: solo proveedores con esa categoria en su array `categories`
+    """
+    reveal = user is not None
+
+    sql = """
+        SELECT
+            s.id, s.name, s.trade_name, s.whatsapp, s.phone,
+            s.city, s.department, s.latitude, s.longitude, s.categories,
+            s.verification_state, s.rating,
+            (
+                6371 * acos(
+                    LEAST(1.0, cos(radians(:lat)) * cos(radians(s.latitude)) *
+                    cos(radians(s.longitude) - radians(:lon)) +
+                    sin(radians(:lat)) * sin(radians(s.latitude)))
+                )
+            ) AS distance_km,
+            COALESCE(
+                (SELECT array_agg(DISTINCT r.rubro ORDER BY r.rubro)
+                 FROM mkt_supplier_rubro r
+                 WHERE r.supplier_id = s.id AND r.is_active = true),
+                ARRAY[]::varchar[]
+            ) AS rubros
+        FROM mkt_supplier s
+        WHERE s.is_active = true
+          AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+    """
+    params: dict = {"lat": lat, "lon": lon, "lim": limit}
+
+    if insumo_id is not None:
+        sql += """
+          AND EXISTS (
+              SELECT 1 FROM mkt_price_history ph
+              WHERE ph.supplier_id = s.id AND ph.insumo_id = :insumo_id
+          )
+        """
+        params["insumo_id"] = insumo_id
+
+    if category:
+        sql += " AND :cat = ANY(s.categories)"
+        params["cat"] = category
+
+    sql += " ORDER BY distance_km LIMIT :lim"
+
+    result = await db.execute(text(sql), params)
+    rows = result.mappings().all()
+    return {
+        "ok": True,
+        "contacts_locked": not reveal,
+        "data": [
+            {
+                "id": r["id"], "name": r["name"], "trade_name": r["trade_name"],
+                "whatsapp": r["whatsapp"] if reveal else None,
+                "phone": r["phone"] if reveal else None,
+                "has_whatsapp": bool(r["whatsapp"]),
+                "has_phone": bool(r["phone"]),
+                "city": r["city"], "department": r["department"],
+                "latitude": r["latitude"], "longitude": r["longitude"],
+                "distance_km": round(r["distance_km"], 1),
+                "categories": r["categories"] or [],
+                "rubros": r["rubros"] or [],
+                "verified": r["verification_state"] == "verified",
+                "rating": r["rating"],
+            }
+            for r in rows if r["distance_km"] <= radius_km
+        ],
+    }
+
+
 # ── Public supplier detail ────────────────────────────────────
 @router.get("/public/{supplier_id}")
 @limiter.limit(PUBLIC_LIMIT)
@@ -250,92 +338,6 @@ async def public_supplier_detail(
             "rubros": rubros,
             "branches": branches,
         },
-    }
-
-
-# ── Nearby endpoint (public) ───────────────────────────────────
-@router.get("/public/nearby")
-@limiter.limit(PUBLIC_LIMIT)
-async def nearby_suppliers(
-    request: Request,
-    lat: float = Query(..., description="Latitude"),
-    lon: float = Query(..., description="Longitude"),
-    radius_km: float = Query(50, ge=1, le=500),
-    limit: int = Query(30, ge=1, le=100),
-    insumo_id: int | None = Query(None, description="Solo proveedores que venden este insumo"),
-    category: str | None = Query(None, description="Filtrar por categoria (ej: cemento)"),
-    db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(get_current_user_optional),
-):
-    """Proveedores cercanos con coordenadas conocidas.
-
-    Filtros opcionales:
-    - insumo_id: solo proveedores que tienen historial de precio del insumo
-    - category: solo proveedores con esa categoria en su array `categories`
-    """
-    reveal = user is not None
-
-    sql = """
-        SELECT
-            s.id, s.name, s.trade_name, s.whatsapp, s.phone,
-            s.city, s.department, s.latitude, s.longitude, s.categories,
-            s.verification_state, s.rating,
-            (
-                6371 * acos(
-                    LEAST(1.0, cos(radians(:lat)) * cos(radians(s.latitude)) *
-                    cos(radians(s.longitude) - radians(:lon)) +
-                    sin(radians(:lat)) * sin(radians(s.latitude)))
-                )
-            ) AS distance_km,
-            COALESCE(
-                (SELECT array_agg(DISTINCT r.rubro ORDER BY r.rubro)
-                 FROM mkt_supplier_rubro r
-                 WHERE r.supplier_id = s.id AND r.is_active = true),
-                ARRAY[]::varchar[]
-            ) AS rubros
-        FROM mkt_supplier s
-        WHERE s.is_active = true
-          AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
-    """
-    params: dict = {"lat": lat, "lon": lon, "lim": limit}
-
-    if insumo_id is not None:
-        sql += """
-          AND EXISTS (
-              SELECT 1 FROM mkt_price_history ph
-              WHERE ph.supplier_id = s.id AND ph.insumo_id = :insumo_id
-          )
-        """
-        params["insumo_id"] = insumo_id
-
-    if category:
-        sql += " AND :cat = ANY(s.categories)"
-        params["cat"] = category
-
-    sql += " ORDER BY distance_km LIMIT :lim"
-
-    result = await db.execute(text(sql), params)
-    rows = result.mappings().all()
-    return {
-        "ok": True,
-        "contacts_locked": not reveal,
-        "data": [
-            {
-                "id": r["id"], "name": r["name"], "trade_name": r["trade_name"],
-                "whatsapp": r["whatsapp"] if reveal else None,
-                "phone": r["phone"] if reveal else None,
-                "has_whatsapp": bool(r["whatsapp"]),
-                "has_phone": bool(r["phone"]),
-                "city": r["city"], "department": r["department"],
-                "latitude": r["latitude"], "longitude": r["longitude"],
-                "distance_km": round(r["distance_km"], 1),
-                "categories": r["categories"] or [],
-                "rubros": r["rubros"] or [],
-                "verified": r["verification_state"] == "verified",
-                "rating": r["rating"],
-            }
-            for r in rows if r["distance_km"] <= radius_km
-        ],
     }
 
 
