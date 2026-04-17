@@ -1,11 +1,14 @@
 """Sistema de banlist: honeypot + deteccion de burst + middleware de bloqueo.
 
 Flujo:
-1. Middleware `BanCheckMiddleware` lee la IP real en cada request.
+1. Middleware ASGI `BanCheckMiddleware` lee la IP real en cada request.
 2. Si esta en la cache (sincronizada con la tabla mkt_banned_ip), devuelve 403.
-3. Para paths sospechosos (honeypot) banea permanentemente y responde 403.
+3. Para paths sospechosos (honeypot) banea permanentemente y responde 404.
 4. Para paths publicos (/api/v1/*/public*) cuenta hits en ventana rodante;
    si supera el umbral banea por 1 hora.
+
+Se implementa como ASGI puro (no BaseHTTPMiddleware) para evitar
+incompatibilidades de Starlette con requests que tienen body (POST /login).
 
 La cache es un set en memoria; se recarga desde BD al arrancar y cuando se
 agrega un nuevo baneo. Para multi-worker real usar RATELIMIT_STORAGE_URI=redis://
@@ -14,6 +17,8 @@ para efecto disuasorio).
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import time
 from collections import defaultdict, deque
@@ -21,12 +26,8 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from app.core.database import async_session
-from app.core.rate_limit import _client_key
 from app.models.banned_ip import BannedIP
 
 
@@ -36,8 +37,6 @@ BURST_THRESHOLD = int(os.getenv("BURST_THRESHOLD", "100"))  # hits en la ventana
 BURST_BAN_MINUTES = int(os.getenv("BURST_BAN_MINUTES", "60"))
 
 # Paths trampa. Anonimo que los toca se banea permanentemente.
-# Se publican en robots.txt como Disallow para que bots que ignoran las
-# reglas caigan, y a la vez se excluyen legalmente via robots.txt.
 HONEYPOT_PATHS = {
     "/api/v1/prices/internal-dump",
     "/api/v1/suppliers/export-all",
@@ -87,9 +86,16 @@ def _is_banned(ip: str) -> bool:
         return True
     if exp > time.time():
         return True
-    # Expirado — limpiar
     _banned_cache.pop(ip, None)
     return False
+
+
+def _ban_cache_add(ip: str, minutes: int | None) -> None:
+    """Actualiza la cache en memoria de forma sincrona."""
+    if minutes is None:
+        _banned_cache[ip] = _INF
+    else:
+        _banned_cache[ip] = time.time() + minutes * 60
 
 
 async def ban_ip(
@@ -99,38 +105,41 @@ async def ban_ip(
     user_agent: str | None = None,
     minutes: int | None = None,
 ) -> None:
-    """Registra un baneo en BD y lo agrega a la cache en memoria.
+    """Registra un baneo en BD y lo agrega a la cache. minutes=None = permanente.
 
-    minutes=None = permanente.
+    La cache se actualiza sincronamente al arrancar la corutina; la escritura
+    en BD se ejecuta al await y puede fallar silenciosamente.
     """
+    _ban_cache_add(ip, minutes)
     now = datetime.now(timezone.utc)
     expires_at = now + timedelta(minutes=minutes) if minutes else None
-    async with async_session() as db:
-        stmt = pg_insert(BannedIP).values(
-            ip=ip,
-            reason=reason,
-            path=(path or "")[:500],
-            user_agent=(user_agent or "")[:500],
-            hits=1,
-            expires_at=expires_at,
-        ).on_conflict_do_update(
-            index_elements=["ip"],
-            set_={
-                "reason": reason,
-                "path": (path or "")[:500],
-                "user_agent": (user_agent or "")[:500],
-                "hits": BannedIP.__table__.c.hits + 1,
-                "expires_at": expires_at,
-                "updated_at": now,
-            },
-        )
-        await db.execute(stmt)
-        await db.commit()
-    _banned_cache[ip] = _INF if expires_at is None else expires_at.timestamp()
+    try:
+        async with async_session() as db:
+            stmt = pg_insert(BannedIP).values(
+                ip=ip,
+                reason=reason,
+                path=(path or "")[:500],
+                user_agent=(user_agent or "")[:500],
+                hits=1,
+                expires_at=expires_at,
+            ).on_conflict_do_update(
+                index_elements=["ip"],
+                set_={
+                    "reason": reason,
+                    "path": (path or "")[:500],
+                    "user_agent": (user_agent or "")[:500],
+                    "hits": BannedIP.__table__.c.hits + 1,
+                    "expires_at": expires_at,
+                    "updated_at": now,
+                },
+            )
+            await db.execute(stmt)
+            await db.commit()
+    except Exception:
+        pass
 
 
 def _record_hit(ip: str) -> bool:
-    """Registra un hit y retorna True si supera el umbral de burst."""
     dq = _burst_hits[ip]
     now = time.time()
     cutoff = now - BURST_WINDOW_SEC
@@ -140,49 +149,90 @@ def _record_hit(ip: str) -> bool:
     return len(dq) >= BURST_THRESHOLD
 
 
-# ── Middleware ─────────────────────────────────────────────────
-class BanCheckMiddleware(BaseHTTPMiddleware):
-    """Bloquea IPs baneadas, dispara honeypot y detecta burst."""
+# ── Helpers ASGI ───────────────────────────────────────────────
+def _headers_dict(scope) -> dict[str, str]:
+    return {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
 
-    async def dispatch(self, request: Request, call_next):
-        ip = _client_key(request)
-        path = request.url.path
+
+def _client_ip_from_scope(scope) -> str:
+    headers = _headers_dict(scope)
+    cf = headers.get("cf-connecting-ip")
+    if cf:
+        return cf
+    fwd = headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    real = headers.get("x-real-ip")
+    if real:
+        return real
+    client = scope.get("client")
+    return client[0] if client else "unknown"
+
+
+async def _send_json(send, status_code: int, payload: dict) -> None:
+    body = json.dumps(payload).encode("utf-8")
+    await send({
+        "type": "http.response.start",
+        "status": status_code,
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode("latin-1")),
+        ],
+    })
+    await send({"type": "http.response.body", "body": body, "more_body": False})
+
+
+# ── Middleware ASGI puro ───────────────────────────────────────
+class BanCheckMiddleware:
+    """Bloquea IPs baneadas, dispara honeypot y detecta burst.
+
+    Implementacion ASGI pura: no usa BaseHTTPMiddleware para evitar
+    conflictos con requests que llevan body (POST, PUT) cuando se combinan
+    varios BaseHTTPMiddleware + SlowAPIMiddleware.
+    """
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        ip = _client_ip_from_scope(scope)
 
         if _is_banned(ip):
-            return JSONResponse(
-                {"ok": False, "error": "access_denied"},
-                status_code=403,
-            )
+            await _send_json(send, 403, {"ok": False, "error": "access_denied"})
+            return
 
         # Honeypot: paths trampa banean permanentemente
         if path in HONEYPOT_PATHS or path.startswith("/wp-") or path.endswith(".php"):
-            ua = request.headers.get("user-agent", "")
-            try:
-                await ban_ip(ip, "honeypot", path=path, user_agent=ua, minutes=None)
-            except Exception:
-                pass
-            return JSONResponse(
-                {"ok": False, "error": "not_found"},
-                status_code=404,
+            ua = _headers_dict(scope).get("user-agent", "")
+            _ban_cache_add(ip, None)  # banea en cache de inmediato
+            asyncio.create_task(
+                ban_ip(ip, "honeypot", path=path, user_agent=ua, minutes=None)
             )
+            await _send_json(send, 404, {"ok": False, "error": "not_found"})
+            return
 
-        # Deteccion de burst solo en endpoints trackeados y sin auth
-        if path.startswith(TRACKED_PREFIXES) and not request.headers.get("authorization"):
-            if _record_hit(ip):
-                ua = request.headers.get("user-agent", "")
-                try:
-                    await ban_ip(
-                        ip,
-                        reason="burst",
-                        path=path,
-                        user_agent=ua,
-                        minutes=BURST_BAN_MINUTES,
+        # Deteccion de burst solo en endpoints publicos trackeados sin auth
+        if path.startswith(TRACKED_PREFIXES):
+            headers = _headers_dict(scope)
+            if not headers.get("authorization"):
+                if _record_hit(ip):
+                    ua = headers.get("user-agent", "")
+                    _ban_cache_add(ip, BURST_BAN_MINUTES)
+                    asyncio.create_task(
+                        ban_ip(
+                            ip,
+                            reason="burst",
+                            path=path,
+                            user_agent=ua,
+                            minutes=BURST_BAN_MINUTES,
+                        )
                     )
-                except Exception:
-                    pass
-                return JSONResponse(
-                    {"ok": False, "error": "rate_abuse"},
-                    status_code=429,
-                )
+                    await _send_json(send, 429, {"ok": False, "error": "rate_abuse"})
+                    return
 
-        return await call_next(request)
+        await self.app(scope, receive, send)
