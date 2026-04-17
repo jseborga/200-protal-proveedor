@@ -917,6 +917,116 @@ def _user_to_dict(u: User) -> dict:
     }
 
 
+# ── Bulk geocoding (Nominatim) ────────────────────────────────
+@router.get("/suppliers/geocode-status")
+async def geocode_status(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Cuantos proveedores tienen / no tienen coordenadas."""
+    total = (await db.execute(select(func.count(Supplier.id)).where(Supplier.is_active == True))).scalar() or 0
+    with_coords = (await db.execute(
+        select(func.count(Supplier.id)).where(
+            Supplier.is_active == True,
+            Supplier.latitude.isnot(None),
+            Supplier.longitude.isnot(None),
+        )
+    )).scalar() or 0
+    return {
+        "ok": True,
+        "total": total,
+        "with_coords": with_coords,
+        "missing": total - with_coords,
+    }
+
+
+@router.post("/suppliers/bulk-geocode")
+async def bulk_geocode_suppliers(
+    batch_size: int = Query(20, ge=1, le=50),
+    only_missing: bool = Query(True),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Geocodifica por lotes los proveedores usando Nominatim (OSM).
+
+    - batch_size: cantidad a procesar en esta llamada (max 50, ~1s por uno)
+    - only_missing: si true, solo toca proveedores sin lat/lng
+    Devuelve contador y lista de resultados para auditoria.
+    """
+    import asyncio
+    import httpx
+
+    q = select(Supplier).where(Supplier.is_active == True)
+    if only_missing:
+        q = q.where((Supplier.latitude.is_(None)) | (Supplier.longitude.is_(None)))
+    q = q.order_by(Supplier.id).limit(batch_size)
+    result = await db.execute(q)
+    suppliers = result.scalars().all()
+
+    if not suppliers:
+        return {"ok": True, "processed": 0, "geocoded": 0, "failed": 0, "items": [], "remaining": 0}
+
+    headers = {"User-Agent": "NexoBase/1.0 (contacto@nexobase.com)"}
+    items = []
+    geocoded = 0
+    failed = 0
+
+    async with httpx.AsyncClient(timeout=12.0) as client:
+        for i, s in enumerate(suppliers):
+            parts = [s.address, s.city, s.department, "Bolivia"]
+            query = ", ".join([p for p in parts if p])
+            if not query or len(query) < 5:
+                items.append({"id": s.id, "name": s.name, "status": "skipped", "reason": "sin direccion/ciudad"})
+                failed += 1
+                continue
+            try:
+                resp = await client.get(
+                    "https://nominatim.openstreetmap.org/search",
+                    params={"q": query, "format": "json", "limit": 1, "countrycodes": "bo"},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                if not data:
+                    items.append({"id": s.id, "name": s.name, "status": "not_found", "query": query})
+                    failed += 1
+                else:
+                    lat = float(data[0]["lat"])
+                    lon = float(data[0]["lon"])
+                    s.latitude = lat
+                    s.longitude = lon
+                    items.append({
+                        "id": s.id, "name": s.name, "status": "ok",
+                        "lat": lat, "lon": lon,
+                        "display_name": data[0].get("display_name"),
+                    })
+                    geocoded += 1
+            except Exception as e:
+                items.append({"id": s.id, "name": s.name, "status": "error", "error": str(e)[:80]})
+                failed += 1
+            # Respetar rate limit de Nominatim (~1 req/s)
+            if i < len(suppliers) - 1:
+                await asyncio.sleep(1.1)
+
+    await db.flush()
+
+    # Calcular cuantos quedan sin geocode
+    remaining_q = select(func.count(Supplier.id)).where(
+        Supplier.is_active == True,
+        (Supplier.latitude.is_(None)) | (Supplier.longitude.is_(None)),
+    )
+    remaining = (await db.execute(remaining_q)).scalar() or 0
+
+    return {
+        "ok": True,
+        "processed": len(suppliers),
+        "geocoded": geocoded,
+        "failed": failed,
+        "items": items,
+        "remaining": remaining,
+    }
+
+
 # ── Supplier suggestions admin ────────────────────────────────
 from app.models.supplier_suggestion import SupplierSuggestion
 

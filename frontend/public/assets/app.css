@@ -325,9 +325,29 @@ input, select, textarea { font: inherit; }
     font-size: 11px; color: var(--gray-600, #4b5563); margin-top: 4px;
     font-style: italic;
 }
-.nearby-wa {
-    position: absolute; bottom: 10px; right: 10px;
-    color: #25d366; text-decoration: none;
+.nearby-actions {
+    position: absolute; bottom: 8px; right: 8px;
+    display: flex; gap: 6px; align-items: center;
+}
+.nearby-wa { color: #25d366; text-decoration: none; display: inline-flex; align-items: center; }
+.nearby-dir {
+    color: #1e40af; text-decoration: none; display: inline-flex; align-items: center;
+    background: #eff6ff; border-radius: 50%; width: 26px; height: 26px;
+    justify-content: center; transition: background 0.15s;
+}
+.nearby-dir:hover { background: #dbeafe; }
+
+.nearby-filters {
+    padding: 10px 16px; border-bottom: 1px solid var(--gray-200, #e5e7eb);
+    background: #f9fafb;
+    display: flex; flex-direction: column; gap: 8px;
+}
+.nearby-filter-row {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.nearby-filter-label { font-size: 13px; color: var(--gray-700, #374151); min-width: 120px; }
+.nearby-slider {
+    flex: 1; min-width: 180px; accent-color: var(--primary, #1e40af);
 }
 @media (max-width: 760px) {
     .nearby-body { grid-template-columns: 1fr; }

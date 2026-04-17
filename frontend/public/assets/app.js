@@ -101,6 +101,8 @@ const API = {
     uploadInsumoImage: (id, formData) => API.upload(`/prices/${id}/image`, formData),
     deleteInsumoImage: (id) => API.del(`/prices/${id}/image`),
     geocodeAddress: (q) => API.get(`/suppliers/geocode?q=${encodeURIComponent(q)}`),
+    geocodeStatus: () => API.get('/admin/suppliers/geocode-status'),
+    bulkGeocode: (batchSize = 20) => API.post(`/admin/suppliers/bulk-geocode?batch_size=${batchSize}`, {}),
     rfqs: (params = '') => API.get(`/rfq${params}`),
     createRFQ: (data) => API.post('/rfq', data),
     stats: () => API.get('/admin/stats'),
@@ -288,6 +290,7 @@ const ICONS = {
     settings: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>',
     edit: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>',
     image: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21,15 16,10 5,21"/></svg>',
+    navigation: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>',
     trash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3,6 5,6 21,6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>',
     'user-plus': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>',
     key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
@@ -1208,50 +1211,63 @@ function findSuppliersNearForProduct(insumoId, category, fromModal) {
     );
 }
 
+let _nearbyState = null;
+
 function showNearbyProductMap(userLat, userLon, suppliers, insumoId) {
     const existing = document.querySelector('.modal-overlay-nearby');
     if (existing) existing.remove();
+    _nearbyState = {
+        userLat, userLon, insumoId,
+        rawSuppliers: suppliers,
+        radius: 100,
+        category: '',
+        query: '',
+    };
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay modal-overlay-nearby';
     overlay.onclick = (e) => { if (e.target === overlay) closeModal(); };
     const mapId = 'nearby-map-' + Date.now();
+    // Collect unique categories from suppliers
+    const catSet = new Set();
+    suppliers.forEach(s => (s.categories || []).forEach(c => catSet.add(c)));
+    const catOptions = ['<option value="">Todas las categorias</option>']
+        .concat([...catSet].sort().map(c => `<option value="${esc(c)}">${esc(c)}</option>`))
+        .join('');
     overlay.innerHTML = `
         <div class="modal modal-nearby">
             <div class="modal-header">
-                <h3>${icon('map-pin',16)} ${suppliers.length} proveedor${suppliers.length > 1 ? 'es' : ''} cerca de ti</h3>
+                <h3 id="nearby-title">${icon('map-pin',16)} ${suppliers.length} proveedor${suppliers.length > 1 ? 'es' : ''} cerca de ti</h3>
                 <button class="modal-close" onclick="closeModal()" aria-label="Cerrar">&times;</button>
+            </div>
+            <div class="nearby-filters">
+                <div class="nearby-filter-row">
+                    <label class="nearby-filter-label">
+                        Radio: <strong id="nearby-radius-label">100 km</strong>
+                    </label>
+                    <input type="range" id="nearby-radius" min="5" max="200" step="5" value="100"
+                           oninput="onNearbyRadiusChange(this.value)" onchange="applyNearbyRadius(this.value)"
+                           class="nearby-slider">
+                </div>
+                <div class="nearby-filter-row">
+                    <input type="text" class="form-input" id="nearby-search" placeholder="Buscar proveedor..."
+                           oninput="onNearbyFilterChange()" style="flex:1;min-width:140px">
+                    <select class="form-select" id="nearby-cat" onchange="onNearbyFilterChange()" style="flex:1;min-width:140px">
+                        ${catOptions}
+                    </select>
+                </div>
             </div>
             <div class="modal-body nearby-body">
                 <div id="${mapId}" class="nearby-map"></div>
-                <div class="nearby-list">
-                    ${suppliers.map((s, i) => {
-                        const loc = [s.city, s.department].filter(Boolean).join(', ');
-                        const wa = s.has_whatsapp && s.whatsapp
-                            ? `<a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" rel="noopener" class="nearby-wa" onclick="event.stopPropagation()">${icon('whatsapp',14)}</a>` : '';
-                        const rubros = (s.rubros || []).slice(0, 3).join(' &middot; ');
-                        const verifBadge = s.verified ? `<span class="nearby-badge-ok">${icon('check-circle',10)} verificado</span>` : '';
-                        return `
-                            <div class="nearby-card" data-idx="${i}" onclick="closeModal();showPublicSupplierDetail(${s.id})">
-                                <div class="nearby-card-head">
-                                    <span class="nearby-name">${esc(s.name)}</span>
-                                    <span class="nearby-dist">${s.distance_km} km</span>
-                                </div>
-                                <div class="nearby-meta">${loc ? icon('map-pin',11) + ' ' + esc(loc) : ''} ${verifBadge}</div>
-                                ${rubros ? `<div class="nearby-rubros">${esc(rubros)}</div>` : ''}
-                                ${wa}
-                            </div>
-                        `;
-                    }).join('')}
-                </div>
+                <div class="nearby-list" id="nearby-list"></div>
             </div>
         </div>
     `;
     document.body.appendChild(overlay);
+    _nearbyState.mapId = mapId;
 
     // Init map after overlay is in DOM
     setTimeout(() => {
         MapUtils.createMap(mapId, [userLat, userLon], 12);
-        MapUtils.clearMarkers();
         L.marker([userLat, userLon], {
             icon: L.divIcon({
                 className: 'user-marker',
@@ -1259,21 +1275,105 @@ function showNearbyProductMap(userLat, userLon, suppliers, insumoId) {
                 iconSize: [20, 20], iconAnchor: [10, 10],
             })
         }).addTo(MapUtils._map).bindPopup('<strong>Tu ubicacion</strong>');
-        suppliers.forEach((s, i) => {
-            if (!s.latitude || !s.longitude) return;
-            const rubros = (s.rubros || []).slice(0, 4).join(', ');
-            const waLink = s.has_whatsapp && s.whatsapp
-                ? `<br><a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" style="color:#25d366">WhatsApp</a>` : '';
-            MapUtils.addMarker(s.latitude, s.longitude,
-                `<strong>${esc(s.name)}</strong><br>
-                 <small>${s.distance_km} km &middot; ${esc([s.city, s.department].filter(Boolean).join(', '))}</small>
-                 ${rubros ? `<br><em style="color:#6b7280;font-size:11px">${esc(rubros)}</em>` : ''}
-                 ${waLink}
-                 <br><a href="#" onclick="event.preventDefault();closeModal();showPublicSupplierDetail(${s.id})">Ver detalles &rarr;</a>`
-            );
-        });
-        MapUtils.fitToMarkers();
+        renderNearbyResults();
     }, 50);
+}
+
+function onNearbyRadiusChange(v) {
+    const lbl = document.getElementById('nearby-radius-label');
+    if (lbl) lbl.textContent = `${v} km`;
+}
+
+async function applyNearbyRadius(v) {
+    if (!_nearbyState) return;
+    const newRadius = parseInt(v, 10);
+    _nearbyState.radius = newRadius;
+    // Re-query server if expanding beyond what we loaded
+    const { userLat, userLon, insumoId } = _nearbyState;
+    toast('Actualizando radio...', 'info');
+    let resp = await API.get(
+        `/suppliers/public/nearby?lat=${userLat}&lon=${userLon}&radius_km=${newRadius}&limit=80&insumo_id=${insumoId}`
+    ).catch(() => null);
+    if (!resp || !resp.ok || !resp.data.length) {
+        // Try without insumo filter
+        resp = await API.get(
+            `/suppliers/public/nearby?lat=${userLat}&lon=${userLon}&radius_km=${newRadius}&limit=80`
+        ).catch(() => null);
+    }
+    if (resp && resp.ok) {
+        _nearbyState.rawSuppliers = resp.data;
+        renderNearbyResults();
+    }
+}
+
+function onNearbyFilterChange() {
+    if (!_nearbyState) return;
+    _nearbyState.query = (document.getElementById('nearby-search')?.value || '').toLowerCase().trim();
+    _nearbyState.category = document.getElementById('nearby-cat')?.value || '';
+    renderNearbyResults();
+}
+
+function _filteredNearby() {
+    const { rawSuppliers, radius, category, query } = _nearbyState;
+    return rawSuppliers.filter(s => {
+        if (s.distance_km > radius) return false;
+        if (category && !(s.categories || []).includes(category)) return false;
+        if (query && !s.name.toLowerCase().includes(query)) return false;
+        return true;
+    });
+}
+
+function _supplierCardHtml(s) {
+    const loc = [s.city, s.department].filter(Boolean).join(', ');
+    const wa = s.has_whatsapp && s.whatsapp
+        ? `<a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" rel="noopener" class="nearby-wa" onclick="event.stopPropagation()">${icon('whatsapp',14)}</a>` : '';
+    const rubros = (s.rubros || []).slice(0, 3).join(' &middot; ');
+    const verifBadge = s.verified ? `<span class="nearby-badge-ok">${icon('check-circle',10)} verificado</span>` : '';
+    const directionsBtn = s.latitude && s.longitude
+        ? `<a href="https://www.google.com/maps/dir/?api=1&destination=${s.latitude},${s.longitude}" target="_blank" rel="noopener" class="nearby-dir" onclick="event.stopPropagation()" title="Como llegar">${icon('navigation',13)}</a>`
+        : '';
+    return `
+        <div class="nearby-card" onclick="closeModal();showPublicSupplierDetail(${s.id})">
+            <div class="nearby-card-head">
+                <span class="nearby-name">${esc(s.name)}</span>
+                <span class="nearby-dist">${s.distance_km} km</span>
+            </div>
+            <div class="nearby-meta">${loc ? icon('map-pin',11) + ' ' + esc(loc) : ''} ${verifBadge}</div>
+            ${rubros ? `<div class="nearby-rubros">${esc(rubros)}</div>` : ''}
+            <div class="nearby-actions">${directionsBtn}${wa}</div>
+        </div>`;
+}
+
+function renderNearbyResults() {
+    if (!_nearbyState) return;
+    const list = _filteredNearby();
+    const listEl = document.getElementById('nearby-list');
+    const titleEl = document.getElementById('nearby-title');
+    if (titleEl) {
+        titleEl.innerHTML = `${icon('map-pin',16)} ${list.length} proveedor${list.length === 1 ? '' : 'es'} en ${_nearbyState.radius} km`;
+    }
+    if (listEl) {
+        listEl.innerHTML = list.length
+            ? list.map(_supplierCardHtml).join('')
+            : `<div style="padding:20px;text-align:center;color:#6b7280;font-size:13px">Sin coincidencias con estos filtros</div>`;
+    }
+    if (!MapUtils._map) return;
+    MapUtils.clearMarkers();
+    list.forEach(s => {
+        if (!s.latitude || !s.longitude) return;
+        const rubros = (s.rubros || []).slice(0, 4).join(', ');
+        const waLink = s.has_whatsapp && s.whatsapp
+            ? `<br><a href="https://wa.me/${String(s.whatsapp).replace(/[^0-9]/g,'')}" target="_blank" style="color:#25d366">WhatsApp</a>` : '';
+        const dirLink = `<br><a href="https://www.google.com/maps/dir/?api=1&destination=${s.latitude},${s.longitude}" target="_blank" style="color:#1e40af">&#8594; Como llegar</a>`;
+        MapUtils.addMarker(s.latitude, s.longitude,
+            `<strong>${esc(s.name)}</strong><br>
+             <small>${s.distance_km} km &middot; ${esc([s.city, s.department].filter(Boolean).join(', '))}</small>
+             ${rubros ? `<br><em style="color:#6b7280;font-size:11px">${esc(rubros)}</em>` : ''}
+             ${waLink}${dirLink}
+             <br><a href="#" onclick="event.preventDefault();closeModal();showPublicSupplierDetail(${s.id})">Ver detalles &rarr;</a>`
+        );
+    });
+    if (list.length) MapUtils.fitToMarkers();
 }
 
 // ── Admin: Upload product image ────────────────────────────────
@@ -1717,6 +1817,9 @@ async function showPublicSupplierDetail(supplierId) {
                 : (locked && b.has_phone
                     ? `<button class="btn-call btn-locked" onclick="showLoginModal()" style="font-size:12px;padding:3px 8px">${icon('lock',12)} Llamar</button>` : '');
 
+            const bDir = (b.latitude && b.longitude)
+                ? `<a href="https://www.google.com/maps/dir/?api=1&destination=${b.latitude},${b.longitude}" target="_blank" rel="noopener" class="btn-call" style="font-size:12px;padding:3px 8px;background:#eff6ff;color:#1e40af">${icon('navigation',12)} Como llegar</a>`
+                : '';
             return `
                 <div style="border:1px solid var(--gray-200);border-radius:8px;padding:12px;margin-bottom:8px">
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
@@ -1725,7 +1828,7 @@ async function showPublicSupplierDetail(supplierId) {
                     </div>
                     <div style="font-size:13px;color:var(--gray-500);margin-bottom:4px">${icon('map',12)} ${bLoc || 'Sin ubicacion'}</div>
                     ${b.address ? `<div style="font-size:13px;color:var(--gray-500);margin-bottom:6px">${esc(b.address)}</div>` : ''}
-                    <div style="display:flex;gap:8px;margin-bottom:6px">${bWa}${bPh}</div>
+                    <div style="display:flex;gap:8px;margin-bottom:6px;flex-wrap:wrap">${bWa}${bPh}${bDir}</div>
                     ${contactsHtml ? `<div style="border-top:1px solid var(--gray-100);padding-top:6px;margin-top:4px">
                         <div style="font-size:12px;color:var(--gray-400);margin-bottom:2px">Contactos</div>
                         ${contactsHtml}
@@ -1775,6 +1878,7 @@ async function showPublicSupplierDetail(supplierId) {
             <div class="supplier-categories" style="margin-bottom:12px">${cats || ''}</div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
                 ${waBtn}${callBtn}${phone2Btn}${webBtn}
+                ${hasCoords ? `<a href="https://www.google.com/maps/dir/?api=1&destination=${s.latitude},${s.longitude}" target="_blank" rel="noopener" class="btn-call" onclick="event.stopPropagation()" style="background:#eff6ff;color:#1e40af">${icon('navigation',16)} Como llegar</a>` : ''}
             </div>
             ${rubrosHtml}
             ${showMap ? `<div id="supplier-detail-map" style="height:220px;border-radius:8px;margin-bottom:16px"></div>` : ''}
@@ -1790,12 +1894,15 @@ async function showPublicSupplierDetail(supplierId) {
                 const center = hasCoords ? [s.latitude, s.longitude] : [branchesWithCoords[0].latitude, branchesWithCoords[0].longitude];
                 MapUtils.createMap('supplier-detail-map', center, 13);
                 if (hasCoords) {
-                    MapUtils.addMarker(s.latitude, s.longitude, `<strong>${esc(s.trade_name || s.name)}</strong><br>${location}`);
+                    MapUtils.addMarker(s.latitude, s.longitude,
+                        `<strong>${esc(s.trade_name || s.name)}</strong><br>${location}<br>
+                         <a href="https://www.google.com/maps/dir/?api=1&destination=${s.latitude},${s.longitude}" target="_blank" style="color:#1e40af">&#8594; Como llegar</a>`);
                 }
                 (s.branches || []).forEach(b => {
                     if (b.latitude && b.longitude) {
                         MapUtils.addMarker(b.latitude, b.longitude,
-                            `<strong>${esc(b.branch_name)}</strong><br>${[b.city, b.department].filter(Boolean).join(', ')}`);
+                            `<strong>${esc(b.branch_name)}</strong><br>${[b.city, b.department].filter(Boolean).join(', ')}<br>
+                             <a href="https://www.google.com/maps/dir/?api=1&destination=${b.latitude},${b.longitude}" target="_blank" style="color:#1e40af">&#8594; Como llegar</a>`);
                     }
                 });
                 if (MapUtils._markers.length > 1) MapUtils.fitToMarkers();
@@ -2148,6 +2255,9 @@ async function renderAdminSuppliers() {
                 </button>
                 ${isManager() ? `<button class="btn btn-secondary" onclick="showMergeSupplierModal()" style="color:var(--warning)">
                     ${icon('users',16)} Fusionar
+                </button>` : ''}
+                ${isManager() ? `<button class="btn btn-secondary" onclick="showBulkGeocodeModal()">
+                    ${icon('map-pin',16)} Geocodificar
                 </button>` : ''}
             </div>
         </div>
@@ -2576,6 +2686,100 @@ async function deleteContactFromBranch(supplierId, branchId, contactId) {
 let _mergeKeep = null;   // {id, name, ...}
 let _mergeAbsorb = null;
 let _mergeSearchTimers = {};
+
+// ── Bulk geocode modal ─────────────────────────────────────────
+async function showBulkGeocodeModal() {
+    const status = await API.geocodeStatus().catch(() => null);
+    if (!status || !status.ok) { toast('No se pudo consultar estado', 'error'); return; }
+    showModal('Geocodificar ubicaciones', `
+        <p style="color:#4b5563;font-size:14px;line-height:1.5;margin-top:0">
+            Usa Nominatim (OpenStreetMap) para obtener coordenadas a partir de
+            <strong>direccion, ciudad y departamento</strong> de cada proveedor.
+            ~1 segundo por proveedor por limite de uso de OSM.
+        </p>
+        <div style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;padding:12px;margin-bottom:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span>Total proveedores:</span><strong>${status.total}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span>Con coordenadas:</span><strong style="color:#166534">${status.with_coords}</strong>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+                <span>Sin coordenadas:</span><strong style="color:#b91c1c" id="bgeo-missing">${status.missing}</strong>
+            </div>
+        </div>
+        <div class="form-group">
+            <label class="form-label">Lote</label>
+            <select class="form-select" id="bgeo-batch">
+                <option value="10">10 proveedores (~12 seg)</option>
+                <option value="20" selected>20 proveedores (~25 seg)</option>
+                <option value="40">40 proveedores (~50 seg)</option>
+                <option value="50">50 proveedores (~1 min)</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" id="bgeo-run" onclick="runBulkGeocode()" style="width:100%;justify-content:center;padding:10px"${status.missing === 0 ? ' disabled' : ''}>
+            ${icon('map-pin',14)} ${status.missing === 0 ? 'Todos geocodificados' : 'Geocodificar lote'}
+        </button>
+        <div id="bgeo-result" style="margin-top:12px;max-height:300px;overflow-y:auto"></div>
+    `);
+}
+
+async function runBulkGeocode() {
+    const btn = document.getElementById('bgeo-run');
+    const box = document.getElementById('bgeo-result');
+    const sel = document.getElementById('bgeo-batch');
+    const batch = parseInt(sel?.value || '20', 10);
+    if (btn) { btn.disabled = true; btn.innerHTML = `${icon('clock',14)} Procesando... espera`; }
+    try {
+        const resp = await API.bulkGeocode(batch);
+        if (!resp.ok) {
+            if (box) box.innerHTML = `<div style="color:#b91c1c;padding:8px">${esc(resp.detail || 'Error')}</div>`;
+            return;
+        }
+        const miss = document.getElementById('bgeo-missing');
+        if (miss) miss.textContent = resp.remaining;
+        if (box) {
+            box.innerHTML = `
+                <div style="background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;padding:8px;margin-bottom:8px;font-size:13px">
+                    <strong>Lote procesado:</strong> ${resp.processed} &middot;
+                    <span style="color:#166534">OK: ${resp.geocoded}</span> &middot;
+                    <span style="color:#b91c1c">Falla: ${resp.failed}</span> &middot;
+                    Restantes: ${resp.remaining}
+                </div>
+                <table style="width:100%;font-size:12px;border-collapse:collapse">
+                    <thead>
+                        <tr style="background:#f3f4f6">
+                            <th style="text-align:left;padding:6px">Proveedor</th>
+                            <th style="text-align:left;padding:6px">Estado</th>
+                            <th style="text-align:left;padding:6px">Info</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${resp.items.map(it => {
+                            const color = it.status === 'ok' ? '#166534' : (it.status === 'not_found' ? '#b45309' : '#b91c1c');
+                            const info = it.status === 'ok'
+                                ? `${it.lat.toFixed(4)}, ${it.lon.toFixed(4)}<br><small style="color:#6b7280">${esc(it.display_name || '')}</small>`
+                                : esc(it.reason || it.query || it.error || '');
+                            return `<tr style="border-bottom:1px solid #f3f4f6">
+                                <td style="padding:6px">${esc(it.name)}</td>
+                                <td style="padding:6px;color:${color};font-weight:500">${esc(it.status)}</td>
+                                <td style="padding:6px">${info}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+                ${resp.remaining > 0 ? `<div style="margin-top:10px;color:#6b7280;font-size:13px">${resp.remaining} proveedores pendientes. Puedes procesar otro lote cuando quieras.</div>` : '<div style="margin-top:10px;color:#166534;font-weight:500">&check; Todos los proveedores con direccion geocodificados.</div>'}
+            `;
+        }
+    } finally {
+        if (btn) {
+            btn.disabled = false;
+            const missNum = parseInt(document.getElementById('bgeo-missing')?.textContent || '0', 10);
+            btn.innerHTML = `${icon('map-pin',14)} ${missNum === 0 ? 'Todos geocodificados' : 'Geocodificar siguiente lote'}`;
+            if (missNum === 0) btn.disabled = true;
+        }
+    }
+}
 
 async function showMergeSupplierModal() {
     _mergeKeep = null;
