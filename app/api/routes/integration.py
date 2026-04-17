@@ -43,6 +43,29 @@ class SupplierIn(BaseModel):
     longitude: float | None = None
 
 
+class SupplierUpdateIn(BaseModel):
+    name: str | None = None
+    trade_name: str | None = None
+    nit: str | None = None
+    email: str | None = None
+    phone: str | None = None
+    phone2: str | None = None
+    whatsapp: str | None = None
+    city: str | None = None
+    department: str | None = None
+    country: str | None = None
+    address: str | None = None
+    website: str | None = None
+    description: str | None = None
+    operating_cities: list[str] | None = None
+    categories: list[str] | None = None
+    preferred_channel: str | None = None
+    verification_state: str | None = None
+    is_active: bool | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+
+
 class SupplierRubroIn(BaseModel):
     supplier_id: int
     rubro: str
@@ -165,7 +188,7 @@ async def list_suppliers(
 @router.put("/suppliers/{supplier_id}")
 async def update_supplier(
     supplier_id: int,
-    body: SupplierIn,
+    body: SupplierUpdateIn,
     db: AsyncSession = Depends(get_db),
     auth: dict = Depends(verify_api_key),
 ):
