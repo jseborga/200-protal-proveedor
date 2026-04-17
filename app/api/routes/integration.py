@@ -38,6 +38,7 @@ class SupplierIn(BaseModel):
     categories: list[str] | None = None
     preferred_channel: str = "whatsapp"
     verification_state: str = "verified"
+    is_active: bool | None = None
     latitude: float | None = None
     longitude: float | None = None
 
