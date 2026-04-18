@@ -32,6 +32,12 @@ async def _put(path: str, data: dict) -> dict:
         return resp.json()
 
 
+async def _delete(path: str) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.delete(f"{BASE}{path}", headers=HEADERS)
+        return resp.json()
+
+
 # ── Stats ──────────────────────────────────────────────────────
 @mcp.tool()
 async def get_stats() -> str:
@@ -149,6 +155,142 @@ async def update_supplier(supplier_id: int, **fields) -> str:
     return json.dumps(result, ensure_ascii=False)
 
 
+# ── Supplier Branches ─────────────────────────────────────────
+@mcp.tool()
+async def list_supplier_branches(supplier_id: int) -> str:
+    """List all branches (sucursales) of a supplier, including location and contact info.
+
+    Args:
+        supplier_id: Supplier ID
+    """
+    result = await _get(f"/supplier-branches/{supplier_id}")
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def upsert_supplier_branch(
+    supplier_id: int,
+    branch_name: str,
+    city: str = "",
+    department: str = "",
+    address: str = "",
+    phone: str = "",
+    whatsapp: str = "",
+    email: str = "",
+    latitude: float = 0,
+    longitude: float = 0,
+    is_main: bool = False,
+) -> str:
+    """Create or update a supplier branch (sucursal). Upserts by supplier_id + branch_name.
+
+    Args:
+        supplier_id: Supplier ID
+        branch_name: Branch name (e.g. "Sucursal Santa Cruz", "Casa Matriz")
+        city: City (e.g. Santa Cruz de la Sierra)
+        department: Department (Santa Cruz, La Paz, Cochabamba, etc.)
+        address: Physical address
+        phone: Phone number
+        whatsapp: WhatsApp number with country code (e.g. 59177889900)
+        email: Email address
+        latitude: Latitude (decimal degrees)
+        longitude: Longitude (decimal degrees)
+        is_main: True if this is the main branch (casa matriz)
+    """
+    data: dict = {"supplier_id": supplier_id, "branch_name": branch_name, "is_main": is_main}
+    if city:
+        data["city"] = city
+    if department:
+        data["department"] = department
+    if address:
+        data["address"] = address
+    if phone:
+        data["phone"] = phone
+    if whatsapp:
+        data["whatsapp"] = whatsapp
+    if email:
+        data["email"] = email
+    if latitude:
+        data["latitude"] = latitude
+    if longitude:
+        data["longitude"] = longitude
+
+    result = await _post("/supplier-branches", data)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def delete_supplier_branch(branch_id: int) -> str:
+    """Soft-delete a supplier branch (sets is_active=false).
+
+    Args:
+        branch_id: Branch ID
+    """
+    result = await _delete(f"/supplier-branches/{branch_id}")
+    return json.dumps(result, ensure_ascii=False)
+
+
+# ── Branch Contacts ───────────────────────────────────────────
+@mcp.tool()
+async def list_branch_contacts(branch_id: int) -> str:
+    """List contact persons at a branch (sales reps, managers, etc).
+
+    Args:
+        branch_id: Branch ID
+    """
+    result = await _get(f"/branch-contacts/{branch_id}")
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def upsert_branch_contact(
+    branch_id: int,
+    full_name: str,
+    position: str = "",
+    phone: str = "",
+    whatsapp: str = "",
+    email: str = "",
+    is_primary: bool = False,
+) -> str:
+    """Create or update a contact person at a branch. Upserts by branch_id + full_name.
+
+    Args:
+        branch_id: Branch ID
+        full_name: Contact full name
+        position: Role/position (e.g. "Gerente de ventas", "Agente comercial")
+        phone: Phone number
+        whatsapp: WhatsApp number with country code (e.g. 59177889900)
+        email: Email address
+        is_primary: True if this is the primary contact for the branch
+    """
+    data: dict = {
+        "branch_id": branch_id,
+        "full_name": full_name,
+        "is_primary": is_primary,
+    }
+    if position:
+        data["position"] = position
+    if phone:
+        data["phone"] = phone
+    if whatsapp:
+        data["whatsapp"] = whatsapp
+    if email:
+        data["email"] = email
+
+    result = await _post("/branch-contacts", data)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def delete_branch_contact(contact_id: int) -> str:
+    """Soft-delete a branch contact (sets is_active=false).
+
+    Args:
+        contact_id: Contact ID
+    """
+    result = await _delete(f"/branch-contacts/{contact_id}")
+    return json.dumps(result, ensure_ascii=False)
+
+
 # ── Products ───────────────────────────────────────────────────
 @mcp.tool()
 async def list_products(
@@ -227,9 +369,33 @@ async def update_product(product_id: int, **fields) -> str:
 
     Args:
         product_id: Product ID
-        **fields: Fields to update (name, uom, category, ref_price, etc.)
+        **fields: Fields to update (name, uom, category, ref_price, image_url, spec_url, description, etc.)
     """
     result = await _put(f"/products/{product_id}", fields)
+    return json.dumps(result, ensure_ascii=False)
+
+
+@mcp.tool()
+async def set_product_image(
+    product_id: int,
+    image_url: str,
+    description: str = "",
+) -> str:
+    """Set the product image URL (and optionally update description).
+
+    Use this after finding a representative image of the product on the web.
+    The image_url must be a direct link to the image file (e.g. https://example.com/cemento.jpg).
+    The frontend will render this image on the product card.
+
+    Args:
+        product_id: Product ID
+        image_url: Direct URL to the image (jpg/png/webp)
+        description: Optional product description to update alongside the image
+    """
+    data: dict = {"image_url": image_url}
+    if description:
+        data["description"] = description
+    result = await _put(f"/products/{product_id}", data)
     return json.dumps(result, ensure_ascii=False)
 
 

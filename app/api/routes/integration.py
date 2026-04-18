@@ -87,6 +87,21 @@ class ProductIn(BaseModel):
     description: str | None = None
     ref_price: float | None = None
     ref_currency: str = "BOB"
+    image_url: str | None = None
+    spec_url: str | None = None
+
+
+class ProductUpdateIn(BaseModel):
+    name: str | None = None
+    code: str | None = None
+    uom: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    description: str | None = None
+    ref_price: float | None = None
+    ref_currency: str | None = None
+    image_url: str | None = None
+    spec_url: str | None = None
 
 
 class BulkSuppliersIn(BaseModel):
@@ -377,6 +392,109 @@ async def delete_supplier_branch(
     return {"ok": True, "action": "deleted", "id": branch_id}
 
 
+# ── Branch Contacts (integraciones con API key) ───────────────
+class BranchContactIn(BaseModel):
+    branch_id: int
+    full_name: str
+    position: str | None = None
+    phone: str | None = None
+    whatsapp: str | None = None
+    email: str | None = None
+    is_primary: bool = False
+
+
+@router.get("/branch-contacts/{branch_id}")
+async def list_branch_contacts(
+    branch_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    from app.models.supplier import SupplierBranchContact
+    result = await db.execute(
+        select(SupplierBranchContact)
+        .where(SupplierBranchContact.branch_id == branch_id)
+        .order_by(
+            SupplierBranchContact.is_primary.desc(),
+            SupplierBranchContact.full_name,
+        )
+    )
+    contacts = result.scalars().all()
+    return {
+        "ok": True,
+        "data": [
+            {
+                "id": c.id, "branch_id": c.branch_id,
+                "full_name": c.full_name, "position": c.position,
+                "phone": c.phone, "whatsapp": c.whatsapp, "email": c.email,
+                "is_primary": c.is_primary, "is_active": c.is_active,
+            }
+            for c in contacts
+        ],
+    }
+
+
+@router.post("/branch-contacts")
+async def upsert_branch_contact(
+    body: BranchContactIn,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    """Upsert un contacto de sucursal por branch_id + full_name."""
+    from app.models.supplier import SupplierBranch, SupplierBranchContact
+
+    branch = await db.get(SupplierBranch, body.branch_id)
+    if not branch:
+        raise HTTPException(status_code=404, detail="Branch not found")
+
+    existing = await db.execute(
+        select(SupplierBranchContact).where(
+            SupplierBranchContact.branch_id == body.branch_id,
+            SupplierBranchContact.full_name == body.full_name,
+        ).limit(1)
+    )
+    contact = existing.scalar_one_or_none()
+    fields = body.model_dump(exclude={"branch_id"})
+
+    if body.is_primary:
+        others = (await db.execute(
+            select(SupplierBranchContact).where(
+                SupplierBranchContact.branch_id == body.branch_id,
+                SupplierBranchContact.is_primary == True,
+            )
+        )).scalars().all()
+        for o in others:
+            if not contact or o.id != contact.id:
+                o.is_primary = False
+
+    if contact:
+        for k, v in fields.items():
+            if v is not None:
+                setattr(contact, k, v)
+        await db.flush()
+        action = "updated"
+    else:
+        contact = SupplierBranchContact(branch_id=body.branch_id, **fields)
+        db.add(contact)
+        await db.flush()
+        action = "created"
+    return {"ok": True, "action": action, "id": contact.id}
+
+
+@router.delete("/branch-contacts/{contact_id}")
+async def delete_branch_contact(
+    contact_id: int,
+    db: AsyncSession = Depends(get_db),
+    auth: dict = Depends(verify_api_key),
+):
+    from app.models.supplier import SupplierBranchContact
+    contact = await db.get(SupplierBranchContact, contact_id)
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact not found")
+    contact.is_active = False
+    await db.flush()
+    return {"ok": True, "action": "deleted", "id": contact_id}
+
+
 # ── Products ───────────────────────────────────────────────────
 @router.post("/products")
 async def create_product(
@@ -401,6 +519,8 @@ async def create_product(
         description=body.description,
         ref_price=body.ref_price,
         ref_currency=body.ref_currency,
+        image_url=body.image_url,
+        spec_url=body.spec_url,
     )
     db.add(insumo)
     await db.flush()
@@ -437,6 +557,8 @@ async def create_products_bulk(
             description=item.description,
             ref_price=item.ref_price,
             ref_currency=item.ref_currency,
+            image_url=item.image_url,
+            spec_url=item.spec_url,
         )
         db.add(insumo)
         await db.flush()
@@ -472,7 +594,7 @@ async def list_products(
 @router.put("/products/{product_id}")
 async def update_product(
     product_id: int,
-    body: ProductIn,
+    body: ProductUpdateIn,
     db: AsyncSession = Depends(get_db),
     auth: dict = Depends(verify_api_key),
 ):
@@ -483,9 +605,9 @@ async def update_product(
         raise HTTPException(status_code=404, detail="Product not found")
 
     data = body.model_dump(exclude_unset=True)
-    if "name" in data:
+    if "name" in data and data["name"]:
         data["name_normalized"] = normalize_text(data["name"])
-    if "uom" in data:
+    if "uom" in data and data["uom"]:
         data["uom_normalized"] = normalize_uom(data["uom"])
 
     for field, value in data.items():
@@ -737,7 +859,10 @@ def _prod_dict(i: Insumo) -> dict:
     return {
         "id": i.id, "name": i.name, "code": i.code,
         "uom": i.uom, "category": i.category,
+        "subcategory": i.subcategory,
+        "description": i.description,
         "ref_price": i.ref_price, "ref_currency": i.ref_currency,
+        "image_url": i.image_url, "spec_url": i.spec_url,
     }
 
 
