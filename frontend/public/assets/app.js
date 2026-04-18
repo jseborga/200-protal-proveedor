@@ -12,6 +12,8 @@ const state = {
     currentParams: null,
     searchQuery: '',
     selectedCategory: null,
+    selectedSubcategory: null,
+    categoryTree: [],
     selectedDepartment: null,
     cart: [],
     // Proveedores page: modo de busqueda ('supplier' | 'material') + filtro por insumo
@@ -577,6 +579,7 @@ async function renderHome() {
         <div class="home-cats" id="home-categories">
             <span class="hcat${!state.selectedCategory ? ' active' : ''}" onclick="selectCategory(null)">Todos</span>
         </div>
+        <div class="home-subcats" id="home-subcategories" style="display:none"></div>
 
         <div id="home-stats" class="home-stats"></div>
 
@@ -607,20 +610,39 @@ async function renderHome() {
 
 async function loadHomeCategories() {
     try {
-        const resp = await API.supplierCategories();
+        const resp = await API.priceCategories();
         if (resp.ok && resp.data.length) {
+            state.categoryTree = resp.data;
             const container = document.getElementById('home-categories');
             const chips = resp.data.map(c => {
                 const meta = CATEGORY_META[c.name] || { label: c.name, icon: '' };
+                const label = meta.label || c.name;
                 return `<span class="hcat${state.selectedCategory === c.name ? ' active' : ''}"
-                              onclick="selectCategory('${esc(c.name)}')">${meta.icon} ${esc(meta.label || c.name)}</span>`;
+                              onclick="selectCategory('${esc(c.name)}')">${meta.icon || ''} ${esc(label)} <small>(${c.count})</small></span>`;
             }).join('');
             container.innerHTML = `
                 <span class="hcat${!state.selectedCategory ? ' active' : ''}" onclick="selectCategory(null)">Todos</span>
                 ${chips}
             `;
         }
+        renderHomeSubcategories();
     } catch {}
+}
+
+function renderHomeSubcategories() {
+    const sub = document.getElementById('home-subcategories');
+    if (!sub) return;
+    if (!state.selectedCategory) { sub.style.display = 'none'; sub.innerHTML = ''; return; }
+    const node = (state.categoryTree || []).find(c => c.name === state.selectedCategory);
+    const subs = node?.subcategories || [];
+    if (!subs.length) { sub.style.display = 'none'; sub.innerHTML = ''; return; }
+    const chips = subs.map(s => {
+        const active = state.selectedSubcategory === s.name;
+        const label = s.name.replace(/_/g, ' ');
+        return `<span class="hsub${active ? ' active' : ''}" onclick="selectSubcategory('${esc(s.name)}')">${esc(label)} <small>(${s.count})</small></span>`;
+    }).join('');
+    sub.innerHTML = `<span class="hsub${!state.selectedSubcategory ? ' active' : ''}" onclick="selectSubcategory(null)">Todas</span>${chips}`;
+    sub.style.display = '';
 }
 
 async function loadHomeSuppliers() {
@@ -644,6 +666,7 @@ async function loadHomeSuppliers() {
 async function loadHomePrices() {
     let params = '?limit=8&sort=recent';
     if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
+    if (state.selectedSubcategory) params += `&subcategory=${encodeURIComponent(state.selectedSubcategory)}`;
 
     try {
         const resp = await API.publicPrices(params);
@@ -682,9 +705,15 @@ async function loadHomeStats() {
 
 function selectCategory(cat) {
     state.selectedCategory = cat;
-    // Re-render chips + data
+    state.selectedSubcategory = null;
     loadHomeCategories();
     loadHomeSuppliers();
+    loadHomePrices();
+}
+
+function selectSubcategory(sub) {
+    state.selectedSubcategory = sub;
+    renderHomeSubcategories();
     loadHomePrices();
 }
 

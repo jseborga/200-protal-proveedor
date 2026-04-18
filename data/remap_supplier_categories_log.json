@@ -1,0 +1,1657 @@
+{
+  "dry_run": false,
+  "changes": [
+    {
+      "supplier_id": 3525,
+      "name": "APU Ingenieria",
+      "before": [
+        "acero",
+        "adhesivos",
+        "agregados",
+        "aislantes",
+        "cemento",
+        "ceramica",
+        "electrico",
+        "ferreteria",
+        "herramientas",
+        "hormigon",
+        "impermeabilizantes",
+        "ladrillos",
+        "madera",
+        "pinturas",
+        "plomeria",
+        "prefabricados",
+        "quimicos_concreto",
+        "sanitario",
+        "seguridad",
+        "techos",
+        "varios",
+        "vidrios"
+      ],
+      "after": [
+        "acero",
+        "adhesivos",
+        "agregados",
+        "aislantes",
+        "cemento",
+        "ceramica",
+        "electrico",
+        "ferreteria",
+        "fijaciones",
+        "gas",
+        "herramientas",
+        "hormigon",
+        "hvac",
+        "iluminacion",
+        "impermeabilizantes",
+        "jardineria",
+        "ladrillos",
+        "madera",
+        "pinturas",
+        "pisos",
+        "plomeria",
+        "prefabricados",
+        "quimicos_agua",
+        "quimicos_concreto",
+        "redes_datos",
+        "sanitario",
+        "seguridad",
+        "techos",
+        "urbanismo",
+        "varios",
+        "vidrios"
+      ],
+      "added": [
+        "fijaciones",
+        "gas",
+        "hvac",
+        "iluminacion",
+        "jardineria",
+        "pisos",
+        "quimicos_agua",
+        "redes_datos",
+        "urbanismo"
+      ]
+    },
+    {
+      "supplier_id": 3524,
+      "name": "Insucons - Referencial",
+      "before": [],
+      "after": [
+        "mano_obra",
+        "maquinaria"
+      ],
+      "added": [
+        "mano_obra",
+        "maquinaria"
+      ]
+    },
+    {
+      "supplier_id": 3522,
+      "name": "IMCAR",
+      "before": [
+        "impermeabilizantes"
+      ],
+      "after": [
+        "impermeabilizantes",
+        "quimicos_concreto"
+      ],
+      "added": [
+        "quimicos_concreto"
+      ]
+    },
+    {
+      "supplier_id": 3521,
+      "name": "WCI Bolivia",
+      "before": [
+        "electrico",
+        "plomeria"
+      ],
+      "after": [
+        "electrico",
+        "iluminacion",
+        "plomeria"
+      ],
+      "added": [
+        "iluminacion"
+      ]
+    },
+    {
+      "supplier_id": 3520,
+      "name": "TurfBrasil",
+      "before": [
+        "ceramica",
+        "pinturas"
+      ],
+      "after": [
+        "ceramica",
+        "jardineria",
+        "pinturas",
+        "pisos"
+      ],
+      "added": [
+        "jardineria",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3519,
+      "name": "TOBOL Topografos Bolivia",
+      "before": [],
+      "after": [
+        "acero"
+      ],
+      "added": [
+        "acero"
+      ]
+    },
+    {
+      "supplier_id": 3518,
+      "name": "Tecnopor S.A.",
+      "before": [
+        "ceramica",
+        "prefabricados"
+      ],
+      "after": [
+        "adhesivos",
+        "ceramica",
+        "pisos",
+        "prefabricados"
+      ],
+      "added": [
+        "adhesivos",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3517,
+      "name": "Tauro S.A. Constructora",
+      "before": [],
+      "after": [
+        "fijaciones"
+      ],
+      "added": [
+        "fijaciones"
+      ]
+    },
+    {
+      "supplier_id": 3516,
+      "name": "Stoneflex",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "agregados",
+        "ceramica"
+      ],
+      "added": [
+        "agregados"
+      ]
+    },
+    {
+      "supplier_id": 3515,
+      "name": "STI Iluminacion",
+      "before": [
+        "electrico"
+      ],
+      "after": [
+        "electrico",
+        "iluminacion"
+      ],
+      "added": [
+        "iluminacion"
+      ]
+    },
+    {
+      "supplier_id": 3514,
+      "name": "SOBOCE",
+      "before": [
+        "cemento"
+      ],
+      "after": [
+        "cemento",
+        "jardineria",
+        "seguridad"
+      ],
+      "added": [
+        "jardineria",
+        "seguridad"
+      ]
+    },
+    {
+      "supplier_id": 3512,
+      "name": "Sika Bolivia",
+      "before": [
+        "cemento",
+        "impermeabilizantes"
+      ],
+      "after": [
+        "adhesivos",
+        "cemento",
+        "hormigon",
+        "impermeabilizantes",
+        "pisos",
+        "quimicos_concreto"
+      ],
+      "added": [
+        "adhesivos",
+        "hormigon",
+        "pisos",
+        "quimicos_concreto"
+      ]
+    },
+    {
+      "supplier_id": 3511,
+      "name": "Safety & Design",
+      "before": [
+        "plomeria",
+        "sanitario"
+      ],
+      "after": [
+        "hvac",
+        "plomeria",
+        "sanitario"
+      ],
+      "added": [
+        "hvac"
+      ]
+    },
+    {
+      "supplier_id": 3510,
+      "name": "Roghur",
+      "before": [
+        "electrico",
+        "maquinaria"
+      ],
+      "after": [
+        "electrico",
+        "herramientas",
+        "madera",
+        "maquinaria",
+        "pisos"
+      ],
+      "added": [
+        "herramientas",
+        "madera",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3509,
+      "name": "Quassar Solutions",
+      "before": [
+        "electrico"
+      ],
+      "after": [
+        "acero",
+        "cemento",
+        "electrico"
+      ],
+      "added": [
+        "acero",
+        "cemento"
+      ]
+    },
+    {
+      "supplier_id": 3508,
+      "name": "Protec Premoldeados",
+      "before": [
+        "cemento",
+        "prefabricados"
+      ],
+      "after": [
+        "cemento",
+        "electrico",
+        "hormigon",
+        "ladrillos",
+        "pisos",
+        "prefabricados"
+      ],
+      "added": [
+        "electrico",
+        "hormigon",
+        "ladrillos",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3505,
+      "name": "Muley Impermeabilizaciones",
+      "before": [
+        "impermeabilizantes"
+      ],
+      "after": [
+        "impermeabilizantes",
+        "techos"
+      ],
+      "added": [
+        "techos"
+      ]
+    },
+    {
+      "supplier_id": 3503,
+      "name": "Marca V",
+      "before": [
+        "plomeria"
+      ],
+      "after": [
+        "impermeabilizantes",
+        "plomeria"
+      ],
+      "added": [
+        "impermeabilizantes"
+      ]
+    },
+    {
+      "supplier_id": 3502,
+      "name": "Magalc S.R.L.",
+      "before": [
+        "maquinaria"
+      ],
+      "after": [
+        "equipos",
+        "maquinaria"
+      ],
+      "added": [
+        "equipos"
+      ]
+    },
+    {
+      "supplier_id": 3501,
+      "name": "Magno Watts",
+      "before": [
+        "electrico"
+      ],
+      "after": [
+        "electrico",
+        "iluminacion",
+        "madera",
+        "pisos"
+      ],
+      "added": [
+        "iluminacion",
+        "madera",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3500,
+      "name": "Maccaferri",
+      "before": [],
+      "after": [
+        "impermeabilizantes"
+      ],
+      "added": [
+        "impermeabilizantes"
+      ]
+    },
+    {
+      "supplier_id": 3499,
+      "name": "INCERPAZ",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "ceramica",
+        "ladrillos",
+        "pisos",
+        "techos",
+        "urbanismo"
+      ],
+      "added": [
+        "ladrillos",
+        "pisos",
+        "techos",
+        "urbanismo"
+      ]
+    },
+    {
+      "supplier_id": 3497,
+      "name": "Gomatex",
+      "before": [
+        "acero",
+        "impermeabilizantes"
+      ],
+      "after": [
+        "acero",
+        "hormigon",
+        "impermeabilizantes"
+      ],
+      "added": [
+        "hormigon"
+      ]
+    },
+    {
+      "supplier_id": 3494,
+      "name": "Emavias",
+      "before": [
+        "agregados"
+      ],
+      "after": [
+        "agregados",
+        "urbanismo"
+      ],
+      "added": [
+        "urbanismo"
+      ]
+    },
+    {
+      "supplier_id": 3492,
+      "name": "Dialux",
+      "before": [
+        "electrico"
+      ],
+      "after": [
+        "electrico",
+        "iluminacion"
+      ],
+      "added": [
+        "iluminacion"
+      ]
+    },
+    {
+      "supplier_id": 3491,
+      "name": "Deco Vinil",
+      "before": [
+        "ceramica",
+        "pinturas"
+      ],
+      "after": [
+        "ceramica",
+        "pinturas",
+        "pisos"
+      ],
+      "added": [
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3490,
+      "name": "Decocenter",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "ceramica",
+        "jardineria",
+        "madera",
+        "pisos"
+      ],
+      "added": [
+        "jardineria",
+        "madera",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3489,
+      "name": "Cofadena Hormigon",
+      "before": [
+        "cemento"
+      ],
+      "after": [
+        "cemento",
+        "hormigon"
+      ],
+      "added": [
+        "hormigon"
+      ]
+    },
+    {
+      "supplier_id": 3486,
+      "name": "Ceramica Nacional",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "ceramica",
+        "ladrillos"
+      ],
+      "added": [
+        "ladrillos"
+      ]
+    },
+    {
+      "supplier_id": 3485,
+      "name": "Bolivian Electric",
+      "before": [
+        "electrico"
+      ],
+      "after": [
+        "electrico",
+        "madera",
+        "pisos",
+        "plomeria"
+      ],
+      "added": [
+        "madera",
+        "pisos",
+        "plomeria"
+      ]
+    },
+    {
+      "supplier_id": 3398,
+      "name": "Plasticos Carmen (Campeon)",
+      "before": [
+        "plomeria",
+        "sanitario"
+      ],
+      "after": [
+        "electrico",
+        "herramientas",
+        "plomeria",
+        "sanitario"
+      ],
+      "added": [
+        "electrico",
+        "herramientas"
+      ]
+    },
+    {
+      "supplier_id": 3396,
+      "name": "Valkure Bolivia",
+      "before": [
+        "cemento"
+      ],
+      "after": [
+        "adhesivos",
+        "cemento",
+        "ladrillos"
+      ],
+      "added": [
+        "adhesivos",
+        "ladrillos"
+      ]
+    },
+    {
+      "supplier_id": 3395,
+      "name": "Turf Brasil / Mundo Pisos",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "ceramica",
+        "jardineria",
+        "pisos"
+      ],
+      "added": [
+        "jardineria",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3393,
+      "name": "Tigre",
+      "before": [
+        "electrico",
+        "plomeria"
+      ],
+      "after": [
+        "electrico",
+        "plomeria",
+        "vidrios"
+      ],
+      "added": [
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3392,
+      "name": "Termovid PVC",
+      "before": [
+        "vidrios"
+      ],
+      "after": [
+        "pisos",
+        "vidrios"
+      ],
+      "added": [
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3390,
+      "name": "Terra Foundations",
+      "before": [
+        "prefabricados"
+      ],
+      "after": [
+        "fijaciones",
+        "prefabricados"
+      ],
+      "added": [
+        "fijaciones"
+      ]
+    },
+    {
+      "supplier_id": 3389,
+      "name": "Tektron",
+      "before": [
+        "acero",
+        "aislantes"
+      ],
+      "after": [
+        "acero",
+        "aislantes",
+        "pisos",
+        "vidrios"
+      ],
+      "added": [
+        "pisos",
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3388,
+      "name": "Tecnopreco",
+      "before": [
+        "prefabricados"
+      ],
+      "after": [
+        "hormigon",
+        "jardineria",
+        "maquinaria",
+        "prefabricados"
+      ],
+      "added": [
+        "hormigon",
+        "jardineria",
+        "maquinaria"
+      ]
+    },
+    {
+      "supplier_id": 3387,
+      "name": "Tecnoplan S.R.L.",
+      "before": [
+        "impermeabilizantes"
+      ],
+      "after": [
+        "hormigon",
+        "impermeabilizantes",
+        "jardineria"
+      ],
+      "added": [
+        "hormigon",
+        "jardineria"
+      ]
+    },
+    {
+      "supplier_id": 3386,
+      "name": "Tecnohidro",
+      "before": [
+        "maquinaria",
+        "sanitario"
+      ],
+      "after": [
+        "maquinaria",
+        "quimicos_agua",
+        "sanitario"
+      ],
+      "added": [
+        "quimicos_agua"
+      ]
+    },
+    {
+      "supplier_id": 3385,
+      "name": "TechoBol S.R.L.",
+      "before": [
+        "techos"
+      ],
+      "after": [
+        "ladrillos",
+        "techos"
+      ],
+      "added": [
+        "ladrillos"
+      ]
+    },
+    {
+      "supplier_id": 3384,
+      "name": "Synergy",
+      "before": [
+        "acero",
+        "techos"
+      ],
+      "after": [
+        "acero",
+        "aislantes",
+        "electrico",
+        "ferreteria",
+        "fijaciones",
+        "herramientas",
+        "impermeabilizantes",
+        "ladrillos",
+        "madera",
+        "pisos",
+        "techos",
+        "vidrios"
+      ],
+      "added": [
+        "aislantes",
+        "electrico",
+        "ferreteria",
+        "fijaciones",
+        "herramientas",
+        "impermeabilizantes",
+        "ladrillos",
+        "madera",
+        "pisos",
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3382,
+      "name": "Sobopret / SOBOCE",
+      "before": [
+        "prefabricados"
+      ],
+      "after": [
+        "cemento",
+        "prefabricados"
+      ],
+      "added": [
+        "cemento"
+      ]
+    },
+    {
+      "supplier_id": 3380,
+      "name": "San Rafael",
+      "before": [
+        "maquinaria",
+        "sanitario"
+      ],
+      "after": [
+        "adhesivos",
+        "maquinaria",
+        "sanitario"
+      ],
+      "added": [
+        "adhesivos"
+      ]
+    },
+    {
+      "supplier_id": 3378,
+      "name": "Roca Fuerte Aridos",
+      "before": [
+        "agregados"
+      ],
+      "after": [
+        "agregados",
+        "hormigon",
+        "seguridad",
+        "urbanismo"
+      ],
+      "added": [
+        "hormigon",
+        "seguridad",
+        "urbanismo"
+      ]
+    },
+    {
+      "supplier_id": 3377,
+      "name": "REMOC Cimentaciones",
+      "before": [
+        "prefabricados"
+      ],
+      "after": [
+        "cemento",
+        "fijaciones",
+        "prefabricados"
+      ],
+      "added": [
+        "cemento",
+        "fijaciones"
+      ]
+    },
+    {
+      "supplier_id": 3376,
+      "name": "Ready Mix Bolivia / SOBOCE",
+      "before": [
+        "cemento"
+      ],
+      "after": [
+        "cemento",
+        "hormigon",
+        "jardineria",
+        "urbanismo"
+      ],
+      "added": [
+        "hormigon",
+        "jardineria",
+        "urbanismo"
+      ]
+    },
+    {
+      "supplier_id": 3375,
+      "name": "Quasar Solutions",
+      "before": [
+        "electrico"
+      ],
+      "after": [
+        "cemento",
+        "electrico"
+      ],
+      "added": [
+        "cemento"
+      ]
+    },
+    {
+      "supplier_id": 3374,
+      "name": "Quark Costos y Presupuestos",
+      "before": [
+        "herramientas"
+      ],
+      "after": [
+        "electrico",
+        "herramientas"
+      ],
+      "added": [
+        "electrico"
+      ]
+    },
+    {
+      "supplier_id": 3371,
+      "name": "Pretbol Constructora",
+      "before": [
+        "prefabricados"
+      ],
+      "after": [
+        "hormigon",
+        "pisos",
+        "prefabricados",
+        "urbanismo"
+      ],
+      "added": [
+        "hormigon",
+        "pisos",
+        "urbanismo"
+      ]
+    },
+    {
+      "supplier_id": 3370,
+      "name": "Postcrete",
+      "before": [
+        "acero",
+        "prefabricados"
+      ],
+      "after": [
+        "acero",
+        "hormigon",
+        "prefabricados"
+      ],
+      "added": [
+        "hormigon"
+      ]
+    },
+    {
+      "supplier_id": 3369,
+      "name": "Plussteel",
+      "before": [
+        "acero",
+        "techos"
+      ],
+      "after": [
+        "acero",
+        "techos",
+        "vidrios"
+      ],
+      "added": [
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3368,
+      "name": "Plastiforte",
+      "before": [
+        "impermeabilizantes",
+        "plomeria"
+      ],
+      "after": [
+        "acero",
+        "impermeabilizantes",
+        "plomeria"
+      ],
+      "added": [
+        "acero"
+      ]
+    },
+    {
+      "supplier_id": 3367,
+      "name": "Plasticos Carmen",
+      "before": [
+        "plomeria",
+        "sanitario"
+      ],
+      "after": [
+        "electrico",
+        "herramientas",
+        "plomeria",
+        "sanitario"
+      ],
+      "added": [
+        "electrico",
+        "herramientas"
+      ]
+    },
+    {
+      "supplier_id": 3366,
+      "name": "Piedra Liquida Bolivia",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "agregados",
+        "ceramica",
+        "pisos"
+      ],
+      "added": [
+        "agregados",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3363,
+      "name": "Monterrey",
+      "before": [
+        "acero",
+        "ferreteria"
+      ],
+      "after": [
+        "acero",
+        "ferreteria",
+        "techos"
+      ],
+      "added": [
+        "techos"
+      ]
+    },
+    {
+      "supplier_id": 3362,
+      "name": "Monopol",
+      "before": [
+        "pinturas"
+      ],
+      "after": [
+        "impermeabilizantes",
+        "pinturas"
+      ],
+      "added": [
+        "impermeabilizantes"
+      ]
+    },
+    {
+      "supplier_id": 3358,
+      "name": "Mamut",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "adhesivos",
+        "ceramica",
+        "impermeabilizantes",
+        "jardineria",
+        "pisos",
+        "seguridad",
+        "techos",
+        "urbanismo"
+      ],
+      "added": [
+        "adhesivos",
+        "impermeabilizantes",
+        "jardineria",
+        "pisos",
+        "seguridad",
+        "techos",
+        "urbanismo"
+      ]
+    },
+    {
+      "supplier_id": 3356,
+      "name": "Isolcruz",
+      "before": [
+        "aislantes"
+      ],
+      "after": [
+        "acero",
+        "adhesivos",
+        "aislantes",
+        "ladrillos",
+        "techos",
+        "vidrios"
+      ],
+      "added": [
+        "acero",
+        "adhesivos",
+        "ladrillos",
+        "techos",
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3355,
+      "name": "Isocret",
+      "before": [
+        "prefabricados"
+      ],
+      "after": [
+        "hormigon",
+        "prefabricados"
+      ],
+      "added": [
+        "hormigon"
+      ]
+    },
+    {
+      "supplier_id": 3354,
+      "name": "Intermec S.R.L.",
+      "before": [
+        "acero",
+        "vidrios"
+      ],
+      "after": [
+        "acero",
+        "techos",
+        "vidrios"
+      ],
+      "added": [
+        "techos"
+      ]
+    },
+    {
+      "supplier_id": 3353,
+      "name": "Inkaforte (Brizio)",
+      "before": [
+        "cemento",
+        "ceramica"
+      ],
+      "after": [
+        "adhesivos",
+        "cemento",
+        "ceramica",
+        "impermeabilizantes",
+        "jardineria"
+      ],
+      "added": [
+        "adhesivos",
+        "impermeabilizantes",
+        "jardineria"
+      ]
+    },
+    {
+      "supplier_id": 3352,
+      "name": "Innoplack",
+      "before": [
+        "acero",
+        "techos"
+      ],
+      "after": [
+        "acero",
+        "ladrillos",
+        "techos"
+      ],
+      "added": [
+        "ladrillos"
+      ]
+    },
+    {
+      "supplier_id": 3351,
+      "name": "Inno Domotics",
+      "before": [
+        "electrico"
+      ],
+      "after": [
+        "electrico",
+        "herramientas",
+        "iluminacion"
+      ],
+      "added": [
+        "herramientas",
+        "iluminacion"
+      ]
+    },
+    {
+      "supplier_id": 3350,
+      "name": "INGCO Bolivia",
+      "before": [
+        "herramientas"
+      ],
+      "after": [
+        "electrico",
+        "herramientas"
+      ],
+      "added": [
+        "electrico"
+      ]
+    },
+    {
+      "supplier_id": 3349,
+      "name": "Importadora Z. Santos",
+      "before": [
+        "acero",
+        "prefabricados"
+      ],
+      "after": [
+        "acero",
+        "fijaciones",
+        "prefabricados"
+      ],
+      "added": [
+        "fijaciones"
+      ]
+    },
+    {
+      "supplier_id": 3348,
+      "name": "Importadora Duran",
+      "before": [
+        "ceramica",
+        "techos"
+      ],
+      "after": [
+        "ceramica",
+        "iluminacion",
+        "pisos",
+        "techos"
+      ],
+      "added": [
+        "iluminacion",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3347,
+      "name": "Importadora Alarcon",
+      "before": [
+        "plomeria",
+        "sanitario"
+      ],
+      "after": [
+        "electrico",
+        "plomeria",
+        "sanitario"
+      ],
+      "added": [
+        "electrico"
+      ]
+    },
+    {
+      "supplier_id": 3346,
+      "name": "IMCAR (Dist. Sika)",
+      "before": [
+        "impermeabilizantes",
+        "sanitario"
+      ],
+      "after": [
+        "ceramica",
+        "impermeabilizantes",
+        "pisos",
+        "quimicos_concreto",
+        "sanitario"
+      ],
+      "added": [
+        "ceramica",
+        "pisos",
+        "quimicos_concreto"
+      ]
+    },
+    {
+      "supplier_id": 3345,
+      "name": "ICI Ltda.",
+      "before": [
+        "sanitario"
+      ],
+      "after": [
+        "gas",
+        "sanitario"
+      ],
+      "added": [
+        "gas"
+      ]
+    },
+    {
+      "supplier_id": 3343,
+      "name": "Hansa",
+      "before": [
+        "acero",
+        "maquinaria"
+      ],
+      "after": [
+        "acero",
+        "electrico",
+        "maquinaria",
+        "vidrios"
+      ],
+      "added": [
+        "electrico",
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3342,
+      "name": "Grupo R&N",
+      "before": [
+        "impermeabilizantes"
+      ],
+      "after": [
+        "adhesivos",
+        "cemento",
+        "hormigon",
+        "impermeabilizantes",
+        "sanitario",
+        "vidrios"
+      ],
+      "added": [
+        "adhesivos",
+        "cemento",
+        "hormigon",
+        "sanitario",
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3339,
+      "name": "Ferrotodo",
+      "before": [
+        "acero",
+        "ferreteria"
+      ],
+      "after": [
+        "acero",
+        "ferreteria",
+        "fijaciones",
+        "herramientas",
+        "hormigon",
+        "jardineria",
+        "pisos",
+        "seguridad",
+        "techos"
+      ],
+      "added": [
+        "fijaciones",
+        "herramientas",
+        "hormigon",
+        "jardineria",
+        "pisos",
+        "seguridad",
+        "techos"
+      ]
+    },
+    {
+      "supplier_id": 3336,
+      "name": "Facil Cementos Adhesivos",
+      "before": [
+        "cemento",
+        "ceramica"
+      ],
+      "after": [
+        "adhesivos",
+        "cemento",
+        "ceramica",
+        "ladrillos"
+      ],
+      "added": [
+        "adhesivos",
+        "ladrillos"
+      ]
+    },
+    {
+      "supplier_id": 3335,
+      "name": "Faboce",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "adhesivos",
+        "cemento",
+        "ceramica",
+        "jardineria",
+        "ladrillos",
+        "techos",
+        "vidrios"
+      ],
+      "added": [
+        "adhesivos",
+        "cemento",
+        "jardineria",
+        "ladrillos",
+        "techos",
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3334,
+      "name": "Eurocable",
+      "before": [
+        "electrico"
+      ],
+      "after": [
+        "electrico",
+        "pisos"
+      ],
+      "added": [
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3333,
+      "name": "Electrored",
+      "before": [
+        "electrico"
+      ],
+      "after": [
+        "electrico",
+        "iluminacion",
+        "vidrios"
+      ],
+      "added": [
+        "iluminacion",
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3332,
+      "name": "ECEBOL",
+      "before": [
+        "cemento"
+      ],
+      "after": [
+        "cemento",
+        "jardineria"
+      ],
+      "added": [
+        "jardineria"
+      ]
+    },
+    {
+      "supplier_id": 3331,
+      "name": "Duralit",
+      "before": [
+        "sanitario",
+        "techos"
+      ],
+      "after": [
+        "ladrillos",
+        "sanitario",
+        "techos"
+      ],
+      "added": [
+        "ladrillos"
+      ]
+    },
+    {
+      "supplier_id": 3330,
+      "name": "DJ Importaciones",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "ceramica",
+        "pisos"
+      ],
+      "added": [
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3328,
+      "name": "Construpanel",
+      "before": [
+        "aislantes"
+      ],
+      "after": [
+        "aislantes",
+        "ladrillos",
+        "prefabricados",
+        "quimicos_concreto",
+        "techos"
+      ],
+      "added": [
+        "ladrillos",
+        "prefabricados",
+        "quimicos_concreto",
+        "techos"
+      ]
+    },
+    {
+      "supplier_id": 3327,
+      "name": "Cimal",
+      "before": [
+        "madera"
+      ],
+      "after": [
+        "electrico",
+        "madera",
+        "pisos"
+      ],
+      "added": [
+        "electrico",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3326,
+      "name": "Ceratech",
+      "before": [
+        "ceramica",
+        "techos"
+      ],
+      "after": [
+        "ceramica",
+        "electrico",
+        "ladrillos",
+        "madera",
+        "mano_obra",
+        "pisos",
+        "techos"
+      ],
+      "added": [
+        "electrico",
+        "ladrillos",
+        "madera",
+        "mano_obra",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3325,
+      "name": "Ceramica Dorado",
+      "before": [
+        "ceramica",
+        "techos"
+      ],
+      "after": [
+        "acero",
+        "ceramica",
+        "hormigon",
+        "ladrillos",
+        "pisos",
+        "techos"
+      ],
+      "added": [
+        "acero",
+        "hormigon",
+        "ladrillos",
+        "pisos"
+      ]
+    },
+    {
+      "supplier_id": 3324,
+      "name": "Cerabol",
+      "before": [
+        "ceramica"
+      ],
+      "after": [
+        "agregados",
+        "ceramica",
+        "pinturas",
+        "pisos",
+        "sanitario",
+        "vidrios"
+      ],
+      "added": [
+        "agregados",
+        "pinturas",
+        "pisos",
+        "sanitario",
+        "vidrios"
+      ]
+    },
+    {
+      "supplier_id": 3323,
+      "name": "Cemento Camba",
+      "before": [
+        "cemento"
+      ],
+      "after": [
+        "cemento",
+        "jardineria"
+      ],
+      "added": [
+        "jardineria"
+      ]
+    },
+    {
+      "supplier_id": 3321,
+      "name": "Barrientos Teran Consultores",
+      "before": [
+        "acero",
+        "prefabricados"
+      ],
+      "after": [
+        "acero",
+        "fijaciones",
+        "prefabricados"
+      ],
+      "added": [
+        "fijaciones"
+      ]
+    },
+    {
+      "supplier_id": 3320,
+      "name": "Lab. Batercon (Barrientos Teran)",
+      "before": [
+        "maquinaria"
+      ],
+      "after": [
+        "hormigon",
+        "maquinaria"
+      ],
+      "added": [
+        "hormigon"
+      ]
+    },
+    {
+      "supplier_id": 3319,
+      "name": "Bacheo.com.bo",
+      "before": [
+        "agregados"
+      ],
+      "after": [
+        "agregados",
+        "urbanismo"
+      ],
+      "added": [
+        "urbanismo"
+      ]
+    },
+    {
+      "supplier_id": 3318,
+      "name": "Ayudante de tu Hogar",
+      "before": [
+        "herramientas"
+      ],
+      "after": [
+        "electrico",
+        "herramientas",
+        "pinturas",
+        "plomeria"
+      ],
+      "added": [
+        "electrico",
+        "pinturas",
+        "plomeria"
+      ]
+    },
+    {
+      "supplier_id": 3317,
+      "name": "Acustica.bo",
+      "before": [
+        "aislantes"
+      ],
+      "after": [
+        "aislantes",
+        "pisos",
+        "sanitario",
+        "techos"
+      ],
+      "added": [
+        "pisos",
+        "sanitario",
+        "techos"
+      ]
+    },
+    {
+      "supplier_id": 3316,
+      "name": "Aceros Torrico",
+      "before": [
+        "acero",
+        "techos"
+      ],
+      "after": [
+        "acero",
+        "ferreteria",
+        "fijaciones",
+        "ladrillos",
+        "techos"
+      ],
+      "added": [
+        "ferreteria",
+        "fijaciones",
+        "ladrillos"
+      ]
+    },
+    {
+      "supplier_id": 3315,
+      "name": "Aceros Arequipa",
+      "before": [
+        "acero",
+        "ferreteria"
+      ],
+      "after": [
+        "acero",
+        "ferreteria",
+        "fijaciones",
+        "pisos",
+        "techos"
+      ],
+      "added": [
+        "fijaciones",
+        "pisos",
+        "techos"
+      ]
+    },
+    {
+      "supplier_id": 3314,
+      "name": "Acermax",
+      "before": [
+        "acero",
+        "techos"
+      ],
+      "after": [
+        "acero",
+        "jardineria",
+        "ladrillos",
+        "pisos",
+        "techos",
+        "vidrios"
+      ],
+      "added": [
+        "jardineria",
+        "ladrillos",
+        "pisos",
+        "vidrios"
+      ]
+    }
+  ],
+  "unchanged": 35,
+  "errors": []
+}

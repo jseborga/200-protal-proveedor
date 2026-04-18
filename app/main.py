@@ -117,33 +117,65 @@ async def _ensure_superadmin():
 
 
 async def _seed_catalog():
-    """Seed initial categories and units of measure if tables are empty."""
+    """Upsert canonical catalog of categories + UoMs. Idempotente.
+
+    Categorias alineadas con las keys que usan los productos (mkt_insumo.category),
+    para que los chips del frontend resuelvan label/icon correctamente.
+    """
     from app.models.catalog import Category, UnitOfMeasure
 
+    canonical_categories = [
+        ("cemento",            "Cemento",                 "&#127959;", 1),
+        ("acero",              "Acero",                   "&#128681;", 2),
+        ("agregados",          "Agregados",               "&#9968;",   3),
+        ("ladrillos",          "Ladrillos",               "&#129684;", 4),
+        ("hormigon",           "Hormigon",                "&#9970;",   5),
+        ("prefabricados",      "Prefabricados",           "&#127975;", 6),
+        ("madera",             "Madera",                  "&#127795;", 7),
+        ("techos",             "Techos y Cubiertas",      "&#127968;", 8),
+        ("pisos",              "Pisos",                   "&#128511;", 9),
+        ("ceramica",           "Ceramica y Revestimiento","&#129521;", 10),
+        ("vidrios",            "Vidrios y Aluminio",      "&#129695;", 11),
+        ("pinturas",           "Pinturas",                "&#127912;", 12),
+        ("adhesivos",          "Adhesivos y Selladores",  "&#129512;", 13),
+        ("impermeabilizantes", "Impermeabilizantes",      "&#128167;", 14),
+        ("aislantes",          "Aislantes",               "&#129535;", 15),
+        ("plomeria",           "Plomeria",                "&#128688;", 16),
+        ("sanitario",          "Sanitario",               "&#128703;", 17),
+        ("gas",                "Gas",                     "&#128293;", 18),
+        ("hvac",               "Climatizacion (HVAC)",    "&#10052;",  19),
+        ("electrico",          "Electrico",               "&#9889;",   20),
+        ("iluminacion",        "Iluminacion",             "&#128161;", 21),
+        ("redes_datos",        "Redes y Datos",           "&#127760;", 22),
+        ("ferreteria",         "Ferreteria",              "&#128295;", 23),
+        ("fijaciones",         "Fijaciones",              "&#128274;", 24),
+        ("herramientas",       "Herramientas",            "&#128736;", 25),
+        ("maquinaria",         "Maquinaria",              "&#128755;", 26),
+        ("equipos",            "Equipos",                 "&#128295;", 27),
+        ("mano_obra",          "Mano de Obra",            "&#129689;", 28),
+        ("seguridad",          "Seguridad Industrial",    "&#9937;",   29),
+        ("quimicos_concreto",  "Quimicos para Concreto",  "&#129514;", 30),
+        ("quimicos_agua",      "Quimicos para Agua",      "&#128167;", 31),
+        ("jardineria",         "Jardineria",              "&#127793;", 32),
+        ("urbanismo",          "Urbanismo y Vialidad",    "&#128739;", 33),
+        ("varios",             "Varios",                  "&#128230;", 99),
+    ]
+
     async with async_session() as db:
-        cat_count = (await db.execute(select(Category.id).limit(1))).first()
-        if not cat_count:
-            categories = [
-                ("ferreteria", "Ferreteria", "&#128295;", 1),
-                ("agregados", "Agregados", "&#9968;", 2),
-                ("acero", "Acero", "&#128681;", 3),
-                ("electrico", "Electrico", "&#9889;", 4),
-                ("sanitario", "Sanitario", "&#128703;", 5),
-                ("madera", "Madera", "&#127795;", 6),
-                ("cemento", "Cemento", "&#127959;", 7),
-                ("pintura", "Pintura", "&#127912;", 8),
-                ("ceramica", "Ceramica", "&#129521;", 9),
-                ("herramientas", "Herramientas", "&#128736;", 10),
-                ("plomeria", "Plomeria", "&#128688;", 11),
-                ("vidrios", "Vidrios", "&#129695;", 12),
-                ("impermeabilizantes", "Impermeabilizantes", "&#128167;", 13),
-                ("aislantes", "Aislantes", "&#129535;", 14),
-                ("prefabricados", "Prefabricados", "&#127975;", 15),
-                ("seguridad", "Seguridad Industrial", "&#9937;", 16),
-                ("maquinaria", "Maquinaria y Equipos", "&#128755;", 17),
-                ("techos", "Techos y Cubiertas", "&#127968;", 18),
-            ]
-            for key, label, icon, order in categories:
+        existing = {c.key: c for c in (await db.execute(select(Category))).scalars().all()}
+        # Rename legacy "pintura" → "pinturas" para alinear con productos
+        if "pintura" in existing and "pinturas" not in existing:
+            existing["pintura"].key = "pinturas"
+            existing["pinturas"] = existing.pop("pintura")
+
+        for key, label, icon, order in canonical_categories:
+            if key in existing:
+                c = existing[key]
+                c.label = label
+                c.icon = icon
+                c.sort_order = order
+                c.is_active = True
+            else:
                 db.add(Category(key=key, label=label, icon=icon, sort_order=order))
 
         uom_count = (await db.execute(select(UnitOfMeasure.id).limit(1))).first()

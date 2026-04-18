@@ -61,6 +61,7 @@ async def public_prices(
     request: Request,
     q: str | None = Query(None),
     category: str | None = Query(None),
+    subcategory: str | None = Query(None),
     region: str | None = Query(None),
     sort: str | None = Query(None, description="recent = ordenar por updated_at desc"),
     offset: int = Query(0, ge=0),
@@ -73,6 +74,8 @@ async def public_prices(
         query = query.where(Insumo.name.ilike(f"%{q}%"))
     if category:
         query = query.where(Insumo.category == category)
+    if subcategory:
+        query = query.where(Insumo.subcategory == subcategory)
 
     total = (await db.execute(select(func.count()).select_from(query.subquery()))).scalar() or 0
     order_clause = Insumo.updated_at.desc() if sort == "recent" else Insumo.name
@@ -525,13 +528,23 @@ async def add_regional_price(
 
 @router.get("/categories/list")
 async def list_categories(db: AsyncSession = Depends(get_db)):
+    """Arbol categoria → subcategorias con conteos, desde productos activos."""
     result = await db.execute(
-        select(Insumo.category, func.count(Insumo.id))
+        select(Insumo.category, Insumo.subcategory, func.count(Insumo.id))
         .where(Insumo.is_active == True, Insumo.category.isnot(None))
-        .group_by(Insumo.category)
-        .order_by(Insumo.category)
+        .group_by(Insumo.category, Insumo.subcategory)
+        .order_by(Insumo.category, Insumo.subcategory)
     )
-    return {"ok": True, "data": [{"name": r[0], "count": r[1]} for r in result.all()]}
+    tree: dict[str, dict] = {}
+    for cat, sub, cnt in result.all():
+        node = tree.setdefault(cat, {"name": cat, "count": 0, "subcategories": []})
+        node["count"] += cnt
+        if sub:
+            node["subcategories"].append({"name": sub, "count": cnt})
+    data = sorted(tree.values(), key=lambda x: (-x["count"], x["name"]))
+    for node in data:
+        node["subcategories"].sort(key=lambda s: (-s["count"], s["name"]))
+    return {"ok": True, "data": data}
 
 
 @router.get("/regions/list")
