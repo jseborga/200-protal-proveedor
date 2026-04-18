@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.rate_limit import PUBLIC_LIMIT, SEARCH_LIMIT, limiter
+from app.core.search import tokenized_ilike
 from app.core.security import get_current_user, get_current_user_optional
 from app.models.insumo import Insumo, InsumoRegionalPrice
 from app.models.insumo_group import InsumoGroup
@@ -70,8 +71,9 @@ async def public_prices(
 ):
     """Public price list — no auth required."""
     query = select(Insumo).where(Insumo.is_active == True)
-    if q:
-        query = query.where(Insumo.name.ilike(f"%{q}%"))
+    name_match = tokenized_ilike(Insumo.name, q)
+    if name_match is not None:
+        query = query.where(name_match)
     if category:
         query = query.where(Insumo.category == category)
     if subcategory:
@@ -124,17 +126,19 @@ async def public_grouped_prices(
     )
     if category:
         grp_query = grp_query.where(InsumoGroup.category == category)
-    if q:
+    member_name_match = tokenized_ilike(Insumo.name, q)
+    group_name_match = tokenized_ilike(InsumoGroup.name, q)
+    if member_name_match is not None:
         # Match groups by group name OR by any member insumo name
         member_match_ids = (
             select(Insumo.group_id)
-            .where(Insumo.is_active == True, Insumo.group_id.isnot(None), Insumo.name.ilike(f"%{q}%"))
+            .where(Insumo.is_active == True, Insumo.group_id.isnot(None), member_name_match)
             .distinct()
             .correlate(None)
             .scalar_subquery()
         )
         grp_query = grp_query.where(
-            InsumoGroup.name.ilike(f"%{q}%") | InsumoGroup.id.in_(member_match_ids)
+            group_name_match | InsumoGroup.id.in_(member_match_ids)
         )
     grp_query = grp_query.order_by(InsumoGroup.sort_order, InsumoGroup.name)
 
@@ -181,8 +185,9 @@ async def public_grouped_prices(
     )
     if category:
         solo_query = solo_query.where(Insumo.category == category)
-    if q:
-        solo_query = solo_query.where(Insumo.name.ilike(f"%{q}%"))
+    solo_name_match = tokenized_ilike(Insumo.name, q)
+    if solo_name_match is not None:
+        solo_query = solo_query.where(solo_name_match)
     solo_query = solo_query.order_by(Insumo.name)
 
     solo_result = await db.execute(solo_query)
@@ -212,19 +217,31 @@ async def search_prices(
     limit: int = Query(20, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
 ):
-    """Trigram similarity search on insumo names — public."""
-    result = await db.execute(
-        text("""
-            SELECT id, name, uom, category, ref_price,
-                   similarity(name_normalized, :q) AS sim
-            FROM mkt_insumo
-            WHERE is_active = true
-              AND similarity(name_normalized, :q) > 0.15
-            ORDER BY sim DESC
-            LIMIT :lim
-        """),
-        {"q": q.lower(), "lim": limit},
-    )
+    """Trigram similarity search + AND por tokens — public.
+
+    Normaliza espacios y aplica AND por token (ILIKE). Ranking por trigram
+    sobre la query normalizada (sin espacios duplicados).
+    """
+    q_norm = " ".join(q.split()).lower()
+    toks = [t for t in q_norm.split() if len(t) >= 2]
+    if not toks:
+        return {"ok": True, "data": []}
+
+    where_clauses = ["is_active = true", "similarity(name_normalized, :q) > 0.15"]
+    params: dict = {"q": q_norm, "lim": limit}
+    for i, t in enumerate(toks):
+        where_clauses.append(f"name_normalized ILIKE :tok{i}")
+        params[f"tok{i}"] = f"%{t}%"
+
+    sql = f"""
+        SELECT id, name, uom, category, ref_price,
+               similarity(name_normalized, :q) AS sim
+        FROM mkt_insumo
+        WHERE {' AND '.join(where_clauses)}
+        ORDER BY sim DESC
+        LIMIT :lim
+    """
+    result = await db.execute(text(sql), params)
     rows = result.mappings().all()
 
     return {

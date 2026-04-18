@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.rate_limit import PUBLIC_LIMIT, limiter
+from app.core.search import tokens as _tokens
 from app.core.security import get_current_user, get_current_user_optional
 from app.api.deps import require_manager, require_staff
 from sqlalchemy.orm import selectinload
@@ -75,18 +76,20 @@ async def public_suppliers(
         Supplier.is_active == True,
         Supplier.verification_state == "verified",
     )
-    if q:
-        # Search in name, description, and rubros (product lines)
-        pattern = f"%{q}%"
-        rubro_match = select(SupplierRubro.supplier_id).where(
-            SupplierRubro.is_active == True,
-            or_(SupplierRubro.rubro.ilike(pattern), SupplierRubro.description.ilike(pattern)),
-        ).correlate(None)
-        query = query.where(or_(
-            Supplier.name.ilike(pattern),
-            Supplier.description.ilike(pattern),
-            Supplier.id.in_(rubro_match),
-        ))
+    toks = _tokens(q)
+    if toks:
+        # Cada token debe aparecer en (name OR description OR algun rubro del supplier).
+        for t in toks:
+            pat = f"%{t}%"
+            rubro_match = select(SupplierRubro.supplier_id).where(
+                SupplierRubro.is_active == True,
+                or_(SupplierRubro.rubro.ilike(pat), SupplierRubro.description.ilike(pat)),
+            ).correlate(None)
+            query = query.where(or_(
+                Supplier.name.ilike(pat),
+                Supplier.description.ilike(pat),
+                Supplier.id.in_(rubro_match),
+            ))
     if city:
         query = query.where(Supplier.city == city)
     if department:
@@ -200,9 +203,10 @@ async def public_suppliers_map(
           AND s.latitude IS NOT NULL AND s.longitude IS NOT NULL
     """
     params: dict = {}
-    if q:
-        sup_sql += " AND (s.name ILIKE :q OR s.description ILIKE :q)"
-        params["q"] = f"%{q}%"
+    q_toks = _tokens(q)
+    for i, t in enumerate(q_toks):
+        sup_sql += f" AND (s.name ILIKE :qt{i} OR s.description ILIKE :qt{i})"
+        params[f"qt{i}"] = f"%{t}%"
     if category:
         sup_sql += " AND :cat = ANY(s.categories)"
         params["cat"] = category
@@ -234,8 +238,8 @@ async def public_suppliers_map(
           AND s.verification_state = 'verified'
           AND b.latitude IS NOT NULL AND b.longitude IS NOT NULL
     """
-    if q:
-        br_sql += " AND (s.name ILIKE :q OR b.branch_name ILIKE :q OR s.description ILIKE :q)"
+    for i, t in enumerate(q_toks):
+        br_sql += f" AND (s.name ILIKE :qt{i} OR b.branch_name ILIKE :qt{i} OR s.description ILIKE :qt{i})"
     if category:
         br_sql += " AND :cat = ANY(s.categories)"
     if department:
@@ -552,8 +556,8 @@ async def list_suppliers(
     user: User = Depends(get_current_user),
 ):
     query = select(Supplier).where(Supplier.is_active == True)
-    if q:
-        query = query.where(Supplier.name.ilike(f"%{q}%"))
+    for t in _tokens(q):
+        query = query.where(Supplier.name.ilike(f"%{t}%"))
     if city:
         query = query.where(Supplier.city == city)
     if category:
