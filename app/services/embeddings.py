@@ -22,26 +22,34 @@ import httpx
 from app.core.config import settings
 
 # ── Catalogo de providers ─────────────────────────────────────
+# Cada modelo declara:
+#   dims           : dimensiones del vector devuelto (debe coincidir con la columna)
+#   column         : embedding_openai (1536) | embedding_gemini (768)
+#   request_dims   : opcional. Si el modelo soporta MRL, lo pedimos en la request
+#                    para que el vector devuelto tenga exactamente esa dimension.
 PROVIDER_SPECS = {
     "openai": {
         "url": "https://api.openai.com/v1/embeddings",
         "default_model": "text-embedding-3-small",
-        "default_dims": 1536,
-        "column": "embedding_openai",
         "models": {
-            "text-embedding-3-small": 1536,
-            "text-embedding-3-large": 3072,
-            "text-embedding-ada-002": 1536,
+            "text-embedding-3-small": {"dims": 1536, "column": "embedding_openai"},
+            "text-embedding-ada-002":  {"dims": 1536, "column": "embedding_openai"},
         },
     },
     "gemini": {
-        # URL base; se concatena el modelo: /models/{model}:batchEmbedContents?key=...
         "url_base": "https://generativelanguage.googleapis.com/v1beta",
         "default_model": "text-embedding-004",
-        "default_dims": 768,
-        "column": "embedding_gemini",
         "models": {
-            "text-embedding-004": 768,
+            "text-embedding-004": {"dims": 768, "column": "embedding_gemini"},
+        },
+    },
+    "openrouter": {
+        "url": "https://openrouter.ai/api/v1/embeddings",
+        "default_model": "openai/text-embedding-3-small",
+        "models": {
+            "openai/text-embedding-3-small":  {"dims": 1536, "column": "embedding_openai"},
+            # gemini-001 es MRL: pedimos 768 dims explicitamente para reusar columna
+            "google/gemini-embedding-001":    {"dims": 768,  "column": "embedding_gemini", "request_dims": 768},
         },
     },
 }
@@ -60,6 +68,15 @@ class EmbeddingError(Exception):
 _active_config: dict | None = None
 
 
+def _resolve_model_spec(provider: str, model: str) -> dict:
+    """Devuelve {dims, column, request_dims?} para el modelo seleccionado."""
+    spec = PROVIDER_SPECS[provider]
+    models = spec["models"]
+    if model not in models:
+        raise EmbeddingError(f"Modelo '{model}' no soportado para {provider}. Opciones: {list(models)}")
+    return dict(models[model])  # copy
+
+
 def _default_config() -> dict:
     """Config inicial desde .env. Se usa si no hay fila en DB."""
     prov = (settings.embedding_provider or "openai").lower()
@@ -67,13 +84,16 @@ def _default_config() -> dict:
         prov = "openai"
     spec = PROVIDER_SPECS[prov]
     model = settings.embedding_model or spec["default_model"]
-    dims = spec["models"].get(model, spec["default_dims"])
+    if model not in spec["models"]:
+        model = spec["default_model"]
+    ms = _resolve_model_spec(prov, model)
     return {
         "provider": prov,
         "api_key": settings.embedding_api_key or "",
         "model": model,
-        "dims": dims,
-        "column": spec["column"],
+        "dims": ms["dims"],
+        "column": ms["column"],
+        "request_dims": ms.get("request_dims"),
     }
 
 
@@ -95,13 +115,16 @@ def _normalize_config(raw: dict) -> dict:
         raise EmbeddingError(f"Provider no soportado: {prov}")
     spec = PROVIDER_SPECS[prov]
     model = raw.get("model") or spec["default_model"]
-    dims = int(raw.get("dims") or spec["models"].get(model, spec["default_dims"]))
+    if model not in spec["models"]:
+        raise EmbeddingError(f"Modelo '{model}' no soportado para {prov}")
+    ms = _resolve_model_spec(prov, model)
     return {
         "provider": prov,
         "api_key": raw.get("api_key") or "",
         "model": model,
-        "dims": dims,
-        "column": spec["column"],
+        "dims": ms["dims"],
+        "column": ms["column"],
+        "request_dims": ms.get("request_dims"),
     }
 
 
@@ -126,13 +149,13 @@ async def set_active_config(db, provider: str, api_key: str, model: str | None =
     m = model or spec["default_model"]
     if m not in spec["models"]:
         raise EmbeddingError(f"Modelo '{m}' no soportado para {prov}. Opciones: {list(spec['models'])}")
-    dims = spec["models"][m]
+    ms = _resolve_model_spec(prov, m)
 
     payload = {
         "provider": prov,
         "api_key": api_key or "",
         "model": m,
-        "dims": dims,
+        "dims": ms["dims"],
     }
     row = await db.get(SystemSetting, SETTING_KEY)
     if row:
@@ -172,17 +195,23 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
 
 
 async def _embed_batch(client: httpx.AsyncClient, cfg: dict, chunk: list[str]) -> list[list[float]]:
-    if cfg["provider"] == "openai":
-        return await _embed_batch_openai(client, cfg, chunk)
-    if cfg["provider"] == "gemini":
+    prov = cfg["provider"]
+    if prov == "openai":
+        return await _embed_batch_openai_compat(client, cfg, chunk, PROVIDER_SPECS["openai"]["url"], "openai")
+    if prov == "openrouter":
+        return await _embed_batch_openai_compat(client, cfg, chunk, PROVIDER_SPECS["openrouter"]["url"], "openrouter")
+    if prov == "gemini":
         return await _embed_batch_gemini(client, cfg, chunk)
-    raise EmbeddingError(f"Provider no implementado: {cfg['provider']}")
+    raise EmbeddingError(f"Provider no implementado: {prov}")
 
 
-async def _embed_batch_openai(client, cfg, chunk):
-    url = PROVIDER_SPECS["openai"]["url"]
+async def _embed_batch_openai_compat(client, cfg, chunk, url: str, label: str):
+    """Request OpenAI-compatible embeddings endpoint (OpenAI y OpenRouter)."""
     headers = {"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"}
-    payload = {"model": cfg["model"], "input": chunk}
+    payload: dict = {"model": cfg["model"], "input": chunk}
+    # MRL: pedimos dims explicitas cuando el modelo lo soporta (ej: gemini-001)
+    if cfg.get("request_dims"):
+        payload["dimensions"] = int(cfg["request_dims"])
     delay = 1.0
     for attempt in range(MAX_RETRIES):
         try:
@@ -194,9 +223,9 @@ async def _embed_batch_openai(client, cfg, chunk):
             return [item["embedding"] for item in data["data"]]
         except (httpx.HTTPError, KeyError) as e:
             if attempt == MAX_RETRIES - 1:
-                raise EmbeddingError(f"openai embed fallo: {e}")
+                raise EmbeddingError(f"{label} embed fallo: {e}")
             await asyncio.sleep(delay); delay = min(delay * 2, 30)
-    raise EmbeddingError("openai embed agoto reintentos")
+    raise EmbeddingError(f"{label} embed agoto reintentos")
 
 
 async def _embed_batch_gemini(client, cfg, chunk):

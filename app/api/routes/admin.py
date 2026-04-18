@@ -2598,7 +2598,7 @@ async def unban_ip(
 
 # ── Embeddings: provider config + backfill ────────────────────
 class EmbeddingsConfigIn(BaseModel):
-    provider: str  # "openai" | "gemini"
+    provider: str  # "openai" | "gemini" | "openrouter"
     api_key: str | None = None  # si viene None o "", se mantiene la actual
     model: str | None = None
 
@@ -2616,7 +2616,10 @@ async def embeddings_config_get(user: User = Depends(require_admin)):
         {
             "key": p,
             "default_model": spec["default_model"],
-            "models": [{"name": m, "dims": d} for m, d in spec["models"].items()],
+            "models": [
+                {"name": m, "dims": v["dims"], "column": v["column"]}
+                for m, v in spec["models"].items()
+            ],
         }
         for p, spec in PROVIDER_SPECS.items()
     ]
