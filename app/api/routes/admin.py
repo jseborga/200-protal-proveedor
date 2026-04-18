@@ -2594,3 +2594,113 @@ async def unban_ip(
     await db.commit()
     await reload_ban_cache()
     return {"ok": True}
+
+
+# ── Embeddings backfill (semantic search) ─────────────────────
+@router.get("/embeddings/status")
+async def embeddings_status(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Cuantos insumos tienen embedding vs cuantos faltan."""
+    from app.services.embeddings import is_configured
+    try:
+        r = await db.execute(text(
+            "SELECT "
+            "  COUNT(*) FILTER (WHERE is_active = true) AS active, "
+            "  COUNT(*) FILTER (WHERE is_active = true AND embedding IS NOT NULL) AS with_emb "
+            "FROM mkt_insumo"
+        ))
+        row = r.mappings().first() or {}
+        active = int(row.get("active") or 0)
+        with_emb = int(row.get("with_emb") or 0)
+        return {
+            "ok": True,
+            "configured": is_configured(),
+            "active": active,
+            "with_embedding": with_emb,
+            "missing": max(0, active - with_emb),
+        }
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "configured": is_configured()}
+
+
+@router.post("/embeddings/backfill")
+async def embeddings_backfill(
+    batch_size: int = Query(50, ge=1, le=100),
+    max_batches: int = Query(5, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Embebe insumos activos sin vector. Procesa batch_size por iteracion hasta
+    max_batches (max 5000 por request). Reentrante: volver a llamar para continuar.
+    """
+    from app.services.embeddings import build_insumo_text, embed_texts, is_configured, to_pgvector
+
+    if not is_configured():
+        raise HTTPException(400, "EMBEDDING_API_KEY no configurada")
+
+    total_updated = 0
+    total_failed = 0
+    batches_done = 0
+
+    for _ in range(max_batches):
+        r = await db.execute(text(
+            "SELECT id, name, category, subcategory, description "
+            "FROM mkt_insumo "
+            "WHERE is_active = true AND embedding IS NULL "
+            "ORDER BY id "
+            "LIMIT :lim"
+        ), {"lim": batch_size})
+        rows = r.mappings().all()
+        if not rows:
+            break
+
+        texts_to_embed = [
+            build_insumo_text(row["name"], row["category"], row["subcategory"], row["description"])
+            for row in rows
+        ]
+        try:
+            vecs = await embed_texts(texts_to_embed)
+        except Exception as e:
+            total_failed += len(rows)
+            return {
+                "ok": False,
+                "error": f"embed batch fallo: {str(e)[:200]}",
+                "batches_done": batches_done,
+                "updated": total_updated,
+                "failed": total_failed,
+            }
+
+        for row, vec in zip(rows, vecs):
+            if not vec:
+                total_failed += 1
+                continue
+            try:
+                await db.execute(
+                    text("UPDATE mkt_insumo SET embedding = CAST(:v AS vector) WHERE id = :id"),
+                    {"v": to_pgvector(vec), "id": row["id"]},
+                )
+                total_updated += 1
+            except Exception:
+                total_failed += 1
+        await db.commit()
+        batches_done += 1
+
+    # Stats finales
+    r = await db.execute(text(
+        "SELECT "
+        "  COUNT(*) FILTER (WHERE is_active = true) AS active, "
+        "  COUNT(*) FILTER (WHERE is_active = true AND embedding IS NOT NULL) AS with_emb "
+        "FROM mkt_insumo"
+    ))
+    stats = r.mappings().first() or {}
+    return {
+        "ok": True,
+        "batches_done": batches_done,
+        "updated": total_updated,
+        "failed": total_failed,
+        "active": int(stats.get("active") or 0),
+        "with_embedding": int(stats.get("with_emb") or 0),
+        "missing": max(0, int(stats.get("active") or 0) - int(stats.get("with_emb") or 0)),
+    }

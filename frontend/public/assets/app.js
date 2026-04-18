@@ -78,6 +78,10 @@ const API = {
     // Public — no auth
     publicPrices: (params = '') => API.get(`/prices/public${params}`),
     searchPrices: (q) => API.get(`/prices/public/search?q=${encodeURIComponent(q)}`),
+    smartSearch: (q, category = null, limit = 20) => {
+        const cat = category ? `&category=${encodeURIComponent(category)}` : '';
+        return API.get(`/prices/public/smart-search?q=${encodeURIComponent(q)}${cat}&limit=${limit}`);
+    },
     publicSuppliers: (params = '') => API.get(`/suppliers/public${params}`),
     publicSuppliersMap: (params = '') => API.get(`/suppliers/public/map${params}`),
     supplierCategories: () => API.get('/suppliers/public/categories'),
@@ -773,30 +777,48 @@ async function heroSearchResults(q) {
 
     // Build query params with active filters
     let suppParams = `?q=${encodeURIComponent(q)}&limit=12`;
-    let priceParams = `?q=${encodeURIComponent(q)}&limit=12`;
-    if (state.selectedCategory) {
-        suppParams += `&category=${encodeURIComponent(state.selectedCategory)}`;
-        priceParams += `&category=${encodeURIComponent(state.selectedCategory)}`;
-    }
     if (state.selectedDepartment) {
         suppParams += `&department=${encodeURIComponent(state.selectedDepartment)}`;
     }
+    if (state.selectedCategory) {
+        suppParams += `&category=${encodeURIComponent(state.selectedCategory)}`;
+    }
 
-    // Fetch in parallel
+    // Fetch in parallel: smart-search para precios, normal para proveedores
     const [priceResp, suppResp] = await Promise.all([
-        API.publicPrices(priceParams).catch(() => ({ ok: false })),
+        API.smartSearch(q, state.selectedCategory || null, 12).catch(() => ({ ok: false })),
         API.publicSuppliers(suppParams).catch(() => ({ ok: false })),
     ]);
 
-    const priceCount = priceResp.ok ? (priceResp.total ?? priceResp.data?.length ?? 0) : 0;
+    const priceData = priceResp.ok ? (priceResp.data || []) : [];
+    const suggestions = priceResp.ok ? (priceResp.suggestions || []) : [];
+    const priceCount = priceData.length;
     const suppCount = suppResp.ok ? (suppResp.total ?? suppResp.data?.length ?? 0) : 0;
 
     // Render prices (primary result)
-    if (priceResp.ok && priceResp.data?.length) {
-        priceContainer.innerHTML = priceResp.data.map(renderPriceCard).join('');
+    if (priceData.length) {
+        priceContainer.innerHTML = priceData.map(renderPriceCard).join('');
         priceSection.style.display = '';
         const title = priceSection.querySelector('.home-section-title');
         if (title) title.textContent = `Materiales para "${q}"`;
+    } else if (suggestions.length) {
+        // Sin match exacto, pero hay sugerencias semanticas
+        priceContainer.innerHTML = `
+            <div class="search-suggest-banner">
+                <div class="search-suggest-title">${icon('search', 16)} No encontramos exactamente "<strong>${esc(q)}</strong>". Quiza buscabas:</div>
+                <div class="search-suggest-chips">
+                    ${suggestions.slice(0, 5).map(s => `
+                        <span class="search-suggest-chip" onclick="openProduct(${s.id})">
+                            ${esc(s.name)}${s.ref_price ? ` · <strong>Bs ${Number(s.ref_price).toFixed(2)}</strong>/${esc(s.uom || '')}` : ''}
+                        </span>
+                    `).join('')}
+                </div>
+            </div>
+            ${suggestions.map(renderPriceCard).join('')}
+        `;
+        priceSection.style.display = '';
+        const title = priceSection.querySelector('.home-section-title');
+        if (title) title.textContent = `Sugerencias relacionadas con "${q}"`;
     } else {
         priceSection.style.display = 'none';
     }
@@ -1382,10 +1404,60 @@ async function loadPublicPrices(offset = 0) {
 
 async function searchPublicPrices(q) {
     try {
+        // 1) Smart-search (embeddings + fallback) — mejor UX cuando hay sinonimos
+        const smart = await API.smartSearch(q, state.selectedCategory || null, 50).catch(() => ({ ok: false }));
+        const container = document.getElementById('prices-list');
+
+        if (smart.ok && (smart.data?.length || smart.suggestions?.length)) {
+            const data = smart.data || [];
+            const suggestions = smart.suggestions || [];
+            const parts = [];
+            if (data.length) {
+                parts.push(`
+                    <p style="font-size:13px;color:var(--gray-500);margin-bottom:12px">
+                        ${data.length} resultado${data.length !== 1 ? 's' : ''} para "${esc(q)}"
+                    </p>
+                    <div class="price-grid">${data.map(renderPriceCard).join('')}</div>
+                `);
+            }
+            if (!data.length && suggestions.length) {
+                parts.push(`
+                    <div class="search-suggest-banner" style="margin:12px 0">
+                        <div class="search-suggest-title">${icon('search', 16)} No encontramos exactamente "<strong>${esc(q)}</strong>". Quiza buscabas:</div>
+                        <div class="search-suggest-chips">
+                            ${suggestions.slice(0, 5).map(s => `
+                                <span class="search-suggest-chip" onclick="openProduct(${s.id})">
+                                    ${esc(s.name)}${s.ref_price ? ` · <strong>Bs ${Number(s.ref_price).toFixed(2)}</strong>/${esc(s.uom || '')}` : ''}
+                                </span>
+                            `).join('')}
+                        </div>
+                    </div>
+                    <div class="price-grid">${suggestions.map(renderPriceCard).join('')}</div>
+                `);
+            } else if (suggestions.length) {
+                // Cuando hay data, mostrar sugerencias relacionadas al final
+                parts.push(`
+                    <div style="margin-top:24px;padding-top:16px;border-top:1px solid var(--gray-200)">
+                        <p style="font-size:12px;color:var(--gray-500);margin-bottom:8px">Tambien podria interesarte:</p>
+                        <div class="search-suggest-chips">
+                            ${suggestions.slice(0, 5).map(s => `
+                                <span class="search-suggest-chip" onclick="openProduct(${s.id})">
+                                    ${esc(s.name)}
+                                </span>
+                            `).join('')}
+                        </div>
+                    </div>
+                `);
+            }
+            container.innerHTML = parts.join('');
+            document.getElementById('prices-pagination').innerHTML = '';
+            return;
+        }
+
+        // 2) Fallback a grouped search
         let params = `?q=${encodeURIComponent(q)}&limit=50`;
         if (state.selectedCategory) params += `&category=${encodeURIComponent(state.selectedCategory)}`;
         const resp = await API.publicGroupedPrices(params);
-        const container = document.getElementById('prices-list');
         if (!resp.ok || !resp.data.length) {
             container.innerHTML = `<div class="empty-state"><p>No se encontraron resultados para "${esc(q)}"</p></div>`;
             return;

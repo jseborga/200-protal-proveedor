@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     ai_model: str = ""
     anthropic_api_key: str = ""  # Fallback: if set, adds Anthropic as extra provider
 
+    # Embeddings (busqueda semantica)
+    embedding_provider: str = "openai"          # openai
+    embedding_api_key: str = ""                 # OPENAI_API_KEY (o el que corresponda)
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dims: int = 1536
+
     # WhatsApp (Evolution API)
     evolution_api_url: str = "http://localhost:8080"
     evolution_api_key: str = ""

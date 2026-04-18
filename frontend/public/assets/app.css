@@ -210,6 +210,38 @@ input, select, textarea { font: inherit; }
 }
 .search-summary-clear:hover { background: var(--gray-100, #f3f4f6); }
 
+/* ── Suggest banner (smart-search sin match exacto) ──────── */
+.search-suggest-banner {
+    grid-column: 1 / -1;
+    background: linear-gradient(180deg, #eff6ff 0%, #f8fafc 100%);
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 8px;
+}
+.search-suggest-title {
+    font-size: 13px; color: var(--gray-700, #374151);
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 10px;
+}
+.search-suggest-chips {
+    display: flex; flex-wrap: wrap; gap: 6px;
+}
+.search-suggest-chip {
+    display: inline-block;
+    padding: 6px 12px;
+    background: white;
+    border: 1px solid var(--gray-200, #e5e7eb);
+    border-radius: 16px;
+    font-size: 12px; color: var(--gray-700, #374151);
+    cursor: pointer; transition: all 0.15s;
+}
+.search-suggest-chip:hover {
+    background: var(--primary, #2563eb); color: white;
+    border-color: var(--primary, #2563eb);
+}
+.search-suggest-chip strong { color: inherit; font-weight: 700; }
+
 /* ── Product Detail (/p/{id}) ──────────────────────────────── */
 .product-detail-loading { padding: 40px; text-align: center; color: var(--gray-500, #6b7280); }
 .product-detail { max-width: 980px; margin: 0 auto; padding: 8px 0 40px; }

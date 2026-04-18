@@ -27,6 +27,12 @@ async def _init_db():
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
+        # pgvector para busqueda semantica de insumos (puede fallar si la extension
+        # no esta disponible en la imagen de Postgres; no bloquear el boot)
+        try:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        except Exception as e:
+            print(f"[init_db] pgvector no disponible: {e}")
         await conn.run_sync(Base.metadata.create_all)
         # Add columns that create_all won't add to existing tables
         for col, coltype in [("latitude", "DOUBLE PRECISION"), ("longitude", "DOUBLE PRECISION")]:
@@ -85,6 +91,17 @@ async def _init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_mkt_supplier_featured ON mkt_supplier(is_featured DESC, rating DESC)"
         ))
+        # Embedding column + HNSW index para busqueda semantica (text-embedding-3-small = 1536 dims)
+        try:
+            await conn.execute(text(
+                "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS embedding vector(1536)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_embedding "
+                "ON mkt_insumo USING hnsw (embedding vector_cosine_ops)"
+            ))
+        except Exception as e:
+            print(f"[init_db] columna embedding/indice no creados (pgvector ausente?): {e}")
 
 
 async def _ensure_superadmin():

@@ -524,6 +524,7 @@ async def create_product(
     )
     db.add(insumo)
     await db.flush()
+    await _auto_embed_insumo(db, insumo)
     return {"ok": True, "action": "created", "data": _prod_dict(insumo)}
 
 
@@ -562,6 +563,7 @@ async def create_products_bulk(
         )
         db.add(insumo)
         await db.flush()
+        await _auto_embed_insumo(db, insumo)
         created += 1
         results.append({"name": item.name, "action": "created", "id": insumo.id})
 
@@ -610,10 +612,14 @@ async def update_product(
     if "uom" in data and data["uom"]:
         data["uom_normalized"] = normalize_uom(data["uom"])
 
+    semantic_fields = {"name", "category", "subcategory", "description"}
+    should_reembed = any(f in data for f in semantic_fields)
     for field, value in data.items():
         if hasattr(insumo, field):
             setattr(insumo, field, value)
     await db.flush()
+    if should_reembed:
+        await _auto_embed_insumo(db, insumo)
     return {"ok": True, "action": "updated", "data": _prod_dict(insumo)}
 
 
@@ -839,6 +845,25 @@ async def _find_product(db, name: str, uom: str) -> Insumo | None:
         select(Insumo).where(Insumo.name == name, Insumo.uom == uom, Insumo.is_active == True)
     )
     return result.scalar_one_or_none()
+
+
+async def _auto_embed_insumo(db: AsyncSession, insumo: Insumo) -> None:
+    """Hook: embebe el insumo si hay API key configurada. No falla si no.
+
+    Escribe el vector directamente via SQL para usar el cast a pgvector sin
+    depender de que la columna este mapeada en el modelo.
+    """
+    from app.services.embeddings import embed_insumo_safe, to_pgvector
+    vec = await embed_insumo_safe(insumo.name, insumo.category, insumo.subcategory, insumo.description)
+    if not vec:
+        return
+    try:
+        await db.execute(
+            text("UPDATE mkt_insumo SET embedding = CAST(:v AS vector) WHERE id = :id"),
+            {"v": to_pgvector(vec), "id": insumo.id},
+        )
+    except Exception as e:
+        print(f"[_auto_embed_insumo] no pude escribir embedding id={insumo.id}: {e}")
 
 
 def _sup_dict(s: Supplier) -> dict:

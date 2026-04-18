@@ -260,6 +260,113 @@ async def search_prices(
     }
 
 
+@router.get("/public/smart-search")
+@limiter.limit(SEARCH_LIMIT)
+async def smart_search(
+    request: Request,
+    q: str = Query(..., min_length=2),
+    category: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+):
+    """Busqueda semantica con embeddings + fallback a trigram + sugerencias.
+
+    Cascada:
+      1. Si hay embedding configurado: ORDER BY cosine distance (top 2*limit)
+      2. Intersectar con AND-tokens ILIKE para ranking mas preciso (data)
+      3. Si data vacio, devolver los top semantic como `suggestions`
+      4. Fallback final: trigram similarity si embeddings fallan
+
+    Response:
+      { ok, data: [...], suggestions: [...], method: "embedding"|"trigram"|"exact" }
+    """
+    from app.services.embeddings import embed_one, is_configured, to_pgvector
+
+    q_norm = " ".join(q.split()).lower().strip()
+    toks = [t for t in q_norm.split() if len(t) >= 2]
+    if not toks:
+        return {"ok": True, "data": [], "suggestions": [], "method": "empty"}
+
+    def row_to_dict(r) -> dict:
+        return {
+            "id": r["id"],
+            "name": r["name"],
+            "uom": r["uom"],
+            "category": r["category"],
+            "ref_price": r["ref_price"],
+            "score": round(float(r.get("score") or 0), 3),
+        }
+
+    method = "trigram"
+    candidates: list[dict] = []
+
+    # 1) Embedding path
+    if is_configured():
+        try:
+            qvec = await embed_one(q_norm)
+            if qvec:
+                vec_lit = to_pgvector(qvec)
+                where = ["is_active = true", "embedding IS NOT NULL"]
+                params: dict = {"qvec": vec_lit, "lim": limit * 2}
+                if category:
+                    where.append("category = :cat")
+                    params["cat"] = category
+                sql = f"""
+                    SELECT id, name, uom, category, subcategory, ref_price,
+                           1 - (embedding <=> CAST(:qvec AS vector)) AS score
+                    FROM mkt_insumo
+                    WHERE {' AND '.join(where)}
+                    ORDER BY embedding <=> CAST(:qvec AS vector)
+                    LIMIT :lim
+                """
+                res = await db.execute(text(sql), params)
+                candidates = [row_to_dict(r) for r in res.mappings().all()]
+                method = "embedding"
+        except Exception as e:
+            print(f"[smart_search] embedding path fallo: {e}")
+
+    # 2) Trigram fallback si no hubo embeddings
+    if not candidates:
+        where = ["is_active = true", "similarity(name_normalized, :q) > 0.1"]
+        params = {"q": q_norm, "lim": limit * 2}
+        if category:
+            where.append("category = :cat")
+            params["cat"] = category
+        sql = f"""
+            SELECT id, name, uom, category, subcategory, ref_price,
+                   similarity(name_normalized, :q) AS score
+            FROM mkt_insumo
+            WHERE {' AND '.join(where)}
+            ORDER BY score DESC
+            LIMIT :lim
+        """
+        res = await db.execute(text(sql), params)
+        candidates = [row_to_dict(r) for r in res.mappings().all()]
+        method = "trigram"
+
+    # 3) Split: data (match de tokens AND) vs suggestions (solo semantico/trigram)
+    def all_tokens_in_name(name: str) -> bool:
+        n = name.lower()
+        return all(t in n for t in toks)
+
+    data = [c for c in candidates if all_tokens_in_name(c["name"])][:limit]
+    suggestions: list[dict] = []
+    if not data:
+        suggestions = candidates[:5]
+    else:
+        # Cuando hay data, tomar el resto como sugerencias relacionadas
+        seen = {c["id"] for c in data}
+        suggestions = [c for c in candidates if c["id"] not in seen][:5]
+
+    return {
+        "ok": True,
+        "data": data,
+        "suggestions": suggestions,
+        "method": method,
+        "query_normalized": q_norm,
+    }
+
+
 @router.get("/public/{insumo_id}")
 @limiter.limit(PUBLIC_LIMIT)
 async def public_insumo_detail(
