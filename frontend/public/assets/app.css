@@ -685,7 +685,7 @@ textarea.form-input { resize: vertical; min-height: 80px; }
 .material-suggestions {
     position: absolute; top: calc(100% + 4px); left: 0; right: 0;
     background: white; border: 1px solid var(--gray-200); border-radius: 8px;
-    box-shadow: var(--shadow-lg); z-index: 50; max-height: 340px; overflow-y: auto;
+    box-shadow: var(--shadow-lg); z-index: 1001; max-height: 340px; overflow-y: auto;
 }
 .material-sug-item {
     display: flex; justify-content: space-between; align-items: center; gap: 10px;

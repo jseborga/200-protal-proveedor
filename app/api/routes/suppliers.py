@@ -95,7 +95,24 @@ async def public_suppliers(
     if department:
         query = query.where(Supplier.department == department)
     if category:
-        query = query.where(Supplier.categories.contains([category]))
+        # Filtro por taxonomia de insumos (estandarizada), no por el array
+        # libre Supplier.categories: "proveedores que han vendido al menos
+        # un insumo de esta categoria". Esto alinea los chips con el resto
+        # del portal (CATEGORY_META).
+        cat_suppliers = text(
+            "SELECT DISTINCT ph.supplier_id "
+            "FROM mkt_price_history ph "
+            "JOIN mkt_insumo i ON i.id = ph.insumo_id "
+            "WHERE i.category = :cat"
+        ).bindparams(cat=category)
+        cat_ids = [r[0] for r in (await db.execute(cat_suppliers)).all()]
+        if not cat_ids:
+            return {
+                "ok": True, "data": [], "total": 0,
+                "offset": offset, "limit": limit,
+                "contacts_locked": user is None,
+            }
+        query = query.where(Supplier.id.in_(cat_ids))
     if insumo_id is not None:
         insumo_suppliers = text(
             "SELECT DISTINCT supplier_id FROM mkt_price_history WHERE insumo_id = :iid"
@@ -159,16 +176,24 @@ async def public_cities(request: Request, db: AsyncSession = Depends(get_db)):
 @router.get("/public/categories")
 @limiter.limit(PUBLIC_LIMIT)
 async def public_supplier_categories(request: Request, db: AsyncSession = Depends(get_db)):
-    """List distinct supplier categories with counts."""
-    result = await db.execute(
-        select(func.unnest(Supplier.categories).label("cat"))
-        .where(Supplier.is_active == True, Supplier.verification_state == "verified")
-    )
-    from collections import Counter
-    cats = Counter(r[0] for r in result.all())
+    """Categorias (taxonomia de insumos) en las que hay al menos un proveedor
+    verificado con historial de precios. Se alinean con CATEGORY_META para que
+    los chips de Proveedores usen el mismo set que Precios.
+    """
+    rows = (await db.execute(text(
+        "SELECT i.category, COUNT(DISTINCT ph.supplier_id) AS n "
+        "FROM mkt_price_history ph "
+        "JOIN mkt_insumo i ON i.id = ph.insumo_id "
+        "JOIN mkt_supplier s ON s.id = ph.supplier_id "
+        "WHERE s.is_active = true "
+        "  AND s.verification_state = 'verified' "
+        "  AND i.category IS NOT NULL "
+        "GROUP BY i.category "
+        "ORDER BY n DESC, i.category"
+    ))).mappings().all()
     return {
         "ok": True,
-        "data": [{"name": k, "count": v} for k, v in sorted(cats.items())],
+        "data": [{"name": r["category"], "count": int(r["n"])} for r in rows],
     }
 
 
@@ -208,7 +233,14 @@ async def public_suppliers_map(
         sup_sql += f" AND (s.name ILIKE :qt{i} OR s.description ILIKE :qt{i})"
         params[f"qt{i}"] = f"%{t}%"
     if category:
-        sup_sql += " AND :cat = ANY(s.categories)"
+        # Filtro por taxonomia de insumos (alineada con CATEGORY_META).
+        sup_sql += """
+          AND EXISTS (
+              SELECT 1 FROM mkt_price_history ph
+              JOIN mkt_insumo i ON i.id = ph.insumo_id
+              WHERE ph.supplier_id = s.id AND i.category = :cat
+          )
+        """
         params["cat"] = category
     if department:
         sup_sql += " AND s.department = :dept"
@@ -241,7 +273,13 @@ async def public_suppliers_map(
     for i, t in enumerate(q_toks):
         br_sql += f" AND (s.name ILIKE :qt{i} OR b.branch_name ILIKE :qt{i} OR s.description ILIKE :qt{i})"
     if category:
-        br_sql += " AND :cat = ANY(s.categories)"
+        br_sql += """
+          AND EXISTS (
+              SELECT 1 FROM mkt_price_history ph
+              JOIN mkt_insumo i ON i.id = ph.insumo_id
+              WHERE ph.supplier_id = s.id AND i.category = :cat
+          )
+        """
     if department:
         br_sql += " AND b.department = :dept"
     if insumo_id is not None:

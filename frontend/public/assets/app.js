@@ -1572,7 +1572,7 @@ async function renderPublicSuppliers() {
 
     const filterPill = state.insumoFilter
         ? `<div class="filter-pill">
-              ${icon('filter', 14)} Proveedores que venden: <strong>${esc(state.insumoFilter.name)}</strong>
+              ${icon('package', 14)} Proveedores que venden: <strong>${esc(state.insumoFilter.name)}</strong>
               <button class="filter-pill-x" onclick="clearMaterialFilter()" title="Quitar filtro">${icon('x', 14)}</button>
            </div>`
         : '';
@@ -1667,8 +1667,11 @@ async function searchMaterialSuggestions() {
     const q = input.value.trim();
     if (q.length < 2) { sug.style.display = 'none'; sug.innerHTML = ''; return; }
     try {
-        const resp = await API.publicPrices(`?q=${encodeURIComponent(q)}&limit=8`);
-        const items = (resp && resp.ok && resp.data) ? resp.data.filter(p => p.id) : [];
+        // smart-search combina embeddings (semantico) + trigram fallback
+        const resp = await API.smartSearch(q, null, 8);
+        const base = (resp && resp.ok) ? [...(resp.data || []), ...(resp.suggestions || [])] : [];
+        const seen = new Set();
+        const items = base.filter(p => p.id && !seen.has(p.id) && (seen.add(p.id), true)).slice(0, 8);
         if (!items.length) {
             sug.innerHTML = '<div class="material-sug-empty">Sin materiales para ese texto</div>';
             sug.style.display = '';
@@ -1697,7 +1700,7 @@ function selectMaterialFilter(insumoId, insumoName) {
     const pill = document.getElementById('active-filter-pill');
     if (pill) {
         pill.innerHTML = `<div class="filter-pill">
-            ${icon('filter', 14)} Proveedores que venden: <strong>${esc(insumoName)}</strong>
+            ${icon('package', 14)} Proveedores que venden: <strong>${esc(insumoName)}</strong>
             <button class="filter-pill-x" onclick="clearMaterialFilter()" title="Quitar filtro">${icon('x', 14)}</button>
         </div>`;
     }
