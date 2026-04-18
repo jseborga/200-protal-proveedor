@@ -301,6 +301,10 @@ async def smart_search(
     candidates: list[dict] = []
 
     # 1) Embedding path (usa columna del provider activo)
+    # Envuelto en savepoint: si la query falla (p.ej. columna inexistente porque
+    # pgvector no esta instalado), el rollback del savepoint deja la sesion
+    # utilizable para el fallback trigram. Sin esto, cualquier error SQL aborta
+    # la transaccion completa y el fallback tambien tira 500.
     if is_configured():
         try:
             cfg = get_active_config()
@@ -321,11 +325,13 @@ async def smart_search(
                     ORDER BY {col} <=> CAST(:qvec AS vector)
                     LIMIT :lim
                 """
-                res = await db.execute(text(sql), params)
-                candidates = [row_to_dict(r) for r in res.mappings().all()]
+                async with db.begin_nested():
+                    res = await db.execute(text(sql), params)
+                    candidates = [row_to_dict(r) for r in res.mappings().all()]
                 method = f"embedding:{cfg['provider']}"
         except Exception as e:
             print(f"[smart_search] embedding path fallo: {e}")
+            candidates = []
 
     # 2) Trigram fallback si no hubo embeddings
     if not candidates:

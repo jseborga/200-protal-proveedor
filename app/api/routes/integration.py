@@ -859,10 +859,13 @@ async def _auto_embed_insumo(db: AsyncSession, insumo: Insumo) -> None:
         return
     try:
         col = get_active_config()["column"]
-        await db.execute(
-            text(f"UPDATE mkt_insumo SET {col} = CAST(:v AS vector) WHERE id = :id"),
-            {"v": to_pgvector(vec), "id": insumo.id},
-        )
+        # savepoint: si la columna no existe (pgvector ausente), el rollback
+        # del savepoint preserva la transaccion del caller (create/update insumo).
+        async with db.begin_nested():
+            await db.execute(
+                text(f"UPDATE mkt_insumo SET {col} = CAST(:v AS vector) WHERE id = :id"),
+                {"v": to_pgvector(vec), "id": insumo.id},
+            )
     except Exception as e:
         print(f"[_auto_embed_insumo] no pude escribir embedding id={insumo.id}: {e}")
 
