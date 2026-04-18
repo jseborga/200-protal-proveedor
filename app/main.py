@@ -91,17 +91,37 @@ async def _init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_mkt_supplier_featured ON mkt_supplier(is_featured DESC, rating DESC)"
         ))
-        # Embedding column + HNSW index para busqueda semantica (text-embedding-3-small = 1536 dims)
+        # Embedding columns + HNSW indexes (una por provider, distinto # de dims)
         try:
+            # OpenAI text-embedding-3-small => 1536
             await conn.execute(text(
-                "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS embedding vector(1536)"
+                "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS embedding_openai vector(1536)"
             ))
             await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_embedding "
-                "ON mkt_insumo USING hnsw (embedding vector_cosine_ops)"
+                "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_emb_openai "
+                "ON mkt_insumo USING hnsw (embedding_openai vector_cosine_ops)"
+            ))
+            # Gemini text-embedding-004 => 768
+            await conn.execute(text(
+                "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS embedding_gemini vector(768)"
+            ))
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_emb_gemini "
+                "ON mkt_insumo USING hnsw (embedding_gemini vector_cosine_ops)"
+            ))
+            # Migracion: si existe la columna legacy `embedding`, copiar a embedding_openai
+            await conn.execute(text(
+                "DO $$ BEGIN "
+                "  IF EXISTS (SELECT 1 FROM information_schema.columns "
+                "             WHERE table_name='mkt_insumo' AND column_name='embedding') THEN "
+                "    UPDATE mkt_insumo SET embedding_openai = embedding "
+                "      WHERE embedding IS NOT NULL AND embedding_openai IS NULL; "
+                "    ALTER TABLE mkt_insumo DROP COLUMN embedding; "
+                "  END IF; "
+                "END $$;"
             ))
         except Exception as e:
-            print(f"[init_db] columna embedding/indice no creados (pgvector ausente?): {e}")
+            print(f"[init_db] columnas embedding/indices no creados (pgvector ausente?): {e}")
 
 
 async def _ensure_superadmin():
@@ -240,6 +260,13 @@ async def lifespan(app: FastAPI):
     from app.core.plans import load_plans_from_db
     async with async_session() as db:
         await load_plans_from_db(db)
+    # Load embeddings provider config into memory cache
+    from app.services.embeddings import load_active_config
+    async with async_session() as db:
+        try:
+            await load_active_config(db)
+        except Exception as e:
+            print(f"[init] no se pudo cargar config de embeddings: {e}")
     # Load banned IPs into memory cache
     from app.core.banlist import reload_ban_cache
     await reload_ban_cache()

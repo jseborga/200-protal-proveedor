@@ -2596,20 +2596,93 @@ async def unban_ip(
     return {"ok": True}
 
 
-# ── Embeddings backfill (semantic search) ─────────────────────
+# ── Embeddings: provider config + backfill ────────────────────
+class EmbeddingsConfigIn(BaseModel):
+    provider: str  # "openai" | "gemini"
+    api_key: str | None = None  # si viene None o "", se mantiene la actual
+    model: str | None = None
+
+
+@router.get("/embeddings/config")
+async def embeddings_config_get(user: User = Depends(require_admin)):
+    """Devuelve config activa (api_key enmascarada) + catalogo de providers."""
+    from app.services.embeddings import PROVIDER_SPECS, get_active_config
+    cfg = get_active_config()
+    masked = ""
+    ak = cfg.get("api_key") or ""
+    if ak:
+        masked = (ak[:4] + "..." + ak[-4:]) if len(ak) > 12 else "***"
+    providers = [
+        {
+            "key": p,
+            "default_model": spec["default_model"],
+            "models": [{"name": m, "dims": d} for m, d in spec["models"].items()],
+        }
+        for p, spec in PROVIDER_SPECS.items()
+    ]
+    return {
+        "ok": True,
+        "data": {
+            "provider": cfg["provider"],
+            "model": cfg["model"],
+            "dims": cfg["dims"],
+            "column": cfg["column"],
+            "api_key_masked": masked,
+            "configured": bool(ak),
+        },
+        "providers": providers,
+    }
+
+
+@router.put("/embeddings/config")
+async def embeddings_config_set(
+    body: EmbeddingsConfigIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Actualiza provider + api_key + model. Valida contra el catalogo.
+
+    Si api_key viene vacia, mantiene la actual (permite cambiar solo el modelo).
+    """
+    from app.services.embeddings import EmbeddingError, get_active_config, set_active_config
+    api_key = body.api_key or ""
+    if not api_key:
+        current = get_active_config()
+        # Solo reusar la key actual si el provider coincide
+        if current.get("provider") == body.provider.lower():
+            api_key = current.get("api_key") or ""
+    if not api_key:
+        raise HTTPException(400, "API key requerida (vacio solo se permite al mantener el mismo provider con key ya configurada)")
+    try:
+        cfg = await set_active_config(db, body.provider, api_key, body.model)
+    except EmbeddingError as e:
+        raise HTTPException(400, str(e))
+    return {
+        "ok": True,
+        "data": {
+            "provider": cfg["provider"],
+            "model": cfg["model"],
+            "dims": cfg["dims"],
+            "column": cfg["column"],
+        },
+    }
+
+
 @router.get("/embeddings/status")
 async def embeddings_status(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    """Cuantos insumos tienen embedding vs cuantos faltan."""
-    from app.services.embeddings import is_configured
+    """Cuantos insumos tienen embedding en la columna del provider activo."""
+    from app.services.embeddings import get_active_config, is_configured
+    cfg = get_active_config()
+    col = cfg["column"]
     try:
         r = await db.execute(text(
-            "SELECT "
-            "  COUNT(*) FILTER (WHERE is_active = true) AS active, "
-            "  COUNT(*) FILTER (WHERE is_active = true AND embedding IS NOT NULL) AS with_emb "
-            "FROM mkt_insumo"
+            f"SELECT "
+            f"  COUNT(*) FILTER (WHERE is_active = true) AS active, "
+            f"  COUNT(*) FILTER (WHERE is_active = true AND {col} IS NOT NULL) AS with_emb "
+            f"FROM mkt_insumo"
         ))
         row = r.mappings().first() or {}
         active = int(row.get("active") or 0)
@@ -2617,6 +2690,9 @@ async def embeddings_status(
         return {
             "ok": True,
             "configured": is_configured(),
+            "provider": cfg["provider"],
+            "model": cfg["model"],
+            "dims": cfg["dims"],
             "active": active,
             "with_embedding": with_emb,
             "missing": max(0, active - with_emb),
@@ -2632,25 +2708,35 @@ async def embeddings_backfill(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_admin),
 ):
-    """Embebe insumos activos sin vector. Procesa batch_size por iteracion hasta
-    max_batches (max 5000 por request). Reentrante: volver a llamar para continuar.
+    """Embebe insumos activos sin vector en la columna del provider activo.
+
+    Reentrante: procesa batch_size por iteracion hasta max_batches y devuelve
+    stats. Volver a llamar hasta missing=0.
     """
-    from app.services.embeddings import build_insumo_text, embed_texts, is_configured, to_pgvector
+    from app.services.embeddings import (
+        build_insumo_text,
+        embed_texts,
+        get_active_config,
+        is_configured,
+        to_pgvector,
+    )
 
     if not is_configured():
-        raise HTTPException(400, "EMBEDDING_API_KEY no configurada")
+        raise HTTPException(400, "API key de embeddings no configurada (PUT /admin/embeddings/config)")
 
+    cfg = get_active_config()
+    col = cfg["column"]
     total_updated = 0
     total_failed = 0
     batches_done = 0
 
     for _ in range(max_batches):
         r = await db.execute(text(
-            "SELECT id, name, category, subcategory, description "
-            "FROM mkt_insumo "
-            "WHERE is_active = true AND embedding IS NULL "
-            "ORDER BY id "
-            "LIMIT :lim"
+            f"SELECT id, name, category, subcategory, description "
+            f"FROM mkt_insumo "
+            f"WHERE is_active = true AND {col} IS NULL "
+            f"ORDER BY id "
+            f"LIMIT :lim"
         ), {"lim": batch_size})
         rows = r.mappings().all()
         if not rows:
@@ -2667,6 +2753,7 @@ async def embeddings_backfill(
             return {
                 "ok": False,
                 "error": f"embed batch fallo: {str(e)[:200]}",
+                "provider": cfg["provider"],
                 "batches_done": batches_done,
                 "updated": total_updated,
                 "failed": total_failed,
@@ -2678,7 +2765,7 @@ async def embeddings_backfill(
                 continue
             try:
                 await db.execute(
-                    text("UPDATE mkt_insumo SET embedding = CAST(:v AS vector) WHERE id = :id"),
+                    text(f"UPDATE mkt_insumo SET {col} = CAST(:v AS vector) WHERE id = :id"),
                     {"v": to_pgvector(vec), "id": row["id"]},
                 )
                 total_updated += 1
@@ -2687,16 +2774,16 @@ async def embeddings_backfill(
         await db.commit()
         batches_done += 1
 
-    # Stats finales
     r = await db.execute(text(
-        "SELECT "
-        "  COUNT(*) FILTER (WHERE is_active = true) AS active, "
-        "  COUNT(*) FILTER (WHERE is_active = true AND embedding IS NOT NULL) AS with_emb "
-        "FROM mkt_insumo"
+        f"SELECT "
+        f"  COUNT(*) FILTER (WHERE is_active = true) AS active, "
+        f"  COUNT(*) FILTER (WHERE is_active = true AND {col} IS NOT NULL) AS with_emb "
+        f"FROM mkt_insumo"
     ))
     stats = r.mappings().first() or {}
     return {
         "ok": True,
+        "provider": cfg["provider"],
         "batches_done": batches_done,
         "updated": total_updated,
         "failed": total_failed,

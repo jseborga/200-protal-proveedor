@@ -280,7 +280,7 @@ async def smart_search(
     Response:
       { ok, data: [...], suggestions: [...], method: "embedding"|"trigram"|"exact" }
     """
-    from app.services.embeddings import embed_one, is_configured, to_pgvector
+    from app.services.embeddings import embed_one, get_active_config, is_configured, to_pgvector
 
     q_norm = " ".join(q.split()).lower().strip()
     toks = [t for t in q_norm.split() if len(t) >= 2]
@@ -300,28 +300,30 @@ async def smart_search(
     method = "trigram"
     candidates: list[dict] = []
 
-    # 1) Embedding path
+    # 1) Embedding path (usa columna del provider activo)
     if is_configured():
         try:
+            cfg = get_active_config()
+            col = cfg["column"]  # embedding_openai | embedding_gemini
             qvec = await embed_one(q_norm)
             if qvec:
                 vec_lit = to_pgvector(qvec)
-                where = ["is_active = true", "embedding IS NOT NULL"]
+                where = ["is_active = true", f"{col} IS NOT NULL"]
                 params: dict = {"qvec": vec_lit, "lim": limit * 2}
                 if category:
                     where.append("category = :cat")
                     params["cat"] = category
                 sql = f"""
                     SELECT id, name, uom, category, subcategory, ref_price,
-                           1 - (embedding <=> CAST(:qvec AS vector)) AS score
+                           1 - ({col} <=> CAST(:qvec AS vector)) AS score
                     FROM mkt_insumo
                     WHERE {' AND '.join(where)}
-                    ORDER BY embedding <=> CAST(:qvec AS vector)
+                    ORDER BY {col} <=> CAST(:qvec AS vector)
                     LIMIT :lim
                 """
                 res = await db.execute(text(sql), params)
                 candidates = [row_to_dict(r) for r in res.mappings().all()]
-                method = "embedding"
+                method = f"embedding:{cfg['provider']}"
         except Exception as e:
             print(f"[smart_search] embedding path fallo: {e}")
 

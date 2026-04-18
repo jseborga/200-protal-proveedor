@@ -850,16 +850,17 @@ async def _find_product(db, name: str, uom: str) -> Insumo | None:
 async def _auto_embed_insumo(db: AsyncSession, insumo: Insumo) -> None:
     """Hook: embebe el insumo si hay API key configurada. No falla si no.
 
-    Escribe el vector directamente via SQL para usar el cast a pgvector sin
-    depender de que la columna este mapeada en el modelo.
+    Escribe al vector de la columna del provider activo (embedding_openai o
+    embedding_gemini).
     """
-    from app.services.embeddings import embed_insumo_safe, to_pgvector
+    from app.services.embeddings import embed_insumo_safe, get_active_config, to_pgvector
     vec = await embed_insumo_safe(insumo.name, insumo.category, insumo.subcategory, insumo.description)
     if not vec:
         return
     try:
+        col = get_active_config()["column"]
         await db.execute(
-            text("UPDATE mkt_insumo SET embedding = CAST(:v AS vector) WHERE id = :id"),
+            text(f"UPDATE mkt_insumo SET {col} = CAST(:v AS vector) WHERE id = :id"),
             {"v": to_pgvector(vec), "id": insumo.id},
         )
     except Exception as e:

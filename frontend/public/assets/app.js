@@ -239,6 +239,11 @@ const API = {
     adminUpdateSeoConfig: (data) => API.put('/admin/seo-config', data),
 
     // Admin — Integrations
+    adminEmbeddingsConfig: () => API.get('/admin/embeddings/config'),
+    adminEmbeddingsSetConfig: (data) => API.put('/admin/embeddings/config', data),
+    adminEmbeddingsStatus: () => API.get('/admin/embeddings/status'),
+    adminEmbeddingsBackfill: (batchSize = 100, maxBatches = 10) =>
+        API.post(`/admin/embeddings/backfill?batch_size=${batchSize}&max_batches=${maxBatches}`, {}),
     adminIntegrations: () => API.get('/admin/integrations'),
     adminUpdateIntegrations: (data) => API.put('/admin/integrations', data),
     adminTestWhatsApp: (data) => API.post('/admin/integrations/test-whatsapp', data || {}),
@@ -2205,6 +2210,7 @@ async function renderAdmin() {
 
     const configGroup = [];
     if (isAdmin()) configGroup.push({ key: 'ai', label: 'Inteligencia AI', icon: 'globe' });
+    if (isAdmin()) configGroup.push({ key: 'embeddings', label: 'Busqueda semantica', icon: 'search' });
     if (isAdmin()) configGroup.push({ key: 'agents', label: 'Agentes AI', icon: 'cpu' });
     if (isAdmin()) configGroup.push({ key: 'integrations', label: 'Integraciones', icon: 'whatsapp' });
     if (isAdmin()) configGroup.push({ key: 'tasks', label: 'Tareas Auto', icon: 'clock' });
@@ -2272,6 +2278,7 @@ function renderAdminTab() {
         case 'subscriptions': renderAdminSubscriptions(); break;
         case 'tasks': renderAdminTasks(); break;
         case 'ai': renderAdminAI(); break;
+        case 'embeddings': renderAdminEmbeddings(); break;
         case 'agents': renderAdminAgents(); break;
         case 'seo': renderAdminSEO(); break;
         case 'integrations': renderAdminIntegrations(); break;
@@ -6809,6 +6816,168 @@ async function handleSaveSEO(e) {
         renderAdminSEO();
     } else {
         toast(resp.detail || 'Error guardando SEO', 'error');
+    }
+}
+
+// ── Admin: Embeddings (semantic search) ──────────────────────
+let _embeddingsBackfillRunning = false;
+
+async function renderAdminEmbeddings() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = '<div class="loading">Cargando configuracion...</div>';
+    const [cfgResp, statusResp] = await Promise.all([
+        API.adminEmbeddingsConfig().catch(() => ({ ok: false })),
+        API.adminEmbeddingsStatus().catch(() => ({ ok: false })),
+    ]);
+    if (!cfgResp.ok) { c.innerHTML = '<p>Error cargando configuracion</p>'; return; }
+
+    const cfg = cfgResp.data;
+    const providers = cfgResp.providers || [];
+    const st = statusResp.ok ? statusResp : null;
+
+    const pct = st && st.active > 0 ? Math.round((st.with_embedding / st.active) * 100) : 0;
+    const missing = st ? st.missing : 0;
+
+    const providerOpts = providers.map(p => `
+        <option value="${esc(p.key)}" ${cfg.provider === p.key ? 'selected' : ''}>${esc(p.key.toUpperCase())}</option>
+    `).join('');
+
+    c.innerHTML = `
+        <h2 class="adm-title">${icon('search',22)} Busqueda semantica (embeddings)</h2>
+        <p class="adm-subtitle">La busqueda inteligente usa embeddings para encontrar productos por sinonimos y frases similares. Elige un provider, pega tu API key y corre el backfill.</p>
+
+        <div class="adm-card" style="margin-bottom:16px">
+            <h3 style="margin:0 0 12px">Configuracion del provider</h3>
+            <div style="display:grid;gap:12px">
+                <label>
+                    <div style="font-size:12px;color:var(--gray-600);margin-bottom:4px">Provider</div>
+                    <select id="emb-provider" class="form-input" onchange="_embProviderChanged()">
+                        ${providerOpts}
+                    </select>
+                </label>
+                <label>
+                    <div style="font-size:12px;color:var(--gray-600);margin-bottom:4px">Modelo</div>
+                    <select id="emb-model" class="form-input"></select>
+                </label>
+                <label>
+                    <div style="font-size:12px;color:var(--gray-600);margin-bottom:4px">
+                        API Key ${cfg.configured ? `<span style="color:var(--success,#059669)">&middot; configurada (${esc(cfg.api_key_masked)})</span>` : '<span style="color:var(--warn,#b45309)">&middot; sin configurar</span>'}
+                    </div>
+                    <input id="emb-api-key" class="form-input" type="password" placeholder="${cfg.configured ? 'Dejar vacio para mantener la actual' : 'sk-... o AI...'}" autocomplete="off">
+                </label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn btn-primary" onclick="saveEmbeddingsConfig()">${icon('save',14)} Guardar configuracion</button>
+                </div>
+                <div style="font-size:12px;color:var(--gray-500);line-height:1.5">
+                    <strong>OpenAI</strong>: 1536 dims (3-small) &middot; API key en <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a>.
+                    <br><strong>Gemini</strong>: 768 dims (text-embedding-004) &middot; API key en <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com</a>.
+                    <br>Cada provider se guarda en una columna distinta, asi podes cambiar sin perder embeddings previos.
+                </div>
+            </div>
+        </div>
+
+        <div class="adm-card">
+            <h3 style="margin:0 0 12px">Estado del indice</h3>
+            ${st ? `
+                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:14px">
+                    <div><div style="font-size:11px;color:var(--gray-500);text-transform:uppercase">Provider activo</div><div style="font-size:18px;font-weight:700">${esc(st.provider || '-')}</div></div>
+                    <div><div style="font-size:11px;color:var(--gray-500);text-transform:uppercase">Modelo</div><div style="font-size:14px">${esc(st.model || '-')} <small>(${st.dims || '-'}d)</small></div></div>
+                    <div><div style="font-size:11px;color:var(--gray-500);text-transform:uppercase">Productos activos</div><div style="font-size:18px;font-weight:700">${st.active}</div></div>
+                    <div><div style="font-size:11px;color:var(--gray-500);text-transform:uppercase">Con embedding</div><div style="font-size:18px;font-weight:700;color:var(--success,#059669)">${st.with_embedding} <small>(${pct}%)</small></div></div>
+                    <div><div style="font-size:11px;color:var(--gray-500);text-transform:uppercase">Faltantes</div><div style="font-size:18px;font-weight:700;color:${missing > 0 ? 'var(--warn,#b45309)' : 'var(--gray-400)'}">${missing}</div></div>
+                </div>
+                <div style="height:6px;background:var(--gray-100);border-radius:3px;overflow:hidden;margin-bottom:14px">
+                    <div style="height:100%;width:${pct}%;background:var(--primary,#2563eb);transition:width 0.3s"></div>
+                </div>
+            ` : '<p style="color:var(--gray-500)">No se pudo leer el estado del indice (pgvector no disponible?).</p>'}
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary" onclick="runEmbeddingsBackfill()" ${!cfg.configured || missing === 0 ? 'disabled' : ''}>
+                    ${icon('refresh',14)} Procesar ${missing > 0 ? missing + ' ' : ''}faltantes
+                </button>
+                <button class="btn btn-secondary" onclick="renderAdminEmbeddings()">${icon('refresh',14)} Refrescar</button>
+            </div>
+            <div id="emb-backfill-log" style="margin-top:14px;font-size:12px;color:var(--gray-600);font-family:monospace;white-space:pre-wrap;max-height:240px;overflow:auto"></div>
+        </div>
+    `;
+
+    _embProviderChanged(providers);
+    // Exponer providers para el handler
+    window._embProviders = providers;
+    window._embCurrentCfg = cfg;
+}
+
+function _embProviderChanged(providersArg) {
+    const providers = providersArg || window._embProviders || [];
+    const prov = document.getElementById('emb-provider')?.value;
+    if (!prov) return;
+    const spec = providers.find(p => p.key === prov);
+    if (!spec) return;
+    const sel = document.getElementById('emb-model');
+    const currentModel = (window._embCurrentCfg?.provider === prov) ? window._embCurrentCfg.model : spec.default_model;
+    sel.innerHTML = spec.models.map(m =>
+        `<option value="${esc(m.name)}" ${m.name === currentModel ? 'selected' : ''}>${esc(m.name)} &middot; ${m.dims}d</option>`
+    ).join('');
+}
+
+async function saveEmbeddingsConfig() {
+    const provider = document.getElementById('emb-provider').value;
+    const model = document.getElementById('emb-model').value;
+    const apiKey = document.getElementById('emb-api-key').value.trim();
+    if (!provider || !model) { toast('Provider y modelo son requeridos', 'error'); return; }
+
+    // Si el provider cambio y no hay api_key ingresada, forzar que ingresen una
+    const currentProvider = window._embCurrentCfg?.provider;
+    if (!apiKey && provider !== currentProvider) {
+        toast('Ingresa la API key para el nuevo provider', 'error'); return;
+    }
+    if (!apiKey && !window._embCurrentCfg?.configured) {
+        toast('Ingresa la API key', 'error'); return;
+    }
+
+    const resp = await API.adminEmbeddingsSetConfig({ provider, model, api_key: apiKey });
+    if (resp.ok) {
+        toast(`Provider actualizado: ${resp.data.provider} / ${resp.data.model} (${resp.data.dims}d)`, 'success');
+        renderAdminEmbeddings();
+    } else {
+        toast(resp.detail || 'Error guardando config', 'error');
+    }
+}
+
+async function runEmbeddingsBackfill() {
+    if (_embeddingsBackfillRunning) return;
+    _embeddingsBackfillRunning = true;
+    const logEl = document.getElementById('emb-backfill-log');
+    const append = (msg) => { if (logEl) logEl.textContent += msg + '\n'; logEl.scrollTop = logEl.scrollHeight; };
+    if (logEl) logEl.textContent = '';
+
+    try {
+        let totalUpdated = 0;
+        let iter = 0;
+        while (iter < 50) {  // hard stop 50 iteraciones (~5000 por tick)
+            iter++;
+            append(`[${new Date().toLocaleTimeString()}] Procesando batch ${iter}...`);
+            const resp = await API.adminEmbeddingsBackfill(100, 10);
+            if (!resp.ok) { append(`ERROR: ${resp.error || resp.detail || 'fallo'}`); break; }
+            totalUpdated += resp.updated || 0;
+            append(`  +${resp.updated} embedded, ${resp.failed} failed · total con embedding: ${resp.with_embedding}/${resp.active} · faltan: ${resp.missing}`);
+            if (!resp.missing || resp.missing === 0) {
+                append(`OK Listo. Total embebidos: ${totalUpdated}`);
+                break;
+            }
+            if (!resp.batches_done) {
+                append('Sin progreso. Abortando.');
+                break;
+            }
+        }
+    } catch (e) {
+        append(`Excepcion: ${e}`);
+    } finally {
+        _embeddingsBackfillRunning = false;
+        // Refrescar stats sin rerender completo
+        const st = await API.adminEmbeddingsStatus().catch(() => null);
+        if (st?.ok) {
+            append(`\nEstado final: ${st.with_embedding}/${st.active} con embedding (${st.missing} faltantes)`);
+        }
     }
 }
 
