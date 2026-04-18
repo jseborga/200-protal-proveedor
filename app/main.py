@@ -24,15 +24,20 @@ async def _init_db():
     - Cuando el proyecto crezca, Alembic maneja migraciones incrementales
       y este bloque solo actua como safety net para el primer deploy
     """
+    # pgvector se intenta en su propia transaccion: si la extension no esta
+    # disponible en el host, el ROLLBACK de esta transaccion no contamina el
+    # resto del init_db (antes: el error abortaba la tx y cascadeaba todo).
+    pgvector_available = False
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+        pgvector_available = True
+    except Exception as e:
+        print(f"[init_db] pgvector no disponible (se omiten columnas/indices de embedding): {e}")
+
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm"))
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent"))
-        # pgvector para busqueda semantica de insumos (puede fallar si la extension
-        # no esta disponible en la imagen de Postgres; no bloquear el boot)
-        try:
-            await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        except Exception as e:
-            print(f"[init_db] pgvector no disponible: {e}")
         await conn.run_sync(Base.metadata.create_all)
         # Add columns that create_all won't add to existing tables
         for col, coltype in [("latitude", "DOUBLE PRECISION"), ("longitude", "DOUBLE PRECISION")]:
@@ -91,37 +96,41 @@ async def _init_db():
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_mkt_supplier_featured ON mkt_supplier(is_featured DESC, rating DESC)"
         ))
-        # Embedding columns + HNSW indexes (una por provider, distinto # de dims)
+    # Embedding columns + HNSW indexes (una por provider, distinto # de dims)
+    # Corre en su propia transaccion y solo si pgvector cargo OK, para que un
+    # error aqui tampoco aborte todo el startup.
+    if pgvector_available:
         try:
-            # OpenAI text-embedding-3-small => 1536
-            await conn.execute(text(
-                "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS embedding_openai vector(1536)"
-            ))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_emb_openai "
-                "ON mkt_insumo USING hnsw (embedding_openai vector_cosine_ops)"
-            ))
-            # Gemini text-embedding-004 => 768
-            await conn.execute(text(
-                "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS embedding_gemini vector(768)"
-            ))
-            await conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_emb_gemini "
-                "ON mkt_insumo USING hnsw (embedding_gemini vector_cosine_ops)"
-            ))
-            # Migracion: si existe la columna legacy `embedding`, copiar a embedding_openai
-            await conn.execute(text(
-                "DO $$ BEGIN "
-                "  IF EXISTS (SELECT 1 FROM information_schema.columns "
-                "             WHERE table_name='mkt_insumo' AND column_name='embedding') THEN "
-                "    UPDATE mkt_insumo SET embedding_openai = embedding "
-                "      WHERE embedding IS NOT NULL AND embedding_openai IS NULL; "
-                "    ALTER TABLE mkt_insumo DROP COLUMN embedding; "
-                "  END IF; "
-                "END $$;"
-            ))
+            async with engine.begin() as conn:
+                # OpenAI text-embedding-3-small => 1536
+                await conn.execute(text(
+                    "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS embedding_openai vector(1536)"
+                ))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_emb_openai "
+                    "ON mkt_insumo USING hnsw (embedding_openai vector_cosine_ops)"
+                ))
+                # Gemini text-embedding-004 => 768
+                await conn.execute(text(
+                    "ALTER TABLE mkt_insumo ADD COLUMN IF NOT EXISTS embedding_gemini vector(768)"
+                ))
+                await conn.execute(text(
+                    "CREATE INDEX IF NOT EXISTS ix_mkt_insumo_emb_gemini "
+                    "ON mkt_insumo USING hnsw (embedding_gemini vector_cosine_ops)"
+                ))
+                # Migracion: si existe la columna legacy `embedding`, copiar a embedding_openai
+                await conn.execute(text(
+                    "DO $$ BEGIN "
+                    "  IF EXISTS (SELECT 1 FROM information_schema.columns "
+                    "             WHERE table_name='mkt_insumo' AND column_name='embedding') THEN "
+                    "    UPDATE mkt_insumo SET embedding_openai = embedding "
+                    "      WHERE embedding IS NOT NULL AND embedding_openai IS NULL; "
+                    "    ALTER TABLE mkt_insumo DROP COLUMN embedding; "
+                    "  END IF; "
+                    "END $$;"
+                ))
         except Exception as e:
-            print(f"[init_db] columnas embedding/indices no creados (pgvector ausente?): {e}")
+            print(f"[init_db] columnas embedding/indices no creados: {e}")
 
 
 async def _ensure_superadmin():
