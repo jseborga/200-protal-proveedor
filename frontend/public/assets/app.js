@@ -7590,6 +7590,10 @@ function showCreatePedidoModal() {
                 <input class="form-input" name="deadline" type="datetime-local">
             </div>
             <div class="form-group">
+                <label class="form-label">WhatsApp del cliente <small style="font-weight:400;color:var(--gray-400)">(opcional, si vacio se usa tu telefono)</small></label>
+                <input class="form-input" name="client_whatsapp" placeholder="Ej: 59171234567" value="${esc(state.user?.phone || '')}">
+            </div>
+            <div class="form-group">
                 <label class="form-label">Items del carrito (${state.cart.length})</label>
                 <div style="max-height:200px;overflow-y:auto;border:1px solid var(--gray-200);border-radius:8px;padding:8px">
                     ${itemsPreview}
@@ -7619,6 +7623,7 @@ async function handleCreatePedido(e) {
         region: f.region.value || null,
         currency: f.currency.value || 'BOB',
         deadline: f.deadline.value ? new Date(f.deadline.value).toISOString() : null,
+        client_whatsapp: f.client_whatsapp?.value?.trim() || null,
         items,
     };
     const resp = await API.createPedido(body);
@@ -7626,11 +7631,42 @@ async function handleCreatePedido(e) {
         state.cart = [];
         saveCart();
         closeModal();
-        toast('Pedido creado exitosamente', 'success');
-        navigate('pedidos');
+        showPedidoCreatedModal(resp.data);
     } else {
         toast(resp.detail || 'Error creando pedido', 'error');
     }
+}
+
+function showPedidoCreatedModal(pedido) {
+    const waUrl = pedido.wa_confirmation_url;
+    const ref = esc(pedido.reference || '');
+    const waBlock = waUrl
+        ? `
+            <p style="font-size:14px;color:var(--gray-600);margin-bottom:12px">
+                Para activar el seguimiento por WhatsApp el cliente debe abrir el siguiente enlace desde su celular y enviar el mensaje prellenado. Eso abre la ventana de 24h para que el operador pueda responder.
+            </p>
+            <a href="${esc(waUrl)}" target="_blank" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-size:15px;background:#25D366;border-color:#25D366">
+                ${icon('whatsapp',20)} Abrir WhatsApp
+            </a>
+            <div style="margin-top:10px;font-size:12px;color:var(--gray-500);word-break:break-all">
+                <strong>Link directo:</strong> <span onclick="navigator.clipboard.writeText('${esc(waUrl)}');toast('Copiado','success')" style="cursor:pointer;color:var(--primary);text-decoration:underline">${esc(waUrl)}</span>
+            </div>
+        `
+        : `
+            <div style="background:#fef3c7;color:#92400e;padding:12px;border-radius:8px;font-size:13px">
+                ${icon('alert-triangle',16)} El numero WA del bot no esta configurado en Admin &rarr; Integraciones &rarr; Conversation Hub. Sin eso, no podemos armar el link de confirmacion por WhatsApp.
+            </div>
+        `;
+
+    showModal(`Pedido ${ref} creado`, `
+        <div style="text-align:center;padding:10px 0 20px">
+            <div style="font-size:48px;color:#16a34a;margin-bottom:10px">✓</div>
+            ${waBlock}
+        </div>
+        <div style="text-align:right;border-top:1px solid var(--gray-200);padding-top:12px">
+            <button class="btn btn-secondary" onclick="closeModal();navigate('pedidos')">Ver mis pedidos</button>
+        </div>
+    `);
 }
 
 // ── Company page ─────────────────────────────────────────────
