@@ -37,6 +37,11 @@ class Pedido(TimestampMixin, Base):
     currency: Mapped[str] = mapped_column(String(3), default="BOB", nullable=False)
     deadline: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Conversation hub (WA ↔ TG topic bridge)
+    client_whatsapp: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    tg_topic_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     item_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quotes_received: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

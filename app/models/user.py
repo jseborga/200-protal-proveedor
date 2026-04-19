@@ -21,6 +21,9 @@ class User(TimestampMixin, Base):
     company_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    telegram_user_id: Mapped[str | None] = mapped_column(
+        String(50), unique=True, nullable=True, index=True
+    )
 
     # Company membership (Phase 2)
     company_id: Mapped[int | None] = mapped_column(

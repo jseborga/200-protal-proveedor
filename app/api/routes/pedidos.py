@@ -35,6 +35,7 @@ class PedidoCreate(BaseModel):
     region: str | None = None
     currency: str = "BOB"
     deadline: datetime | None = None
+    client_whatsapp: str | None = None
     items: list[PedidoItemIn]
 
 
@@ -183,9 +184,16 @@ async def create(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Crear pedido desde el carrito."""
+    """Crear pedido desde el carrito.
+
+    Además del pedido, abre una ConversationSession y crea el topic en el
+    grupo de Telegram de operadores. Devuelve una wa.me URL prellenada que
+    el cliente debe abrir para iniciar la conversación WA con el bot.
+    """
     if not body.items:
         raise HTTPException(400, "El pedido debe tener al menos un item")
+
+    client_wa = body.client_whatsapp or user.phone
 
     pedido = await create_pedido(
         db, user,
@@ -196,8 +204,20 @@ async def create(
         description=body.description,
         deadline=body.deadline,
         company_id=user.company_id,
+        client_whatsapp=client_wa,
     )
-    return {"ok": True, "data": _pedido_to_dict(pedido)}
+
+    # Open conversation session + Telegram topic
+    from app.services.conversation_hub import open_session, build_wa_confirmation_url
+    pedido_full = await get_pedido_detail(db, pedido.id)
+    await open_session(db, pedido_full, client_phone=client_wa)
+    await db.commit()
+
+    wa_url = await build_wa_confirmation_url(pedido_full, user)
+
+    data = _pedido_to_dict(pedido)
+    data["wa_confirmation_url"] = wa_url
+    return {"ok": True, "data": data}
 
 
 @router.put("/{pedido_id}")
@@ -389,6 +409,29 @@ async def mark_complete(
     await db.commit()
 
     return {"ok": True, "data": _pedido_to_dict(pedido)}
+
+
+@router.post("/{pedido_id}/deliver")
+async def deliver_quote(
+    pedido_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Entregar la cotización al cliente por WhatsApp.
+
+    Solo el operador asignado (o el creador del pedido) puede ejecutarla.
+    """
+    pedido = await get_pedido_detail(db, pedido_id)
+    if not pedido:
+        raise HTTPException(404, "Pedido no encontrado")
+    if pedido.assigned_to != user.id and pedido.created_by != user.id:
+        raise HTTPException(403, "Solo el operador asignado puede entregar la cotización")
+
+    from app.services.conversation_hub import deliver_quote_to_client
+    result = await deliver_quote_to_client(db, pedido, operator=user)
+    await db.commit()
+
+    return {"ok": result["ok"], "mode": result["mode"], "url": result["url"]}
 
 
 @router.post("/{pedido_id}/send")

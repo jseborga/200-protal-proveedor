@@ -17,6 +17,7 @@ from .task_log import TaskLog
 from .system_setting import SystemSetting
 from .ai_agent import AIAgent
 from .banned_ip import BannedIP
+from .conversation import ConversationSession, Message
 
 __all__ = [
     "Base", "Plan", "Company", "Subscription",
@@ -28,4 +29,5 @@ __all__ = [
     "Pedido", "PedidoItem", "PedidoPrecio",
     "SupplierSuggestion", "Notification", "TaskLog",
     "SystemSetting", "AIAgent", "BannedIP",
+    "ConversationSession", "Message",
 ]

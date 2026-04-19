@@ -155,11 +155,15 @@ async def send_telegram(
     chat_id: str,
     message: str,
     buttons: list[list[dict]] | None = None,
+    message_thread_id: int | None = None,
 ) -> bool:
     """Send Telegram message with optional inline keyboard buttons.
 
     buttons format: [[{"text": "Label", "callback_data": "cmd"}], ...]
     Each inner list is a row of buttons.
+
+    message_thread_id: if set, the message is posted to that forum topic
+    within the group (requires the group to have topics enabled).
     """
     token = await _resolve_telegram_token()
     if not token:
@@ -167,6 +171,8 @@ async def send_telegram(
 
     url = f"https://api.telegram.org/bot{token}/sendMessage"
     payload = {"chat_id": chat_id, "text": message, "parse_mode": "HTML"}
+    if message_thread_id is not None:
+        payload["message_thread_id"] = message_thread_id
 
     if buttons:
         payload["reply_markup"] = {"inline_keyboard": buttons}
@@ -174,6 +180,103 @@ async def send_telegram(
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.post(url, json=payload)
+        return resp.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+# ── Telegram forum topics (hub de conversaciones) ──────────────
+async def _resolve_hub_group_id() -> str | None:
+    """Resolve the operator group chat_id from system_setting.integrations."""
+    try:
+        from app.core.database import async_session
+        from app.models.system_setting import SystemSetting
+        async with async_session() as db:
+            setting = await db.get(SystemSetting, "integrations")
+            cfg = setting.value if setting and setting.value else {}
+        gid = cfg.get("conversation_hub_group_id")
+        if gid:
+            return str(gid)
+    except Exception:
+        pass
+    return None
+
+
+async def create_telegram_topic(
+    group_id: str,
+    name: str,
+    icon_color: int | None = None,
+) -> int | None:
+    """Create a forum topic in the operator group. Returns message_thread_id.
+
+    The group must have topics enabled and the bot must be admin with
+    manage_topics permission.
+
+    icon_color: optional int (one of 7322096, 16766590, 13338331, 9367192,
+    16749490, 16478047, 14307864). If not set, TG uses a random color.
+    """
+    token = await _resolve_telegram_token()
+    if not token or not group_id:
+        return None
+
+    url = f"https://api.telegram.org/bot{token}/createForumTopic"
+    payload: dict = {"chat_id": group_id, "name": name[:128]}
+    if icon_color is not None:
+        payload["icon_color"] = icon_color
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json=payload)
+        if resp.status_code != 200:
+            print(f"[TG] createForumTopic failed: {resp.status_code} {resp.text[:200]}")
+            return None
+        data = resp.json()
+        if not data.get("ok"):
+            print(f"[TG] createForumTopic not ok: {data}")
+            return None
+        return data["result"]["message_thread_id"]
+    except httpx.HTTPError as e:
+        print(f"[TG] createForumTopic http error: {e}")
+        return None
+
+
+async def close_telegram_topic(group_id: str, message_thread_id: int) -> bool:
+    """Close a forum topic (readonly). Use when a pedido is completed."""
+    token = await _resolve_telegram_token()
+    if not token or not group_id:
+        return False
+    url = f"https://api.telegram.org/bot{token}/closeForumTopic"
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json={
+                "chat_id": group_id,
+                "message_thread_id": message_thread_id,
+            })
+        return resp.status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+async def send_telegram_photo_to_topic(
+    group_id: str,
+    message_thread_id: int,
+    photo_url_or_file_id: str,
+    caption: str = "",
+) -> bool:
+    """Send a photo into a forum topic (used for mirroring WA photos)."""
+    token = await _resolve_telegram_token()
+    if not token or not group_id:
+        return False
+    url = f"https://api.telegram.org/bot{token}/sendPhoto"
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(url, json={
+                "chat_id": group_id,
+                "message_thread_id": message_thread_id,
+                "photo": photo_url_or_file_id,
+                "caption": caption[:1024],
+                "parse_mode": "HTML",
+            })
         return resp.status_code == 200
     except httpx.HTTPError:
         return False
@@ -359,21 +462,97 @@ async def _is_authorized_bot_user(db, channel: str, user_id: str) -> bool:
 
 # ── Webhook handlers ───────────────────────────────────────────
 async def handle_whatsapp_message(db, msg: dict):
-    """Process incoming WhatsApp message — if authorized, route to AI agent."""
+    """Process incoming WhatsApp message.
+
+    Ruteo:
+    1) Si hay una ConversationSession activa para este phone → hub de
+       conversaciones (mirror a TG topic + autoreply según estado).
+    2) Si no hay sesión activa → fallback al bot AI (comportamiento antiguo)
+       si el número está en la whitelist de bot_authorized_users.
+    """
     remote_jid = msg.get("key", {}).get("remoteJid", "")
     phone = remote_jid.split("@")[0] if "@" in remote_jid else remote_jid
-    text = msg.get("message", {}).get("conversation") or msg.get("message", {}).get("extendedTextMessage", {}).get("text", "")
+    ext_id = msg.get("key", {}).get("id") or None
+
+    # Extract text from any of the WhatsApp message shapes
+    m = msg.get("message", {}) or {}
+    text = (
+        m.get("conversation")
+        or m.get("extendedTextMessage", {}).get("text")
+        or m.get("imageMessage", {}).get("caption")
+        or m.get("documentMessage", {}).get("caption")
+        or ""
+    )
+    media_note: str | None = None
+    if m.get("imageMessage"):
+        media_note = "imagen"
+    elif m.get("documentMessage"):
+        media_note = "documento"
+    elif m.get("audioMessage"):
+        media_note = "audio"
+
+    if not text and not media_note:
+        return
+
+    print(f"[WA] {phone}: [{media_note or 'text'}] {text[:120]}")
+
+    # ── Conversation hub: if there's an active session for this phone ──
+    try:
+        from app.services.conversation_hub import (
+            find_active_session_for_client, record_message,
+            mirror_client_to_topic, bot_autoreply,
+        )
+        session = await find_active_session_for_client(db, phone)
+    except Exception as e:
+        print(f"[WA] hub lookup error: {e}")
+        session = None
+
+    if session is not None:
+        try:
+            # First inbound? advance state from waiting_first_contact → active
+            if session.state == "waiting_first_contact":
+                session.state = "active"
+
+            # Log the inbound message
+            await record_message(
+                db, session,
+                direction="inbound", channel="whatsapp",
+                sender_type="client", sender_ref=phone,
+                body=text or None, media_type=media_note,
+                ext_message_id=ext_id,
+            )
+
+            # Mirror to the operator TG topic
+            await mirror_client_to_topic(
+                db, session, text=text, sender_ref=phone, media_note=media_note,
+            )
+
+            # Bot autoreply (if appropriate)
+            reply = await bot_autoreply(db, session, text or "")
+            if reply:
+                # WA uses plain text — strip simple HTML tags for readability
+                clean_reply = reply.replace("<b>", "*").replace("</b>", "*").replace("<i>", "_").replace("</i>", "_")
+                ok = await send_whatsapp(phone, clean_reply)
+                if ok:
+                    await record_message(
+                        db, session,
+                        direction="outbound", channel="whatsapp",
+                        sender_type="bot", body=reply,
+                    )
+            await db.commit()
+        except Exception as e:
+            print(f"[WA] hub processing error: {e}")
+            import traceback; traceback.print_exc()
+            await db.rollback()
+        return
+
+    # ── Fallback: legacy AI bot flow (for authorized operators/admins) ──
+    if not await _is_authorized_bot_user(db, "whatsapp", phone):
+        return  # Silently ignore unauthorized messages without a session
 
     if not text:
         return
 
-    print(f"[WA] {phone}: {text}")
-
-    # Check if user is authorized for bot
-    if not await _is_authorized_bot_user(db, "whatsapp", phone):
-        return  # Silently ignore unauthorized messages
-
-    # Route to AI agent
     try:
         from app.services.agent_executor import execute_agent_message, resolve_agent_config
         result = await resolve_agent_config(db, "communicator")
@@ -390,11 +569,95 @@ async def handle_whatsapp_message(db, msg: dict):
         await send_whatsapp(phone, f"Error procesando tu mensaje. Intenta de nuevo.")
 
 
+async def _try_handle_operator_topic_reply(
+    db,
+    chat_id: str,
+    message_thread_id: int,
+    from_user_id: str,
+    username: str,
+    text: str,
+    has_photo: bool,
+    has_document: bool,
+    msg: dict,
+    ext_msg_id: str | None,
+) -> bool:
+    """Handle a message in a conversation-hub topic. Returns True if consumed."""
+    from app.services.conversation_hub import (
+        find_session_by_topic, mirror_operator_to_client, record_message,
+    )
+    from app.models.user import User
+    from sqlalchemy import select
+
+    # Is this the configured operator group?
+    hub_group = await _resolve_hub_group_id()
+    if not hub_group or str(hub_group) != str(chat_id):
+        return False
+
+    session = await find_session_by_topic(db, hub_group, message_thread_id)
+    if session is None:
+        return False
+
+    # Verify sender is a registered cotizador
+    user_stmt = select(User).where(User.telegram_user_id == from_user_id).limit(1)
+    operator = (await db.execute(user_stmt)).scalar_one_or_none()
+    if operator is None:
+        await send_telegram(
+            chat_id,
+            f"⚠️ @{username} no está registrado como cotizador (tg_user_id: <code>{from_user_id}</code>). Pedile al admin que te registre.",
+            message_thread_id=message_thread_id,
+        )
+        return True
+
+    try:
+        if text and not (has_photo or has_document):
+            # Plain text → relay to client WA
+            ok = await mirror_operator_to_client(
+                db, session, text, operator_ref=from_user_id,
+            )
+            if not ok:
+                await send_telegram(
+                    chat_id,
+                    "⚠️ No pude enviar al cliente (ventana 24h cerrada o WA no configurado).",
+                    message_thread_id=message_thread_id,
+                )
+        elif has_photo or has_document:
+            # Media from operator: Phase 1 notifies client to check portal.
+            # TODO Phase 1.5: download from TG and relay via Evolution sendMedia.
+            kind = "una foto" if has_photo else "un documento"
+            caption_line = f"\nNota del cotizador: {text}" if text else ""
+            client_msg = (
+                f"El equipo te envió {kind} sobre tu pedido {session.pedido_id}. "
+                f"Abrí el portal para verlo.{caption_line}"
+            )
+            await mirror_operator_to_client(
+                db, session, client_msg, operator_ref=from_user_id,
+            )
+            await record_message(
+                db, session,
+                direction="inbound", channel="telegram",
+                sender_type="operator", sender_ref=from_user_id,
+                body=text or None,
+                media_type="photo" if has_photo else "document",
+                ext_message_id=ext_msg_id,
+            )
+
+        await db.commit()
+    except Exception as e:
+        print(f"[TG] operator relay error: {e}")
+        import traceback; traceback.print_exc()
+        await db.rollback()
+
+    return True
+
+
 async def handle_telegram_message(db, msg: dict):
     """Process incoming Telegram message — text, photo, or document."""
     chat_id = str(msg.get("chat", {}).get("id", ""))
     text = msg.get("text", "") or msg.get("caption", "") or ""
     username = msg.get("from", {}).get("username", "")
+    from_user_id = str(msg.get("from", {}).get("id", ""))
+    message_thread_id = msg.get("message_thread_id")
+    ext_msg_id = msg.get("message_id")
 
     # Detect media
     has_photo = bool(msg.get("photo"))
@@ -405,7 +668,20 @@ async def handle_telegram_message(db, msg: dict):
         return
 
     media_label = "foto" if has_photo else ("documento" if has_document else "texto")
-    print(f"[TG] {chat_id} (@{username}): [{media_label}] {text[:80]}")
+    print(f"[TG] {chat_id} (@{username}): [{media_label}] thread={message_thread_id} {text[:80]}")
+
+    # ── Conversation hub: operator reply inside a topic ─────────
+    # If message is inside a forum topic belonging to a ConversationSession,
+    # forward the operator's text to the client's WA.
+    if message_thread_id is not None:
+        handled = await _try_handle_operator_topic_reply(
+            db, chat_id, message_thread_id,
+            from_user_id, username, text,
+            has_photo, has_document, msg,
+            str(ext_msg_id) if ext_msg_id else None,
+        )
+        if handled:
+            return
 
     # /start, /chatid, /help — always respond (no auth needed)
     if text.strip() in ("/start", "/chatid", "/help"):
@@ -984,6 +1260,8 @@ async def handle_telegram_callback(db, callback: dict):
     chat_id = str(callback.get("message", {}).get("chat", {}).get("id", ""))
     data = callback.get("data", "")
     username = callback.get("from", {}).get("username", "")
+    from_user_id = str(callback.get("from", {}).get("id", ""))
+    message_thread_id = callback.get("message", {}).get("message_thread_id")
 
     print(f"[TG-CB] {chat_id} (@{username}): {data}")
 
@@ -991,6 +1269,29 @@ async def handle_telegram_callback(db, callback: dict):
     await _answer_callback(callback_id)
 
     if not chat_id:
+        return
+
+    # ── Conversation hub: claim pedido ──────────────────────────
+    if data.startswith("cb_claim_pedido_"):
+        try:
+            pedido_id = int(data[len("cb_claim_pedido_"):])
+        except ValueError:
+            return
+        from app.services.conversation_hub import claim_pedido
+        claimed_user = await claim_pedido(db, pedido_id, from_user_id)
+        await db.commit()
+        if claimed_user is None:
+            await send_telegram(
+                chat_id,
+                f"No se pudo tomar el pedido. Puede que otro operador lo haya tomado antes, o tu Telegram no está registrado como cotizador (tu ID: <code>{from_user_id}</code>).",
+                message_thread_id=message_thread_id,
+            )
+        else:
+            await send_telegram(
+                chat_id,
+                f"✅ Pedido tomado por <b>{claimed_user.full_name}</b> (@{username}).",
+                message_thread_id=message_thread_id,
+            )
         return
 
     # Authorization check (except for start/help)

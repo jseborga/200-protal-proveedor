@@ -27,19 +27,25 @@ async def create_pedido(
     description: str | None = None,
     deadline: datetime | None = None,
     company_id: int | None = None,
+    client_whatsapp: str | None = None,
 ) -> Pedido:
-    """Crea un pedido con sus items desde el carrito del usuario."""
+    """Crea un pedido con sus items desde el carrito del usuario.
+
+    assigned_to se deja en None: un operador/cotizador lo tomará desde el
+    grupo de Telegram vía callback (conversation_hub.claim_pedido).
+    """
     pedido = Pedido(
         reference=_generate_reference(),
         title=title,
         description=description,
-        state="draft",
+        state="active",
         created_by=user.id,
-        assigned_to=user.id,
+        assigned_to=None,
         company_id=company_id,
         region=region,
         currency=currency,
         deadline=deadline,
+        client_whatsapp=client_whatsapp,
         item_count=len(items),
     )
     db.add(pedido)

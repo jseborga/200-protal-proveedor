@@ -14,6 +14,8 @@ from app.core.config import settings
 from app.core.database import engine, async_session
 from app.core.rate_limit import limiter
 from app.models.base import Base
+# Ensure all model modules load so Base.metadata sees them before create_all
+import app.models  # noqa: F401
 
 
 async def _init_db():
@@ -95,6 +97,22 @@ async def _init_db():
         ))
         await conn.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_mkt_supplier_featured ON mkt_supplier(is_featured DESC, rating DESC)"
+        ))
+        # Conversation hub: campos nuevos en Pedido y User
+        await conn.execute(text(
+            "ALTER TABLE mkt_pedido ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE mkt_pedido ADD COLUMN IF NOT EXISTS client_whatsapp VARCHAR(30)"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE mkt_pedido ADD COLUMN IF NOT EXISTS tg_topic_id INTEGER"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE mkt_user ADD COLUMN IF NOT EXISTS telegram_user_id VARCHAR(50)"
+        ))
+        await conn.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_mkt_user_telegram_user_id ON mkt_user(telegram_user_id) WHERE telegram_user_id IS NOT NULL"
         ))
     # Embedding columns + HNSW indexes (una por provider, distinto # de dims)
     # Corre en su propia transaccion y solo si pgvector cargo OK, para que un
