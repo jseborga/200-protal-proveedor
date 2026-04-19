@@ -5015,7 +5015,7 @@ async function loadAdminUsers() {
                         <td>${u.is_active ? '<span style="color:var(--success)">Si</span>' : '<span style="color:var(--danger)">No</span>'}</td>
                         <td>${u.last_login ? new Date(u.last_login).toLocaleDateString('es') : 'Nunca'}</td>
                         <td style="white-space:nowrap">
-                            <button class="btn btn-sm btn-secondary" onclick="showEditUserModal(${u.id}, '${esc(u.full_name)}', '${esc(u.role)}', ${u.is_active})" title="Editar">${icon('edit',14)}</button>
+                            <button class="btn btn-sm btn-secondary" onclick="showEditUserModal(${u.id}, '${esc(u.full_name)}', '${esc(u.role)}', ${u.is_active}, '${esc(u.telegram_user_id || '')}')" title="Editar">${icon('edit',14)}</button>
                             ${isAdmin() ? `<button class="btn btn-sm btn-secondary" onclick="resetUserPassword(${u.id}, '${esc(u.full_name)}')" title="Resetear contrasena">${icon('key',14)}</button>` : ''}
                         </td>
                     </tr>
@@ -5095,7 +5095,7 @@ async function handleCreateUser(e) {
     } catch { toast('Error de conexion', 'error'); }
 }
 
-function showEditUserModal(userId, name, currentRole, isActive) {
+function showEditUserModal(userId, name, currentRole, isActive, telegramUserId) {
     const roleOptions = isAdmin()
         ? ['admin','manager','field_agent','user','supplier'].map(r =>
             `<option value="${r}"${r === currentRole ? ' selected' : ''}>${ROLE_LABELS[r]}</option>`).join('')
@@ -5106,6 +5106,11 @@ function showEditUserModal(userId, name, currentRole, isActive) {
             <div class="form-group">
                 <label class="form-label">Rol</label>
                 <select class="form-select" name="role">${roleOptions}</select>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Telegram user ID <small style="font-weight:400;color:var(--gray-400)">(para cotizadores)</small></label>
+                <input class="form-input" name="telegram_user_id" value="${esc(telegramUserId || '')}" placeholder="Ej: 123456789">
+                <small style="color:var(--gray-500)">Habilita al usuario a tomar pedidos desde el grupo TG. Lo obtienen hablando a @userinfobot.</small>
             </div>
             <div class="form-group">
                 <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
@@ -5125,6 +5130,7 @@ async function handleUpdateUser(e, userId) {
         const resp = await API.adminUpdateUser(userId, {
             role: f.role.value,
             is_active: f.is_active.checked,
+            telegram_user_id: f.telegram_user_id.value.trim() || null,
         });
         if (resp.ok) { closeModal(); toast('Usuario actualizado', 'success'); loadAdminUsers(); }
         else toast(resp.detail || 'Error', 'error');
@@ -7087,6 +7093,34 @@ async function renderAdminIntegrations() {
                     <button type="button" class="btn btn-secondary" onclick="testTelegramSend()">Enviar Test</button>
                 </div>
                 <div id="tg-test-result" style="margin-top:8px"></div>
+            </form>
+        </div>
+
+        <!-- Conversation Hub (WA <-> TG topics) -->
+        <div class="integ-section">
+            <div class="integ-header">
+                <span class="integ-icon" style="background:#e0f2fe;color:#0369a1">${icon('message-circle',20)}</span>
+                <div>
+                    <h3>Conversation Hub (cotizaciones)</h3>
+                    <p>Grupo TG de cotizadores + numero del bot WA que abre la ventana 24h</p>
+                </div>
+            </div>
+            <form onsubmit="saveIntegrations(event,'hub')">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+                    <div class="form-group">
+                        <label class="form-label">Grupo Telegram (chat_id) <small style="font-weight:400;color:var(--gray-400)">(con Topics activado)</small></label>
+                        <input class="form-input" name="conversation_hub_group_id" value="${esc(d.conversation_hub_group_id || '')}" placeholder="-1001234567890">
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Numero WA del bot <small style="font-weight:400;color:var(--gray-400)">(solo digitos con pais)</small></label>
+                        <input class="form-input" name="conversation_hub_bot_wa_number" value="${esc(d.conversation_hub_bot_wa_number || '')}" placeholder="59171234567">
+                    </div>
+                </div>
+                <p style="font-size:12px;color:var(--gray-400);margin-bottom:10px">
+                    El grupo debe ser un supergrupo con Topics habilitado y el bot admin con permiso "Manage topics".
+                    Los cotizadores deben tener su <code>telegram_user_id</code> seteado en su perfil de usuario.
+                </p>
+                <button type="submit" class="btn btn-primary">${icon('check',16)} Guardar</button>
             </form>
         </div>
 

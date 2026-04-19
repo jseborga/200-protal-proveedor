@@ -67,6 +67,7 @@ class UserUpdate(BaseModel):
     phone: str | None = None
     company_name: str | None = None
     is_active: bool | None = None
+    telegram_user_id: str | None = None
 
 
 @router.get("/users")
@@ -149,6 +150,10 @@ async def update_user(
             raise HTTPException(status_code=403, detail="Solo admins pueden asignar rol admin/manager")
         if target.role in ("admin", "superadmin") and current_user.role != "superadmin":
             raise HTTPException(status_code=403, detail="No puede cambiar rol de un admin")
+
+    # Normalize empty strings to None for unique nullable fields
+    if update_data.get("telegram_user_id") == "":
+        update_data["telegram_user_id"] = None
 
     for field, value in update_data.items():
         setattr(target, field, value)
@@ -913,6 +918,7 @@ def _user_to_dict(u: User) -> dict:
         "company_name": u.company_name,
         "company_id": getattr(u, 'company_id', None),
         "company_role": getattr(u, 'company_role', None),
+        "telegram_user_id": getattr(u, 'telegram_user_id', None),
         "last_login": u.last_login.isoformat() if u.last_login else None,
         "created_at": u.created_at.isoformat() if u.created_at else None,
     }
@@ -1979,6 +1985,7 @@ async def update_integrations(
         "evolution_api_url", "evolution_api_key", "evolution_instance_name",
         "telegram_bot_token", "telegram_webhook_secret",
         "smtp_host", "smtp_port", "smtp_user", "smtp_password", "smtp_from",
+        "conversation_hub_group_id", "conversation_hub_bot_wa_number",
     }
     config = {k: v for k, v in body.items() if k in allowed_keys and v != ""}
 
