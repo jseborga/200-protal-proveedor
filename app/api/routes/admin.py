@@ -142,8 +142,9 @@ async def update_user(
 
     update_data = body.model_dump(exclude_unset=True)
 
-    # Role change validation
-    if "role" in update_data:
+    # Role change validation — solo validar cuando el rol realmente cambia.
+    # Si el payload trae el mismo rol actual es no-op y no debe disparar guards.
+    if "role" in update_data and update_data["role"] != target.role:
         if update_data["role"] not in VALID_ROLES:
             raise HTTPException(status_code=400, detail="Rol invalido")
         if update_data["role"] in ("admin", "manager") and current_user.role not in ("admin", "superadmin"):
