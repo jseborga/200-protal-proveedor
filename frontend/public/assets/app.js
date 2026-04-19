@@ -8176,6 +8176,9 @@ function renderPedidoDetail(p) {
     }).join('');
 
     const actions = [];
+    if (p.wa_confirmation_url) {
+        actions.push(`<a href="${esc(p.wa_confirmation_url)}" target="_blank" class="btn" style="background:#25D366;color:white;border-color:#25D366">${icon('whatsapp',16)} Re-enviar WhatsApp</a>`);
+    }
     if (isEditable) {
         actions.push(`<button class="btn btn-secondary" onclick="showUploadDocModal(${p.id})">${icon('upload',16)} Subir Documento</button>`);
         actions.push(`<button class="btn btn-primary" onclick="completePedido(${p.id})">Marcar Completado</button>`);

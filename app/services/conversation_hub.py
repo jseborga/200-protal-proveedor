@@ -58,8 +58,8 @@ async def build_wa_confirmation_url(pedido: Pedido, user: User | None = None) ->
     number = await _resolve_bot_wa_number()
     if not number:
         return None
-    greeting = user.full_name if user and user.full_name else "soy cliente"
-    text = f"Hola, {greeting}. Confirmo mi pedido {pedido.reference}."
+    name = user.full_name if user and user.full_name else "cliente"
+    text = f"Hola, soy {name}. Confirmo mi pedido {pedido.reference}."
     return f"https://wa.me/{number}?text={quote(text)}"
 
 

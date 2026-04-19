@@ -175,6 +175,12 @@ async def get_pedido(
     pedido = await _get_user_pedido(db, pedido_id, user)
     data = _pedido_to_dict(pedido)
     data["items"] = [_item_to_dict(i) for i in pedido.items]
+
+    # Link WA de confirmacion regenerado stateless para seguimiento
+    from app.services.conversation_hub import build_wa_confirmation_url
+    creator = pedido.creator
+    data["wa_confirmation_url"] = await build_wa_confirmation_url(pedido, creator)
+
     return {"ok": True, "data": data}
 
 
