@@ -166,7 +166,13 @@ const API = {
     addPrecio: (pid, iid, data) => API.post(`/pedidos/${pid}/items/${iid}/precio`, data),
     selectPrecio: (pid, iid, prid) => API.post(`/pedidos/${pid}/items/${iid}/precio/${prid}/select`),
     completePedido: (id) => API.post(`/pedidos/${id}/complete`),
+    deliverPedido: (id) => API.post(`/pedidos/${id}/deliver`),
     uploadPedidoDoc: (id, formData) => API.upload(`/pedidos/${id}/upload`, formData),
+
+    // Inbox (Fase 2)
+    inboxSessions: (params = '') => API.get(`/inbox/sessions${params}`),
+    inboxSession: (id) => API.get(`/inbox/sessions/${id}`),
+    inboxSend: (id, text) => API.post(`/inbox/sessions/${id}/send`, { text }),
 
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
@@ -381,13 +387,12 @@ function renderApp() {
     };
 
     const authPages = {
-        pedidos:    { title: 'Mis Pedidos',  icon: 'clipboard',  render: renderPedidos },
+        pedidos:    { title: 'Cotizaciones', icon: 'clipboard',  render: renderPedidos },
         company:    { title: 'Mi Empresa',   icon: 'building',   render: renderCompany },
-        quotations: { title: 'Cotizaciones', icon: 'file-text', render: renderQuotations },
-        rfq:        { title: 'RFQ',          icon: 'send',      render: renderRFQ },
     };
 
     const staffPages = isStaff() ? {
+        inbox:     { title: 'Inbox',        icon: 'mail',       render: renderInbox },
         admin:     { title: 'Admin',        icon: 'settings',   render: renderAdmin },
     } : {};
 
@@ -502,7 +507,7 @@ function renderMobileNav() {
         { key: 'suppliers', label: 'Proveedores', ico: 'users' },
     ];
     if (state.user) {
-        tabs.push({ key: 'pedidos', label: 'Pedidos', ico: 'clipboard' });
+        tabs.push({ key: 'pedidos', label: 'Cotizaciones', ico: 'clipboard' });
         tabs.push({ key: '_more', label: 'Mas', ico: 'menu' });
     } else {
         tabs.push({ key: '_login', label: 'Ingresar', ico: 'login' });
@@ -522,13 +527,12 @@ function renderMobileNav() {
 function openMobileMenu() {
     const menuPages = [];
     if (state.user) {
-        menuPages.push({ key: 'pedidos', label: 'Mis Pedidos', ico: 'clipboard' });
+        menuPages.push({ key: 'pedidos', label: 'Cotizaciones', ico: 'clipboard' });
         menuPages.push({ key: 'company', label: 'Mi Empresa', ico: 'building' });
-        menuPages.push({ key: 'quotations', label: 'Cotizaciones', ico: 'file-text' });
-        menuPages.push({ key: 'rfq', label: 'RFQ', ico: 'send' });
     }
     if (isStaff()) {
         menuPages.push({ key: '_divider' });
+        menuPages.push({ key: 'inbox', label: 'Inbox', ico: 'mail' });
         menuPages.push({ key: 'admin', label: 'Admin', ico: 'settings' });
     }
     if (state.user) {
@@ -2204,6 +2208,7 @@ async function renderAdmin() {
     const catalogGroup = [];
     if (isAdmin()) catalogGroup.push({ key: 'categories', label: 'Categorias', icon: 'tag' });
     if (isAdmin()) catalogGroup.push({ key: 'uoms', label: 'Unidades', icon: 'settings' });
+    if (isAdmin()) catalogGroup.push({ key: 'quotations', label: 'Importar precios', icon: 'upload' });
 
     const bizGroup = [];
     if (isManager()) bizGroup.push({ key: 'users', label: 'Usuarios', icon: 'user-plus' });
@@ -2285,7 +2290,22 @@ function renderAdminTab() {
         case 'agents': renderAdminAgents(); break;
         case 'seo': renderAdminSEO(); break;
         case 'integrations': renderAdminIntegrations(); break;
+        case 'quotations': renderAdminQuotations(); break;
     }
+}
+
+async function renderAdminQuotations() {
+    const c = document.getElementById('admin-content');
+    c.innerHTML = `
+        <h2 class="adm-title">Importar precios (cotizaciones)</h2>
+        <p style="color:var(--gray-500);margin-bottom:16px">Carga PDFs, Excel o fotos de cotizaciones de proveedores para extraer precios historicos. No vinculado a pedidos.</p>
+        <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap">
+            <button class="btn btn-primary" onclick="showUploadQuotationModal()">${icon('upload',16)} Subir archivo</button>
+            <button class="btn btn-secondary" onclick="showManualQuotationModal()">${icon('plus',16)} Manual</button>
+        </div>
+        <div id="quotations-list"></div>
+    `;
+    await loadQuotations();
 }
 
 // ── Admin: Dashboard ───────────────────────────────────────────
@@ -7664,7 +7684,7 @@ function showPedidoCreatedModal(pedido) {
             ${waBlock}
         </div>
         <div style="text-align:right;border-top:1px solid var(--gray-200);padding-top:12px">
-            <button class="btn btn-secondary" onclick="closeModal();navigate('pedidos')">Ver mis pedidos</button>
+            <button class="btn btn-secondary" onclick="closeModal();navigate('pedidos')">Ver cotizaciones</button>
         </div>
     `);
 }
@@ -8058,14 +8078,295 @@ async function requestUpgrade(planKey) {
     } else toast(resp.detail || 'Error', 'error');
 }
 
+// ── Inbox page (Fase 2 — Hito A) ─────────────────────────────
+const _inbox = {
+    sessions: [],
+    selectedId: null,
+    filter: 'open',
+    pollTimer: null,
+};
+
+const _INBOX_STATE_LABELS = {
+    waiting_first_contact: 'Esperando 1er contacto',
+    active: 'Activo',
+    operator_engaged: 'Con operador',
+    quote_sent: 'Cotizacion enviada',
+    closed: 'Cerrado',
+};
+const _INBOX_STATE_COLORS = {
+    waiting_first_contact: '#d97706',
+    active: '#2563eb',
+    operator_engaged: '#16a34a',
+    quote_sent: '#059669',
+    closed: '#6b7280',
+};
+
+function _inboxRelTime(iso) {
+    if (!iso) return '-';
+    const d = new Date(iso);
+    const diff = (Date.now() - d.getTime()) / 1000;
+    if (diff < 60) return 'ahora';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
+    const days = Math.floor(diff / 86400);
+    if (days < 7) return `${days}d`;
+    return d.toLocaleDateString();
+}
+
+function _inboxWindowBadge(w) {
+    if (!w) return '';
+    if (!w.open) {
+        return `<span class="inbox-badge" style="background:#fee2e2;color:#991b1b">WA cerrada</span>`;
+    }
+    const h = Math.floor((w.seconds_left || 0) / 3600);
+    const m = Math.floor(((w.seconds_left || 0) % 3600) / 60);
+    const label = h > 0 ? `${h}h ${m}m` : `${m}m`;
+    const color = h > 2 ? '#065f46' : '#92400e';
+    const bg = h > 2 ? '#d1fae5' : '#fef3c7';
+    return `<span class="inbox-badge" style="background:${bg};color:${color}">WA ${label}</span>`;
+}
+
+function _inboxStopPolling() {
+    if (_inbox.pollTimer) { clearInterval(_inbox.pollTimer); _inbox.pollTimer = null; }
+}
+
+async function renderInbox() {
+    if (!isStaff()) { showLoginModal(); navigate('home'); return; }
+    _inboxStopPolling();
+
+    const page = document.getElementById('page-content');
+    page.innerHTML = `
+        <style>
+            .inbox-layout{display:grid;grid-template-columns:340px 1fr;gap:0;height:calc(100vh - 160px);min-height:480px;border:1px solid var(--gray-200);border-radius:10px;overflow:hidden;background:#fff}
+            .inbox-list{border-right:1px solid var(--gray-200);display:flex;flex-direction:column;background:#fafafa;overflow:hidden}
+            .inbox-list-header{padding:12px;border-bottom:1px solid var(--gray-200);background:#fff;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+            .inbox-items{overflow-y:auto;flex:1}
+            .inbox-item{padding:12px;border-bottom:1px solid var(--gray-200);cursor:pointer;transition:background .15s}
+            .inbox-item:hover{background:#f0f9ff}
+            .inbox-item.active{background:#e0f2fe;border-left:3px solid #0284c7;padding-left:9px}
+            .inbox-item-row1{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px}
+            .inbox-item-name{font-weight:600;font-size:14px;color:#111827;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+            .inbox-item-time{font-size:11px;color:#6b7280;white-space:nowrap}
+            .inbox-item-preview{font-size:12.5px;color:#4b5563;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px}
+            .inbox-item-meta{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+            .inbox-badge{display:inline-block;padding:1px 7px;border-radius:8px;font-size:10.5px;font-weight:600;line-height:1.6}
+            .inbox-pane{display:flex;flex-direction:column;overflow:hidden;background:#fff}
+            .inbox-pane-header{padding:14px 18px;border-bottom:1px solid var(--gray-200);background:#fafafa}
+            .inbox-timeline{flex:1;overflow-y:auto;padding:16px;background:#f3f4f6;display:flex;flex-direction:column;gap:10px}
+            .inbox-msg{max-width:72%;padding:8px 12px;border-radius:10px;font-size:14px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
+            .inbox-msg-in{align-self:flex-start;background:#fff;border:1px solid var(--gray-200);border-radius:10px 10px 10px 2px}
+            .inbox-msg-out{align-self:flex-end;background:#dcf8c6;border-radius:10px 10px 2px 10px}
+            .inbox-msg-bot{align-self:flex-end;background:#e0e7ff;border-radius:10px 10px 2px 10px}
+            .inbox-msg-meta{font-size:10.5px;color:#6b7280;margin-top:3px}
+            .inbox-empty{padding:40px 20px;color:#6b7280;text-align:center}
+            .inbox-composer{border-top:1px solid var(--gray-200);padding:10px;background:#fff;display:flex;gap:8px;align-items:flex-end}
+            .inbox-composer textarea{flex:1;resize:none;min-height:44px;max-height:140px;padding:8px 10px;border:1px solid var(--gray-300);border-radius:8px;font-size:14px;font-family:inherit}
+            .inbox-composer textarea:disabled{background:#f3f4f6;color:#9ca3af;cursor:not-allowed}
+            .inbox-composer .hint{font-size:11px;color:#6b7280;padding:6px 12px;width:100%;text-align:center;background:#fef3c7;color:#92400e;border-top:1px solid var(--gray-200)}
+            @media (max-width:720px){
+                .inbox-layout{grid-template-columns:1fr;height:auto}
+                .inbox-list{max-height:360px}
+            }
+        </style>
+        <div class="page-header"><h1 class="page-title">Inbox — Conversaciones</h1><p class="page-subtitle">Vista unificada de clientes y operadores (solo lectura)</p></div>
+        <div class="inbox-layout">
+            <aside class="inbox-list">
+                <div class="inbox-list-header">
+                    <select id="inbox-filter" class="form-input" style="flex:1;max-width:200px">
+                        <option value="open">Abiertas</option>
+                        <option value="waiting_first_contact">Esperando 1er contacto</option>
+                        <option value="active">Activas</option>
+                        <option value="operator_engaged">Con operador</option>
+                        <option value="quote_sent">Cotizacion enviada</option>
+                        <option value="closed">Cerradas</option>
+                        <option value="">Todas</option>
+                    </select>
+                    <button class="btn btn-secondary btn-sm" onclick="loadInboxSessions()" title="Refrescar">${icon('search',14)}</button>
+                </div>
+                <div class="inbox-items" id="inbox-items"><div class="inbox-empty">Cargando...</div></div>
+            </aside>
+            <main class="inbox-pane" id="inbox-pane">
+                <div class="inbox-empty" style="margin:auto">Selecciona una conversacion para ver el detalle</div>
+            </main>
+        </div>
+    `;
+
+    document.getElementById('inbox-filter').value = _inbox.filter;
+    document.getElementById('inbox-filter').addEventListener('change', (e) => {
+        _inbox.filter = e.target.value;
+        loadInboxSessions();
+    });
+
+    await loadInboxSessions();
+    _inbox.pollTimer = setInterval(() => {
+        if (state.currentPage !== 'inbox') { _inboxStopPolling(); return; }
+        loadInboxSessions({ silent: true });
+        if (_inbox.selectedId) loadInboxSession(_inbox.selectedId, { silent: true });
+    }, 10000);
+}
+
+async function loadInboxSessions({ silent = false } = {}) {
+    const container = document.getElementById('inbox-items');
+    if (!container) return;
+    if (!silent) container.innerHTML = '<div class="inbox-empty">Cargando...</div>';
+    const qs = _inbox.filter ? `?state=${encodeURIComponent(_inbox.filter)}` : '';
+    const resp = await API.inboxSessions(qs);
+    if (!resp.ok) {
+        container.innerHTML = '<div class="inbox-empty">Error cargando sesiones</div>';
+        return;
+    }
+    _inbox.sessions = resp.data || [];
+    if (!_inbox.sessions.length) {
+        container.innerHTML = '<div class="inbox-empty">Sin conversaciones</div>';
+        return;
+    }
+    container.innerHTML = _inbox.sessions.map(s => {
+        const name = s.client_name || s.client_phone || `Pedido #${s.pedido_id}`;
+        const stateColor = _INBOX_STATE_COLORS[s.state] || '#6b7280';
+        const stateLabel = _INBOX_STATE_LABELS[s.state] || s.state;
+        const preview = s.last_msg_preview || (s.state === 'waiting_first_contact' ? '<i>Esperando mensaje del cliente</i>' : '<i>Sin mensajes</i>');
+        const dirPrefix = s.last_msg_direction === 'outbound' ? 'Tu: ' : '';
+        const active = _inbox.selectedId === s.id ? ' active' : '';
+        return `
+            <div class="inbox-item${active}" onclick="selectInboxSession(${s.id})">
+                <div class="inbox-item-row1">
+                    <span class="inbox-item-name">${esc(name)}</span>
+                    <span class="inbox-item-time">${_inboxRelTime(s.last_msg_at)}</span>
+                </div>
+                <div class="inbox-item-preview">${dirPrefix}${preview}</div>
+                <div class="inbox-item-meta">
+                    <span class="inbox-badge" style="background:${stateColor}20;color:${stateColor}">${esc(stateLabel)}</span>
+                    ${s.pedido_ref ? `<span class="inbox-badge" style="background:#f3f4f6;color:#374151">${esc(s.pedido_ref)}</span>` : ''}
+                    ${_inboxWindowBadge(s.wa_window)}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function selectInboxSession(id) {
+    _inbox.selectedId = id;
+    document.querySelectorAll('.inbox-item').forEach(el => el.classList.remove('active'));
+    const clicked = [...document.querySelectorAll('.inbox-item')].find(el => el.getAttribute('onclick') === `selectInboxSession(${id})`);
+    if (clicked) clicked.classList.add('active');
+    await loadInboxSession(id);
+}
+
+async function loadInboxSession(id, { silent = false } = {}) {
+    const pane = document.getElementById('inbox-pane');
+    if (!pane) return;
+    if (!silent) pane.innerHTML = '<div class="inbox-empty" style="margin:auto">Cargando...</div>';
+    const resp = await API.inboxSession(id);
+    if (!resp.ok) {
+        pane.innerHTML = '<div class="inbox-empty" style="margin:auto">Error cargando conversacion</div>';
+        return;
+    }
+    const s = resp.data;
+    const stateColor = _INBOX_STATE_COLORS[s.state] || '#6b7280';
+    const stateLabel = _INBOX_STATE_LABELS[s.state] || s.state;
+    const clientLine = [s.client_name, s.client_phone].filter(Boolean).join(' — ') || '(sin datos del cliente)';
+
+    const msgsHtml = (s.messages || []).map(m => _renderInboxMessage(m)).join('');
+    const canSend = s.state !== 'closed' && !!s.client_phone && !!(s.wa_window && s.wa_window.open);
+    let composerReason = '';
+    if (s.state === 'closed') composerReason = 'La sesion esta cerrada.';
+    else if (!s.client_phone) composerReason = 'No hay telefono del cliente registrado.';
+    else if (!(s.wa_window && s.wa_window.open)) composerReason = 'Ventana de 24h cerrada. Pedi al cliente que escriba para reabrirla, o contactalo por otro canal.';
+
+    pane.innerHTML = `
+        <div class="inbox-pane-header">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+                <div>
+                    <h3 style="margin:0 0 4px;font-size:16px">${esc(clientLine)}</h3>
+                    <div style="font-size:13px;color:#6b7280">
+                        ${s.pedido_ref ? `<strong>${esc(s.pedido_ref)}</strong> — ${esc(s.pedido_title || '')}` : ''}
+                    </div>
+                </div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    <span class="inbox-badge" style="background:${stateColor}20;color:${stateColor}">${esc(stateLabel)}</span>
+                    ${_inboxWindowBadge(s.wa_window)}
+                    ${s.pedido_id ? `<button class="btn btn-sm btn-secondary" onclick="openPedidoDetail(${s.pedido_id})">Abrir pedido</button>` : ''}
+                </div>
+            </div>
+        </div>
+        <div class="inbox-timeline" id="inbox-timeline">${msgsHtml || '<div class="inbox-empty" style="margin:auto">Sin mensajes todavia</div>'}</div>
+        ${composerReason ? `<div class="hint">${esc(composerReason)}</div>` : ''}
+        <div class="inbox-composer">
+            <textarea id="inbox-input" placeholder="${canSend ? 'Escribe un mensaje… (Enter para enviar, Shift+Enter nueva linea)' : 'Envio deshabilitado'}" ${canSend ? '' : 'disabled'} onkeydown="_inboxComposerKey(event,${s.id})"></textarea>
+            <button class="btn btn-primary" ${canSend ? '' : 'disabled'} onclick="sendInboxMessage(${s.id})">${icon('send',16)} Enviar</button>
+        </div>
+    `;
+    const tl = document.getElementById('inbox-timeline');
+    if (tl) tl.scrollTop = tl.scrollHeight;
+    const input = document.getElementById('inbox-input');
+    if (input && canSend && !silent) input.focus();
+}
+
+function _inboxComposerKey(e, id) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendInboxMessage(id);
+    }
+}
+
+async function sendInboxMessage(id) {
+    const input = document.getElementById('inbox-input');
+    if (!input) return;
+    const text = (input.value || '').trim();
+    if (!text) return;
+    input.disabled = true;
+    const resp = await API.inboxSend(id, text);
+    input.disabled = false;
+    if (resp.ok) {
+        input.value = '';
+        await loadInboxSession(id, { silent: true });
+        loadInboxSessions({ silent: true });
+    } else {
+        const modeMsg = {
+            window_closed: 'Ventana de 24h cerrada',
+            no_phone: 'Sin telefono del cliente',
+            closed: 'Sesion cerrada',
+        }[resp.mode] || resp.detail || 'No se pudo enviar';
+        toast(modeMsg, 'error');
+        input.focus();
+    }
+}
+
+function _renderInboxMessage(m) {
+    let cls = 'inbox-msg-in';
+    let prefix = '';
+    if (m.direction === 'outbound' && m.sender_type === 'bot') {
+        cls = 'inbox-msg-bot';
+        prefix = '🤖 Bot';
+    } else if (m.direction === 'outbound' && m.sender_type === 'operator') {
+        cls = 'inbox-msg-out';
+        prefix = '👤 Operador';
+    } else if (m.direction === 'outbound' && m.sender_type === 'system') {
+        cls = 'inbox-msg-bot';
+        prefix = '⚙️ Sistema';
+    } else {
+        prefix = '📱 Cliente';
+    }
+    const ch = m.channel === 'whatsapp' ? 'WA' : (m.channel === 'telegram' ? 'TG' : (m.channel || ''));
+    const media = m.media_type ? ` [${esc(m.media_type)}]` : '';
+    const body = m.body ? esc(m.body).replace(/\n/g, '<br>') : (m.media_type ? `<i>${esc(m.media_type)}</i>` : '<i>(sin contenido)</i>');
+    const when = m.created_at ? new Date(m.created_at).toLocaleString() : '';
+    return `
+        <div class="inbox-msg ${cls}">
+            ${body}
+            <div class="inbox-msg-meta">${prefix} · ${ch}${media} · ${when}</div>
+        </div>
+    `;
+}
+
 // ── Pedidos page ─────────────────────────────────────────────
 async function renderPedidos() {
     const page = document.getElementById('page-content');
     page.innerHTML = `
         <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
             <div>
-                <h1 class="page-title">Mis Pedidos de Cotizacion</h1>
-                <p class="page-subtitle">Gestiona tus solicitudes de precios</p>
+                <h1 class="page-title">Cotizaciones</h1>
+                <p class="page-subtitle">Gestiona tus solicitudes de precios de proveedores</p>
             </div>
             <div style="display:flex;gap:8px">
                 <button class="btn btn-primary" onclick="showCartModal()">${icon('shopping-cart',16)} Carrito (${state.cart.length})</button>
@@ -8179,6 +8480,10 @@ function renderPedidoDetail(p) {
     if (p.wa_confirmation_url) {
         actions.push(`<a href="${esc(p.wa_confirmation_url)}" target="_blank" class="btn" style="background:#25D366;color:white;border-color:#25D366">${icon('whatsapp',16)} Re-enviar WhatsApp</a>`);
     }
+    const canDeliver = isEditable && p.state !== 'draft' && (p.assigned_to === state.user?.id || p.created_by === state.user?.id);
+    if (canDeliver) {
+        actions.push(`<button class="btn" style="background:#25D366;color:white;border-color:#25D366" onclick="deliverPedidoQuote(${p.id})">${icon('whatsapp',16)} Enviar cotizacion al cliente</button>`);
+    }
     if (isEditable) {
         actions.push(`<button class="btn btn-secondary" onclick="showUploadDocModal(${p.id})">${icon('upload',16)} Subir Documento</button>`);
         actions.push(`<button class="btn btn-primary" onclick="completePedido(${p.id})">Marcar Completado</button>`);
@@ -8285,6 +8590,43 @@ async function completePedido(pedidoId) {
         toast('Pedido completado', 'success');
         openPedidoDetail(pedidoId);
     } else toast(resp.detail || 'Error', 'error');
+}
+
+async function deliverPedidoQuote(pedidoId) {
+    if (!confirm('Enviar la cotizacion al cliente por WhatsApp?')) return;
+    toast('Enviando cotizacion...', 'info');
+    const resp = await API.deliverPedido(pedidoId);
+    if (resp.ok && resp.mode === 'whatsapp') {
+        toast('Cotizacion enviada por WhatsApp', 'success');
+        openPedidoDetail(pedidoId);
+        return;
+    }
+    if (resp.ok && resp.mode === 'email') {
+        toast('Cotizacion enviada por email (WA no disponible)', 'success');
+        openPedidoDetail(pedidoId);
+        return;
+    }
+    const mode = resp.mode || 'error';
+    if (mode === 'window_closed') {
+        showModal('Ventana de WhatsApp cerrada', `
+            <p>Pasaron mas de 24 horas desde el ultimo mensaje del cliente, asi que WhatsApp no permite enviar automaticamente.</p>
+            <p style="margin-top:12px">Opciones:</p>
+            <ul style="margin:8px 0 12px 20px;line-height:1.6">
+                <li>Pedir al cliente que escriba cualquier mensaje (reabre la ventana)</li>
+                <li>Re-enviar el link wa.me desde el boton verde superior</li>
+                <li>Contactar por telefono o email</li>
+            </ul>
+            <div style="text-align:right">
+                <button class="btn btn-primary" onclick="closeModal()">Entendido</button>
+            </div>
+        `);
+    } else if (mode === 'no_session') {
+        toast('No hay sesion de WhatsApp para este pedido. Re-envia el link wa.me al cliente.', 'error');
+    } else if (mode === 'no_phone') {
+        toast('No se registro un numero de WhatsApp del cliente en la sesion.', 'error');
+    } else {
+        toast(resp.detail || 'Error enviando cotizacion', 'error');
+    }
 }
 
 async function deletePedido(pedidoId) {

@@ -134,6 +134,49 @@ def _format_phone(phone: str) -> str:
     return phone
 
 
+async def get_whatsapp_media_from_evolution(
+    msg: dict,
+    *,
+    instance_id: str | None = None,
+) -> tuple[bytes, str, str] | None:
+    """Decrypt & download a WhatsApp media message via Evolution API.
+
+    Returns (content, mime, filename) or None on failure.
+    Evolution v2 endpoint: POST /chat/getBase64FromMediaMessage/{instance}
+    """
+    import base64
+
+    inst = await _resolve_wa_instance(instance_id)
+    if not inst:
+        return None
+
+    url = f"{inst['url']}/chat/getBase64FromMediaMessage/{inst['instance_name']}"
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "apikey": inst["api_key"],
+                    "Content-Type": "application/json",
+                },
+                json={"message": msg, "convertToMp4": False},
+            )
+        if resp.status_code not in (200, 201):
+            print(f"[WA] media fetch failed: {resp.status_code} {resp.text[:200]}")
+            return None
+        data = resp.json()
+        b64 = data.get("base64") or data.get("data") or ""
+        if not b64:
+            return None
+        content = base64.b64decode(b64)
+        mime = data.get("mimetype") or "application/octet-stream"
+        filename = data.get("fileName") or data.get("filename") or "archivo"
+        return content, mime, filename
+    except Exception as e:
+        print(f"[WA] media fetch error: {e}")
+        return None
+
+
 # ── Telegram ────────────────────────────────────────────────────
 async def _resolve_telegram_token() -> str | None:
     """Resolve Telegram bot token from DB or .env."""
@@ -279,6 +322,61 @@ async def send_telegram_photo_to_topic(
             })
         return resp.status_code == 200
     except httpx.HTTPError:
+        return False
+
+
+async def send_telegram_media_bytes_to_topic(
+    group_id: str,
+    message_thread_id: int,
+    content: bytes,
+    filename: str,
+    mime: str,
+    caption: str = "",
+    *,
+    kind: str = "document",
+) -> bool:
+    """Upload a media file (bytes) into a forum topic via multipart.
+
+    kind: 'photo' (image/*), 'document' (anything), 'audio' (audio/*), 'video' (video/*).
+    For 'photo', TG accepts jpg/png; other images fall back to 'document'.
+    """
+    token = await _resolve_telegram_token()
+    if not token or not group_id:
+        return False
+
+    endpoint_by_kind = {
+        "photo": "sendPhoto",
+        "document": "sendDocument",
+        "audio": "sendAudio",
+        "video": "sendVideo",
+    }
+    field_by_kind = {
+        "photo": "photo",
+        "document": "document",
+        "audio": "audio",
+        "video": "video",
+    }
+    endpoint = endpoint_by_kind.get(kind, "sendDocument")
+    field = field_by_kind.get(kind, "document")
+
+    url = f"https://api.telegram.org/bot{token}/{endpoint}"
+    data = {
+        "chat_id": str(group_id),
+        "message_thread_id": str(message_thread_id),
+        "caption": (caption or "")[:1024],
+        "parse_mode": "HTML",
+    }
+    files = {field: (filename or "archivo", content, mime or "application/octet-stream")}
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(url, data=data, files=files)
+        if resp.status_code != 200:
+            print(f"[TG] {endpoint} failed: {resp.status_code} {resp.text[:200]}")
+            return False
+        return True
+    except httpx.HTTPError as e:
+        print(f"[TG] {endpoint} http error: {e}")
         return False
 
 
@@ -484,12 +582,19 @@ async def handle_whatsapp_message(db, msg: dict):
         or ""
     )
     media_note: str | None = None
+    media_kind: str | None = None  # image|document|audio|video — used to decide whether to fetch bytes
     if m.get("imageMessage"):
         media_note = "imagen"
+        media_kind = "image"
     elif m.get("documentMessage"):
         media_note = "documento"
+        media_kind = "document"
     elif m.get("audioMessage"):
         media_note = "audio"
+        media_kind = "audio"
+    elif m.get("videoMessage"):
+        media_note = "video"
+        media_kind = "video"
 
     if not text and not media_note:
         return
@@ -522,9 +627,19 @@ async def handle_whatsapp_message(db, msg: dict):
                 ext_message_id=ext_id,
             )
 
+            # If media, try to fetch bytes from Evolution and relay to TG topic
+            media_bytes: bytes | None = None
+            media_mime: str | None = None
+            media_filename: str | None = None
+            if media_kind:
+                fetched = await get_whatsapp_media_from_evolution(msg)
+                if fetched:
+                    media_bytes, media_mime, media_filename = fetched
+
             # Mirror to the operator TG topic
             await mirror_client_to_topic(
                 db, session, text=text, sender_ref=phone, media_note=media_note,
+                media_bytes=media_bytes, media_mime=media_mime, media_filename=media_filename,
             )
 
             # Bot autoreply (if appropriate)
@@ -584,6 +699,7 @@ async def _try_handle_operator_topic_reply(
     """Handle a message in a conversation-hub topic. Returns True if consumed."""
     from app.services.conversation_hub import (
         find_session_by_topic, mirror_operator_to_client, record_message,
+        close_session_for_pedido,
     )
     from app.models.user import User
     from sqlalchemy import select
@@ -604,6 +720,46 @@ async def _try_handle_operator_topic_reply(
         await send_telegram(
             chat_id,
             f"⚠️ @{username} no está registrado como cotizador (tg_user_id: <code>{from_user_id}</code>). Pedile al admin que te registre.",
+            message_thread_id=message_thread_id,
+        )
+        return True
+
+    # ── Topic commands ─────────────────────────────────────────
+    cmd = (text or "").strip().lower()
+    if cmd in ("/cerrar", "/close"):
+        try:
+            from app.services.pedido import complete_pedido
+            from app.models.pedido import Pedido
+            pedido = await db.get(Pedido, session.pedido_id)
+            if pedido and pedido.state != "completed":
+                await complete_pedido(db, pedido)
+            await close_session_for_pedido(db, session.pedido_id)
+            await db.commit()
+            await send_telegram(
+                chat_id,
+                f"✅ Pedido <b>#{session.pedido_id}</b> cerrado por @{username or operator.full_name}.",
+                message_thread_id=message_thread_id,
+            )
+        except Exception as e:
+            print(f"[TG] /cerrar error: {e}")
+            import traceback; traceback.print_exc()
+            await db.rollback()
+            await send_telegram(
+                chat_id,
+                "⚠️ No se pudo cerrar el pedido. Revisa los logs.",
+                message_thread_id=message_thread_id,
+            )
+        return True
+
+    if cmd in ("/ayuda", "/help"):
+        await send_telegram(
+            chat_id,
+            (
+                "<b>Comandos del topic</b>\n"
+                "<code>/cerrar</code> — marcar el pedido completado y cerrar el topic\n"
+                "<code>/ayuda</code> — mostrar esta ayuda\n\n"
+                "Cualquier otro mensaje se reenvía al cliente por WhatsApp."
+            ),
             message_thread_id=message_thread_id,
         )
         return True

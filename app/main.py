@@ -337,7 +337,7 @@ app.add_middleware(
 )
 
 # ── API Routes ──────────────────────────────────────────────────
-from app.api.routes import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos, companies, subscriptions, notifications  # noqa: E402
+from app.api.routes import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos, companies, subscriptions, notifications, inbox  # noqa: E402
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(suppliers.router, prefix="/api/v1/suppliers", tags=["Suppliers"])
@@ -352,6 +352,7 @@ app.include_router(pedidos.router, prefix="/api/v1/pedidos", tags=["Pedidos"])
 app.include_router(companies.router, prefix="/api/v1/companies", tags=["Companies"])
 app.include_router(subscriptions.router, prefix="/api/v1/subscriptions", tags=["Subscriptions"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
+app.include_router(inbox.router, prefix="/api/v1/inbox", tags=["Inbox"])
 
 
 # ── Health ──────────────────────────────────────────────────────

@@ -28,6 +28,7 @@ from app.services.messaging import (
     _resolve_hub_group_id,
     create_telegram_topic,
     close_telegram_topic,
+    send_email,
     send_telegram,
     send_whatsapp,
 )
@@ -267,12 +268,53 @@ async def mirror_client_to_topic(
     text: str | None,
     sender_ref: str | None = None,
     media_note: str | None = None,
+    media_bytes: bytes | None = None,
+    media_mime: str | None = None,
+    media_filename: str | None = None,
 ) -> None:
-    """Forward a client WA message into the TG operator topic."""
+    """Forward a client WA message into the TG operator topic.
+
+    Si hay media_bytes, sube el archivo al topic (foto/documento/audio) con
+    la caption apropiada. Si solo hay media_note (fallback), envia texto.
+    """
     if not session.tg_group_id or not session.tg_topic_id:
         return
 
     prefix = f"<i>📱 Cliente</i>"
+
+    if media_bytes:
+        from app.services.messaging import send_telegram_media_bytes_to_topic
+        mime = (media_mime or "").lower()
+        if mime.startswith("image/") and not mime.endswith("webp"):
+            kind = "photo"
+        elif mime.startswith("audio/"):
+            kind = "audio"
+        elif mime.startswith("video/"):
+            kind = "video"
+        else:
+            kind = "document"
+        caption_parts = [prefix]
+        if media_note:
+            caption_parts.append(f"<i>[{media_note}]</i>")
+        if text:
+            caption_parts.append(text)
+        caption = "\n".join(caption_parts)
+        ok = await send_telegram_media_bytes_to_topic(
+            session.tg_group_id,
+            session.tg_topic_id,
+            media_bytes,
+            media_filename or "archivo",
+            media_mime or "application/octet-stream",
+            caption,
+            kind=kind,
+        )
+        if ok:
+            return
+        # Fallback to text note if upload failed
+        body = f"{prefix} <i>[{media_note or 'archivo'}]</i> (no se pudo subir)\n{text or ''}".strip()
+        await send_telegram(session.tg_group_id, body, message_thread_id=session.tg_topic_id)
+        return
+
     if media_note:
         body = f"{prefix} <i>[{media_note}]</i>\n{text or ''}".strip()
     else:
@@ -517,21 +559,50 @@ def _build_quote_summary(pedido: Pedido) -> tuple[str, bool]:
     return body, is_full
 
 
+def _quote_body_to_html(body: str) -> str:
+    """Convertir el texto de la cotización (con tags <b>) a HTML simple para email."""
+    import html as _html
+    # Proteger tags que ya soportamos: <b>...</b> y <i>...</i>
+    placeholders = {
+        "<b>": "\x00OB\x00", "</b>": "\x00CB\x00",
+        "<i>": "\x00OI\x00", "</i>": "\x00CI\x00",
+    }
+    out = body
+    for k, v in placeholders.items():
+        out = out.replace(k, v)
+    out = _html.escape(out)
+    for k, v in placeholders.items():
+        out = out.replace(v, k.replace("<b>", "<strong>").replace("</b>", "</strong>").replace("<i>", "<em>").replace("</i>", "</em>"))
+    out = out.replace("\n", "<br>\n")
+    return f"<div style=\"font-family:Arial,sans-serif;font-size:14px;line-height:1.5\">{out}</div>"
+
+
+async def _try_email_fallback(pedido: Pedido, body: str) -> bool:
+    """Intentar enviar la cotización por email al creador del pedido."""
+    creator = getattr(pedido, "creator", None)
+    to_addr = getattr(creator, "email", None) if creator else None
+    if not to_addr:
+        return False
+    subject = f"Cotización {pedido.reference} — {pedido.title}"[:160]
+    html = _quote_body_to_html(body)
+    return await send_email(to_addr, subject, html)
+
+
 async def deliver_quote_to_client(
     db: AsyncSession,
     pedido: Pedido,
     operator: User | None = None,
 ) -> dict:
-    """Enviar la cotización final al cliente por WA.
+    """Enviar la cotización final al cliente por WA con fallback a email.
 
     Devuelve dict con:
       - ok: bool
-      - mode: "whatsapp" | "window_closed" | "no_session" | "no_phone"
+      - mode: "whatsapp" | "email" | "window_closed" | "no_session" | "no_phone"
       - url: detail URL del pedido
       - body: texto enviado
 
-    Si la ventana 24h está cerrada o no hay sesión WA, no envía por WA y el
-    caller decide fallback (email/portal).
+    Si la ventana 24h está cerrada o no hay sesión WA, intenta email al
+    creador del pedido antes de devolver failure mode.
     """
     from app.core.config import settings
 
@@ -543,22 +614,46 @@ async def deliver_quote_to_client(
     body, _is_full = _build_quote_summary(pedido)
     detail_url = f"{settings.app_url.rstrip('/')}/pedidos/{pedido.id}"
 
+    async def _email_fallback_result(mode_if_fail: str) -> dict:
+        if await _try_email_fallback(pedido, body):
+            # Log outbound via email if we have a session
+            if session is not None:
+                await record_message(
+                    db, session,
+                    direction="outbound", channel="email",
+                    sender_type="operator" if operator else "system",
+                    sender_ref=str(operator.id) if operator else None,
+                    body=body,
+                )
+                session.state = "quote_sent"
+                await db.flush()
+                if session.tg_group_id and session.tg_topic_id:
+                    await send_telegram(
+                        session.tg_group_id,
+                        f"✉️ <b>Cotización enviada por email</b> (WA no disponible)\n\n{body}",
+                        message_thread_id=session.tg_topic_id,
+                    )
+            return {"ok": True, "mode": "email", "url": detail_url, "body": body}
+        return {"ok": False, "mode": mode_if_fail, "url": detail_url, "body": body}
+
     if session is None:
-        return {"ok": False, "mode": "no_session", "url": detail_url, "body": body}
+        return await _email_fallback_result("no_session")
     if not session.client_phone:
-        return {"ok": False, "mode": "no_phone", "url": detail_url, "body": body}
+        return await _email_fallback_result("no_phone")
     if not is_wa_window_open(session):
-        # No mandamos por WA — operador debe notificar por otro canal
-        await _ping_operators(
-            session,
-            "Cotización lista pero ventana 24h cerrada. "
-            f"Contactar al cliente por otro canal. {detail_url}",
-        )
-        return {"ok": False, "mode": "window_closed", "url": detail_url, "body": body}
+        # Ventana 24h cerrada — probar email antes de avisar a operadores
+        result = await _email_fallback_result("window_closed")
+        if not result["ok"]:
+            await _ping_operators(
+                session,
+                "Cotización lista pero ventana 24h cerrada y sin email del cliente. "
+                f"Contactar por otro canal. {detail_url}",
+            )
+        return result
 
     ok = await send_whatsapp(session.client_phone, body)
     if not ok:
-        return {"ok": False, "mode": "whatsapp", "url": detail_url, "body": body}
+        return await _email_fallback_result("whatsapp")
 
     await record_message(
         db, session,
@@ -589,3 +684,15 @@ async def close_session(db: AsyncSession, session: ConversationSession) -> None:
     await db.flush()
     if session.tg_group_id and session.tg_topic_id:
         await close_telegram_topic(session.tg_group_id, session.tg_topic_id)
+
+
+async def close_session_for_pedido(db: AsyncSession, pedido_id: int) -> bool:
+    """Buscar y cerrar la sesión asociada a un pedido (si existe)."""
+    stmt = select(ConversationSession).where(
+        ConversationSession.pedido_id == pedido_id,
+    ).order_by(ConversationSession.id.desc()).limit(1)
+    session = (await db.execute(stmt)).scalar_one_or_none()
+    if session is None or session.state == "closed":
+        return False
+    await close_session(db, session)
+    return True

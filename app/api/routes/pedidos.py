@@ -412,6 +412,14 @@ async def mark_complete(
 
     from app.services.notifications import notify_pedido_completed
     await notify_pedido_completed(db, pedido)
+
+    # Cerrar la sesión del hub de conversaciones si existe
+    try:
+        from app.services.conversation_hub import close_session_for_pedido
+        await close_session_for_pedido(db, pedido.id)
+    except Exception as e:
+        print(f"[pedido] close_session_for_pedido error: {e}")
+
     await db.commit()
 
     return {"ok": True, "data": _pedido_to_dict(pedido)}
