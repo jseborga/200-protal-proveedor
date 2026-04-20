@@ -8083,7 +8083,11 @@ const _inbox = {
     sessions: [],
     selectedId: null,
     filter: 'open',
+    search: '',
+    unreadOnly: false,
+    unreadCount: 0,
     pollTimer: null,
+    searchDebounce: null,
 };
 
 const _INBOX_STATE_LABELS = {
@@ -8163,25 +8167,46 @@ async function renderInbox() {
             .inbox-composer textarea{flex:1;resize:none;min-height:44px;max-height:140px;padding:8px 10px;border:1px solid var(--gray-300);border-radius:8px;font-size:14px;font-family:inherit}
             .inbox-composer textarea:disabled{background:#f3f4f6;color:#9ca3af;cursor:not-allowed}
             .inbox-composer .hint{font-size:11px;color:#6b7280;padding:6px 12px;width:100%;text-align:center;background:#fef3c7;color:#92400e;border-top:1px solid var(--gray-200)}
+            .inbox-item.unread{background:#fffbeb}
+            .inbox-item.unread.active{background:#fef3c7}
+            .inbox-item-name.unread{font-weight:700}
+            .inbox-unread-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:6px;vertical-align:middle}
+            .inbox-unread-badge{display:inline-block;background:#dc2626;color:#fff;font-size:11px;font-weight:700;padding:1px 7px;border-radius:10px;margin-left:6px;vertical-align:middle}
+            .inbox-toolbar-row{display:flex;gap:6px;align-items:center;width:100%}
+            .inbox-toolbar-row2{display:flex;gap:6px;align-items:center;width:100%;margin-top:6px;font-size:12px;color:#6b7280}
+            .inbox-toolbar-row2 label{display:flex;gap:4px;align-items:center;cursor:pointer}
+            .inbox-toolbar-row2 .count{margin-left:auto}
             @media (max-width:720px){
                 .inbox-layout{grid-template-columns:1fr;height:auto}
                 .inbox-list{max-height:360px}
             }
         </style>
-        <div class="page-header"><h1 class="page-title">Inbox — Conversaciones</h1><p class="page-subtitle">Vista unificada de clientes y operadores (solo lectura)</p></div>
+        <div class="page-header">
+            <h1 class="page-title">Inbox — Conversaciones <span id="inbox-header-unread"></span></h1>
+            <p class="page-subtitle">Vista unificada de clientes y operadores</p>
+        </div>
         <div class="inbox-layout">
             <aside class="inbox-list">
                 <div class="inbox-list-header">
-                    <select id="inbox-filter" class="form-input" style="flex:1;max-width:200px">
-                        <option value="open">Abiertas</option>
-                        <option value="waiting_first_contact">Esperando 1er contacto</option>
-                        <option value="active">Activas</option>
-                        <option value="operator_engaged">Con operador</option>
-                        <option value="quote_sent">Cotizacion enviada</option>
-                        <option value="closed">Cerradas</option>
-                        <option value="">Todas</option>
-                    </select>
-                    <button class="btn btn-secondary btn-sm" onclick="loadInboxSessions()" title="Refrescar">${icon('search',14)}</button>
+                    <div class="inbox-toolbar-row">
+                        <select id="inbox-filter" class="form-input" style="flex:1;max-width:200px">
+                            <option value="open">Abiertas</option>
+                            <option value="waiting_first_contact">Esperando 1er contacto</option>
+                            <option value="active">Activas</option>
+                            <option value="operator_engaged">Con operador</option>
+                            <option value="quote_sent">Cotizacion enviada</option>
+                            <option value="closed">Cerradas</option>
+                            <option value="">Todas</option>
+                        </select>
+                        <button class="btn btn-secondary btn-sm" onclick="loadInboxSessions()" title="Refrescar">${icon('refresh',14)}</button>
+                    </div>
+                    <div class="inbox-toolbar-row">
+                        <input id="inbox-search" type="search" class="form-input" placeholder="Buscar ref, nombre o telefono..." style="flex:1">
+                    </div>
+                    <div class="inbox-toolbar-row2">
+                        <label><input type="checkbox" id="inbox-unread-only"> Solo no leidas</label>
+                        <span class="count" id="inbox-list-count"></span>
+                    </div>
                 </div>
                 <div class="inbox-items" id="inbox-items"><div class="inbox-empty">Cargando...</div></div>
             </aside>
@@ -8194,6 +8219,21 @@ async function renderInbox() {
     document.getElementById('inbox-filter').value = _inbox.filter;
     document.getElementById('inbox-filter').addEventListener('change', (e) => {
         _inbox.filter = e.target.value;
+        loadInboxSessions();
+    });
+    const searchInput = document.getElementById('inbox-search');
+    searchInput.value = _inbox.search;
+    searchInput.addEventListener('input', (e) => {
+        if (_inbox.searchDebounce) clearTimeout(_inbox.searchDebounce);
+        _inbox.searchDebounce = setTimeout(() => {
+            _inbox.search = e.target.value.trim();
+            loadInboxSessions();
+        }, 300);
+    });
+    const unreadToggle = document.getElementById('inbox-unread-only');
+    unreadToggle.checked = _inbox.unreadOnly;
+    unreadToggle.addEventListener('change', (e) => {
+        _inbox.unreadOnly = e.target.checked;
         loadInboxSessions();
     });
 
@@ -8209,15 +8249,22 @@ async function loadInboxSessions({ silent = false } = {}) {
     const container = document.getElementById('inbox-items');
     if (!container) return;
     if (!silent) container.innerHTML = '<div class="inbox-empty">Cargando...</div>';
-    const qs = _inbox.filter ? `?state=${encodeURIComponent(_inbox.filter)}` : '';
+    const params = new URLSearchParams();
+    if (_inbox.filter) params.set('state', _inbox.filter);
+    if (_inbox.search) params.set('search', _inbox.search);
+    if (_inbox.unreadOnly) params.set('unread_only', 'true');
+    const qs = params.toString() ? `?${params.toString()}` : '';
     const resp = await API.inboxSessions(qs);
     if (!resp.ok) {
         container.innerHTML = '<div class="inbox-empty">Error cargando sesiones</div>';
         return;
     }
     _inbox.sessions = resp.data || [];
+    _inbox.unreadCount = resp.unread_count || 0;
+    _inboxUpdateUnreadBadges(resp.total || 0);
     if (!_inbox.sessions.length) {
-        container.innerHTML = '<div class="inbox-empty">Sin conversaciones</div>';
+        const msg = _inbox.search ? 'Sin resultados para esa busqueda' : (_inbox.unreadOnly ? 'Sin conversaciones no leidas' : 'Sin conversaciones');
+        container.innerHTML = `<div class="inbox-empty">${msg}</div>`;
         return;
     }
     container.innerHTML = _inbox.sessions.map(s => {
@@ -8227,10 +8274,13 @@ async function loadInboxSessions({ silent = false } = {}) {
         const preview = s.last_msg_preview || (s.state === 'waiting_first_contact' ? '<i>Esperando mensaje del cliente</i>' : '<i>Sin mensajes</i>');
         const dirPrefix = s.last_msg_direction === 'outbound' ? 'Tu: ' : '';
         const active = _inbox.selectedId === s.id ? ' active' : '';
+        const unreadCls = s.unread ? ' unread' : '';
+        const unreadDot = s.unread ? '<span class="inbox-unread-dot" title="Mensaje del cliente sin responder"></span>' : '';
+        const nameCls = s.unread ? ' unread' : '';
         return `
-            <div class="inbox-item${active}" onclick="selectInboxSession(${s.id})">
+            <div class="inbox-item${active}${unreadCls}" onclick="selectInboxSession(${s.id})">
                 <div class="inbox-item-row1">
-                    <span class="inbox-item-name">${esc(name)}</span>
+                    <span class="inbox-item-name${nameCls}">${unreadDot}${esc(name)}</span>
                     <span class="inbox-item-time">${_inboxRelTime(s.last_msg_at)}</span>
                 </div>
                 <div class="inbox-item-preview">${dirPrefix}${preview}</div>
@@ -8242,6 +8292,25 @@ async function loadInboxSessions({ silent = false } = {}) {
             </div>
         `;
     }).join('');
+}
+
+function _inboxUpdateUnreadBadges(total) {
+    const headerEl = document.getElementById('inbox-header-unread');
+    if (headerEl) {
+        headerEl.innerHTML = _inbox.unreadCount > 0
+            ? `<span class="inbox-unread-badge">${_inbox.unreadCount}</span>`
+            : '';
+    }
+    const countEl = document.getElementById('inbox-list-count');
+    if (countEl) {
+        const parts = [];
+        parts.push(`${total} sesion${total === 1 ? '' : 'es'}`);
+        if (_inbox.unreadCount > 0 && !_inbox.unreadOnly) parts.push(`${_inbox.unreadCount} sin leer`);
+        countEl.textContent = parts.join(' · ');
+    }
+    // mobile tab badge if present
+    const navEl = document.querySelector('[data-nav-key="inbox"] .mobile-nav-badge');
+    if (navEl) navEl.textContent = _inbox.unreadCount > 0 ? _inbox.unreadCount : '';
 }
 
 async function selectInboxSession(id) {

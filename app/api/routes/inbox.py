@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func
+from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -35,6 +35,15 @@ def _wa_window_status(session: ConversationSession) -> dict:
     delta = now - last
     remaining = WA_WINDOW_HOURS * 3600 - int(delta.total_seconds())
     return {"open": remaining > 0, "seconds_left": max(remaining, 0)}
+
+
+def _is_unread(session: ConversationSession) -> bool:
+    """Cliente envio algo sin respuesta del operador."""
+    if not session.last_client_msg_at:
+        return False
+    if not session.last_operator_msg_at:
+        return True
+    return session.last_client_msg_at > session.last_operator_msg_at
 
 
 def _session_summary(session: ConversationSession, last_msg: Message | None, pedido: Pedido | None, client_name: str | None) -> dict:
@@ -66,6 +75,8 @@ def _session_summary(session: ConversationSession, last_msg: Message | None, ped
         "last_msg_preview": preview,
         "last_msg_direction": last_msg.direction if last_msg else None,
         "last_client_msg_at": session.last_client_msg_at.isoformat() if session.last_client_msg_at else None,
+        "last_operator_msg_at": session.last_operator_msg_at.isoformat() if session.last_operator_msg_at else None,
+        "unread": _is_unread(session),
         "wa_window": _wa_window_status(session),
     }
 
@@ -88,6 +99,8 @@ def _message_to_dict(m: Message) -> dict:
 @router.get("/sessions")
 async def list_sessions(
     state: str | None = Query(None, description="Filtro por estado; 'open' agrupa no cerradas"),
+    search: str | None = Query(None, description="Busqueda en ref del pedido, telefono o nombre del cliente"),
+    unread_only: bool = Query(False, description="Solo sesiones con mensaje del cliente sin responder"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -98,11 +111,35 @@ async def list_sessions(
     Ordenadas por last_client_msg_at desc (NULLS LAST). Devuelve preview del
     último mensaje para que el panel izquierdo pueda renderizar sin otra query.
     """
-    stmt = select(ConversationSession)
-    if state == "open":
-        stmt = stmt.where(ConversationSession.state != "closed")
-    elif state:
-        stmt = stmt.where(ConversationSession.state == state)
+    # Filtros compartidos entre la query principal y la de conteo
+    def apply_filters(q):
+        if state == "open":
+            q = q.where(ConversationSession.state != "closed")
+        elif state:
+            q = q.where(ConversationSession.state == state)
+        if unread_only:
+            q = q.where(
+                ConversationSession.last_client_msg_at.is_not(None),
+                or_(
+                    ConversationSession.last_operator_msg_at.is_(None),
+                    ConversationSession.last_client_msg_at > ConversationSession.last_operator_msg_at,
+                ),
+            )
+        if search:
+            term = f"%{search.strip()}%"
+            # join opcional con Pedido/User para busqueda por ref o nombre
+            q = q.outerjoin(Pedido, Pedido.id == ConversationSession.pedido_id)
+            q = q.outerjoin(User, User.id == ConversationSession.client_user_id)
+            q = q.where(or_(
+                ConversationSession.client_phone.ilike(term),
+                Pedido.reference.ilike(term),
+                Pedido.title.ilike(term),
+                User.full_name.ilike(term),
+                User.email.ilike(term),
+            ))
+        return q
+
+    stmt = apply_filters(select(ConversationSession))
 
     # NULLS LAST: sesiones sin mensaje cliente van al final
     stmt = stmt.order_by(
@@ -110,9 +147,19 @@ async def list_sessions(
         ConversationSession.id.desc(),
     ).limit(limit).offset(offset)
 
-    sessions = (await db.execute(stmt)).scalars().all()
+    sessions = (await db.execute(stmt)).scalars().unique().all()
     if not sessions:
-        return {"ok": True, "data": [], "total": 0}
+        # aun sin resultados, devolver unread_count global para el header
+        unread_count_stmt = select(func.count(ConversationSession.id)).where(
+            ConversationSession.state != "closed",
+            ConversationSession.last_client_msg_at.is_not(None),
+            or_(
+                ConversationSession.last_operator_msg_at.is_(None),
+                ConversationSession.last_client_msg_at > ConversationSession.last_operator_msg_at,
+            ),
+        )
+        unread_count = (await db.execute(unread_count_stmt)).scalar() or 0
+        return {"ok": True, "data": [], "total": 0, "unread_count": unread_count}
 
     # Fetch pedidos + client users in batch
     pedido_ids = {s.pedido_id for s in sessions}
@@ -160,15 +207,22 @@ async def list_sessions(
             client_name = pedido.creator.full_name
         data.append(_session_summary(s, last_msgs_by_sid.get(s.id), pedido, client_name))
 
-    # Total count (for UI pagination)
-    count_stmt = select(func.count(ConversationSession.id))
-    if state == "open":
-        count_stmt = count_stmt.where(ConversationSession.state != "closed")
-    elif state:
-        count_stmt = count_stmt.where(ConversationSession.state == state)
+    # Total count (for UI pagination) respetando filtros aplicados
+    count_stmt = apply_filters(select(func.count(func.distinct(ConversationSession.id))))
     total = (await db.execute(count_stmt)).scalar() or 0
 
-    return {"ok": True, "data": data, "total": total}
+    # Unread global (sesiones abiertas con mensaje pendiente) para badge del header
+    unread_count_stmt = select(func.count(ConversationSession.id)).where(
+        ConversationSession.state != "closed",
+        ConversationSession.last_client_msg_at.is_not(None),
+        or_(
+            ConversationSession.last_operator_msg_at.is_(None),
+            ConversationSession.last_client_msg_at > ConversationSession.last_operator_msg_at,
+        ),
+    )
+    unread_count = (await db.execute(unread_count_stmt)).scalar() or 0
+
+    return {"ok": True, "data": data, "total": total, "unread_count": unread_count}
 
 
 # ── GET /sessions/{id} ─────────────────────────────────────────
