@@ -173,6 +173,10 @@ const API = {
     inboxSessions: (params = '') => API.get(`/inbox/sessions${params}`),
     inboxSession: (id) => API.get(`/inbox/sessions/${id}`),
     inboxSend: (id, text) => API.post(`/inbox/sessions/${id}/send`, { text }),
+    inboxClaim: (id) => API.post(`/inbox/sessions/${id}/claim`),
+    inboxRelease: (id) => API.post(`/inbox/sessions/${id}/release`),
+    inboxAssign: (id, operatorId) => API.post(`/inbox/sessions/${id}/assign`, { operator_id: operatorId }),
+    inboxOperators: () => API.get(`/inbox/operators`),
 
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
@@ -8083,11 +8087,13 @@ const _inbox = {
     sessions: [],
     selectedId: null,
     filter: 'open',
+    assignedFilter: '',
     search: '',
     unreadOnly: false,
     unreadCount: 0,
     pollTimer: null,
     searchDebounce: null,
+    operators: null,  // cache lazy
 };
 
 const _INBOX_STATE_LABELS = {
@@ -8115,6 +8121,18 @@ function _inboxRelTime(iso) {
     const days = Math.floor(diff / 86400);
     if (days < 7) return `${days}d`;
     return d.toLocaleDateString();
+}
+
+function _inboxOperatorBadge(s) {
+    if (!s || !s.operator_id) {
+        return `<span class="inbox-badge" style="background:#fef3c7;color:#92400e" title="Sin asignar">Sin asignar</span>`;
+    }
+    const me = state.user && state.user.id === s.operator_id;
+    const label = s.operator_name || s.operator_email || `#${s.operator_id}`;
+    const bg = me ? '#dbeafe' : '#e0e7ff';
+    const fg = me ? '#1e40af' : '#3730a3';
+    const prefix = me ? 'Tu' : esc(label);
+    return `<span class="inbox-badge" style="background:${bg};color:${fg}" title="Asignado a ${esc(label)}">${prefix}</span>`;
 }
 
 function _inboxWindowBadge(w) {
@@ -8201,7 +8219,12 @@ async function renderInbox() {
                         <button class="btn btn-secondary btn-sm" onclick="loadInboxSessions()" title="Refrescar">${icon('refresh',14)}</button>
                     </div>
                     <div class="inbox-toolbar-row">
-                        <input id="inbox-search" type="search" class="form-input" placeholder="Buscar ref, nombre o telefono..." style="flex:1">
+                        <select id="inbox-assigned" class="form-input" style="flex:1">
+                            <option value="">Cualquier asignacion</option>
+                            <option value="mine">Mias</option>
+                            <option value="unassigned">Sin asignar</option>
+                        </select>
+                        <input id="inbox-search" type="search" class="form-input" placeholder="Buscar..." style="flex:1">
                     </div>
                     <div class="inbox-toolbar-row2">
                         <label><input type="checkbox" id="inbox-unread-only"> Solo no leidas</label>
@@ -8236,6 +8259,12 @@ async function renderInbox() {
         _inbox.unreadOnly = e.target.checked;
         loadInboxSessions();
     });
+    const assignedSelect = document.getElementById('inbox-assigned');
+    assignedSelect.value = _inbox.assignedFilter;
+    assignedSelect.addEventListener('change', (e) => {
+        _inbox.assignedFilter = e.target.value;
+        loadInboxSessions();
+    });
 
     await loadInboxSessions();
     _inbox.pollTimer = setInterval(() => {
@@ -8253,6 +8282,7 @@ async function loadInboxSessions({ silent = false } = {}) {
     if (_inbox.filter) params.set('state', _inbox.filter);
     if (_inbox.search) params.set('search', _inbox.search);
     if (_inbox.unreadOnly) params.set('unread_only', 'true');
+    if (_inbox.assignedFilter) params.set('assigned', _inbox.assignedFilter);
     const qs = params.toString() ? `?${params.toString()}` : '';
     const resp = await API.inboxSessions(qs);
     if (!resp.ok) {
@@ -8287,6 +8317,7 @@ async function loadInboxSessions({ silent = false } = {}) {
                 <div class="inbox-item-meta">
                     <span class="inbox-badge" style="background:${stateColor}20;color:${stateColor}">${esc(stateLabel)}</span>
                     ${s.pedido_ref ? `<span class="inbox-badge" style="background:#f3f4f6;color:#374151">${esc(s.pedido_ref)}</span>` : ''}
+                    ${_inboxOperatorBadge(s)}
                     ${_inboxWindowBadge(s.wa_window)}
                 </div>
             </div>
@@ -8351,9 +8382,11 @@ async function loadInboxSession(id, { silent = false } = {}) {
                         ${s.pedido_ref ? `<strong>${esc(s.pedido_ref)}</strong> — ${esc(s.pedido_title || '')}` : ''}
                     </div>
                 </div>
-                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
                     <span class="inbox-badge" style="background:${stateColor}20;color:${stateColor}">${esc(stateLabel)}</span>
+                    ${_inboxOperatorBadge(s)}
                     ${_inboxWindowBadge(s.wa_window)}
+                    ${_inboxAssignButtons(s)}
                     ${s.pedido_id ? `<button class="btn btn-sm btn-secondary" onclick="openPedidoDetail(${s.pedido_id})">Abrir pedido</button>` : ''}
                 </div>
             </div>
@@ -8375,6 +8408,90 @@ function _inboxComposerKey(e, id) {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendInboxMessage(id);
+    }
+}
+
+function _inboxAssignButtons(s) {
+    const myId = state.user && state.user.id;
+    const isManager = state.user && ['admin','superadmin','manager'].includes(state.user.role);
+    if (s.state === 'closed') return '';
+    const buttons = [];
+    if (!s.operator_id) {
+        buttons.push(`<button class="btn btn-sm btn-primary" onclick="claimInboxSession(${s.id})">Reclamar</button>`);
+    } else if (s.operator_id === myId) {
+        buttons.push(`<button class="btn btn-sm btn-secondary" onclick="releaseInboxSession(${s.id})">Liberar</button>`);
+    } else if (isManager) {
+        buttons.push(`<button class="btn btn-sm btn-secondary" onclick="claimInboxSession(${s.id})" title="Reasignar a ti">Tomar</button>`);
+        buttons.push(`<button class="btn btn-sm btn-secondary" onclick="releaseInboxSession(${s.id})">Liberar</button>`);
+    }
+    if (isManager) {
+        buttons.push(`<button class="btn btn-sm btn-secondary" onclick="openAssignInboxModal(${s.id})" title="Asignar a otro staff">Asignar...</button>`);
+    }
+    return buttons.join('');
+}
+
+async function claimInboxSession(id) {
+    const resp = await API.inboxClaim(id);
+    if (resp.ok) {
+        toast('Sesion asignada', 'success');
+        await loadInboxSession(id, { silent: true });
+        loadInboxSessions({ silent: true });
+    } else if (resp.conflict) {
+        const who = resp.operator_name || resp.operator_email || `#${resp.operator_id}`;
+        toast(`Ya asignada a ${who}. Pide a un manager que reasigne.`, 'error');
+    } else {
+        toast(resp.detail || 'Error al reclamar', 'error');
+    }
+}
+
+async function releaseInboxSession(id) {
+    if (!confirm('Liberar esta sesion?')) return;
+    const resp = await API.inboxRelease(id);
+    if (resp.ok) {
+        toast('Sesion liberada', 'success');
+        await loadInboxSession(id, { silent: true });
+        loadInboxSessions({ silent: true });
+    } else {
+        toast(resp.detail || 'Error al liberar', 'error');
+    }
+}
+
+async function openAssignInboxModal(id) {
+    if (_inbox.operators === null) {
+        const resp = await API.inboxOperators();
+        _inbox.operators = resp.ok ? (resp.data || []) : [];
+    }
+    const options = _inbox.operators.map(u => (
+        `<option value="${u.id}">${esc(u.name || u.email)} (${esc(u.role)})</option>`
+    )).join('');
+    openModal(`
+        <h3 style="margin:0 0 12px">Asignar sesion</h3>
+        <div class="form-group">
+            <label class="form-label">Operador</label>
+            <select id="assign-op-select" class="form-input">
+                <option value="">— Sin asignar —</option>
+                ${options}
+            </select>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+            <button class="btn btn-primary" onclick="doAssignInbox(${id})">Asignar</button>
+        </div>
+    `);
+}
+
+async function doAssignInbox(id) {
+    const sel = document.getElementById('assign-op-select');
+    if (!sel) return;
+    const val = sel.value ? parseInt(sel.value, 10) : null;
+    const resp = await API.inboxAssign(id, val);
+    if (resp.ok) {
+        closeModal();
+        toast('Asignacion actualizada', 'success');
+        await loadInboxSession(id, { silent: true });
+        loadInboxSessions({ silent: true });
+    } else {
+        toast(resp.detail || 'Error al asignar', 'error');
     }
 }
 

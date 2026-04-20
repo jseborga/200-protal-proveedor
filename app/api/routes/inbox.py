@@ -12,7 +12,7 @@ from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import require_staff
+from app.api.deps import require_staff, require_manager, STAFF_ROLES, MANAGER_ROLES
 from app.core.database import get_db
 from app.models.conversation import ConversationSession, Message
 from app.models.pedido import Pedido
@@ -46,7 +46,7 @@ def _is_unread(session: ConversationSession) -> bool:
     return session.last_client_msg_at > session.last_operator_msg_at
 
 
-def _session_summary(session: ConversationSession, last_msg: Message | None, pedido: Pedido | None, client_name: str | None) -> dict:
+def _session_summary(session: ConversationSession, last_msg: Message | None, pedido: Pedido | None, client_name: str | None, operator: User | None = None) -> dict:
     preview = None
     if last_msg:
         body = (last_msg.body or "").strip()
@@ -69,6 +69,8 @@ def _session_summary(session: ConversationSession, last_msg: Message | None, ped
         "client_phone": session.client_phone,
         "client_name": client_name,
         "operator_id": session.operator_id,
+        "operator_name": (operator.full_name if operator else None),
+        "operator_email": (operator.email if operator else None),
         "tg_group_id": session.tg_group_id,
         "tg_topic_id": session.tg_topic_id,
         "last_msg_at": last_at.isoformat() if last_at else None,
@@ -101,6 +103,7 @@ async def list_sessions(
     state: str | None = Query(None, description="Filtro por estado; 'open' agrupa no cerradas"),
     search: str | None = Query(None, description="Busqueda en ref del pedido, telefono o nombre del cliente"),
     unread_only: bool = Query(False, description="Solo sesiones con mensaje del cliente sin responder"),
+    assigned: str | None = Query(None, description="'mine' | 'unassigned' | '<user_id>'"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -137,6 +140,17 @@ async def list_sessions(
                 User.full_name.ilike(term),
                 User.email.ilike(term),
             ))
+        if assigned:
+            if assigned == "mine":
+                q = q.where(ConversationSession.operator_id == user.id)
+            elif assigned == "unassigned":
+                q = q.where(ConversationSession.operator_id.is_(None))
+            else:
+                try:
+                    uid = int(assigned)
+                    q = q.where(ConversationSession.operator_id == uid)
+                except ValueError:
+                    pass
         return q
 
     stmt = apply_filters(select(ConversationSession))
@@ -161,9 +175,10 @@ async def list_sessions(
         unread_count = (await db.execute(unread_count_stmt)).scalar() or 0
         return {"ok": True, "data": [], "total": 0, "unread_count": unread_count}
 
-    # Fetch pedidos + client users in batch
+    # Fetch pedidos + client users + operators in batch
     pedido_ids = {s.pedido_id for s in sessions}
     client_user_ids = {s.client_user_id for s in sessions if s.client_user_id}
+    operator_ids = {s.operator_id for s in sessions if s.operator_id}
 
     pedidos_by_id: dict[int, Pedido] = {}
     if pedido_ids:
@@ -174,8 +189,9 @@ async def list_sessions(
             pedidos_by_id[p.id] = p
 
     users_by_id: dict[int, User] = {}
-    if client_user_ids:
-        u_stmt = select(User).where(User.id.in_(client_user_ids))
+    all_user_ids = client_user_ids | operator_ids
+    if all_user_ids:
+        u_stmt = select(User).where(User.id.in_(all_user_ids))
         for u in (await db.execute(u_stmt)).scalars().all():
             users_by_id[u.id] = u
 
@@ -205,7 +221,8 @@ async def list_sessions(
             client_name = users_by_id[s.client_user_id].full_name
         elif pedido and pedido.creator:
             client_name = pedido.creator.full_name
-        data.append(_session_summary(s, last_msgs_by_sid.get(s.id), pedido, client_name))
+        operator = users_by_id.get(s.operator_id) if s.operator_id else None
+        data.append(_session_summary(s, last_msgs_by_sid.get(s.id), pedido, client_name, operator))
 
     # Total count (for UI pagination) respetando filtros aplicados
     count_stmt = apply_filters(select(func.count(func.distinct(ConversationSession.id))))
@@ -250,6 +267,10 @@ async def get_session(
     if not client_name and pedido and pedido.creator:
         client_name = pedido.creator.full_name
 
+    operator_user = None
+    if session.operator_id:
+        operator_user = await db.get(User, session.operator_id)
+
     msgs_stmt = select(Message).where(
         Message.session_id == session_id
     ).order_by(Message.id.asc())
@@ -260,6 +281,7 @@ async def get_session(
         messages[-1] if messages else None,
         pedido,
         client_name,
+        operator_user,
     )
     summary["messages"] = [_message_to_dict(m) for m in messages]
     return {"ok": True, "data": summary}
@@ -319,3 +341,116 @@ async def send_from_inbox(
 
     await db.commit()
     return {"ok": True, "mode": "whatsapp"}
+
+
+# ── Asignacion de operador ────────────────────────────────────
+async def _operator_summary(db: AsyncSession, session: ConversationSession) -> dict:
+    """Construye el resumen con operador cargado (evita 2 roundtrips en callers)."""
+    operator = None
+    if session.operator_id:
+        operator = await db.get(User, session.operator_id)
+    return {
+        "id": session.id,
+        "operator_id": session.operator_id,
+        "operator_name": operator.full_name if operator else None,
+        "operator_email": operator.email if operator else None,
+    }
+
+
+@router.post("/sessions/{session_id}/claim")
+async def claim_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Asignar la sesion al usuario actual (o reasignar si ya tenia otro operador).
+
+    Cualquier staff puede claim; si ya esta asignada a otra persona devuelve
+    conflict=True pero NO reasigna salvo que sea manager/admin.
+    """
+    session = await db.get(ConversationSession, session_id)
+    if session is None:
+        raise HTTPException(404, "Sesion no encontrada")
+
+    if session.operator_id and session.operator_id != user.id:
+        if user.role not in MANAGER_ROLES:
+            return {
+                "ok": False,
+                "conflict": True,
+                "detail": "La sesion ya esta asignada a otro operador",
+                **(await _operator_summary(db, session)),
+            }
+
+    session.operator_id = user.id
+    await db.commit()
+    await db.refresh(session)
+    return {"ok": True, **(await _operator_summary(db, session))}
+
+
+@router.post("/sessions/{session_id}/release")
+async def release_session(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Liberar la sesion. Solo el operador actual o manager/admin puede."""
+    session = await db.get(ConversationSession, session_id)
+    if session is None:
+        raise HTTPException(404, "Sesion no encontrada")
+    if session.operator_id is None:
+        return {"ok": True, **(await _operator_summary(db, session))}
+    if session.operator_id != user.id and user.role not in MANAGER_ROLES:
+        raise HTTPException(403, "Solo el operador asignado o un manager puede liberar la sesion")
+    session.operator_id = None
+    await db.commit()
+    await db.refresh(session)
+    return {"ok": True, **(await _operator_summary(db, session))}
+
+
+class AssignIn(BaseModel):
+    operator_id: int | None = Field(None, description="ID del staff a asignar; null para liberar")
+
+
+@router.post("/sessions/{session_id}/assign")
+async def assign_session(
+    session_id: int,
+    payload: AssignIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Asignar la sesion a un staff especifico (manager/admin)."""
+    session = await db.get(ConversationSession, session_id)
+    if session is None:
+        raise HTTPException(404, "Sesion no encontrada")
+
+    if payload.operator_id is not None:
+        target = await db.get(User, payload.operator_id)
+        if target is None or target.role not in STAFF_ROLES or not target.is_active:
+            raise HTTPException(400, "El usuario no es staff activo")
+        session.operator_id = target.id
+    else:
+        session.operator_id = None
+
+    await db.commit()
+    await db.refresh(session)
+    return {"ok": True, **(await _operator_summary(db, session))}
+
+
+@router.get("/operators")
+async def list_operators(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Lista de staff activo para dropdown de asignacion."""
+    stmt = select(User).where(
+        User.role.in_(STAFF_ROLES),
+        User.is_active.is_(True),
+    ).order_by(User.full_name)
+    users = (await db.execute(stmt)).scalars().all()
+    return {
+        "ok": True,
+        "data": [
+            {"id": u.id, "name": u.full_name, "email": u.email, "role": u.role}
+            for u in users
+        ],
+    }
