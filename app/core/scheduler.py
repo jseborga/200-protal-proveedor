@@ -62,6 +62,13 @@ def setup_jobs():
         cron="0 8 * * *",  # Diario 8AM
         description="Marca suscripciones expiradas y notifica a empresas cuya suscripcion esta por vencer.",
     )
+    _register(
+        name="inbox_sla_handoff",
+        label="Auto-handoff SLA",
+        module_path="app.tasks.inbox_sla_handoff",
+        cron="*/15 * * * *",  # Cada 15 minutos
+        description="Reasigna sesiones de inbox donde el operador no respondio dentro del SLA a otro operador on-duty.",
+    )
 
 
 async def execute_job(job_name: str) -> dict:

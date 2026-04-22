@@ -3196,3 +3196,51 @@ async def update_operator_schedule(
             "windows": saved,
         },
     }
+
+
+# ── Inbox SLA handoff (5.10) ───────────────────────────────────
+from app.services.inbox_sla_handoff import (
+    MAX_THRESHOLD_HOURS,
+    MIN_THRESHOLD_HOURS,
+    get_handoff_config as _get_handoff_config,
+    save_handoff_config as _save_handoff_config,
+)
+
+
+class InboxSlaHandoffIn(BaseModel):
+    enabled: bool = False
+    threshold_hours: int = _Field(ge=MIN_THRESHOLD_HOURS, le=MAX_THRESHOLD_HOURS)
+
+
+@router.get("/inbox-sla-handoff")
+async def get_inbox_sla_handoff(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Config actual del auto-handoff por timeout SLA."""
+    cfg = await _get_handoff_config(db)
+    return {
+        "ok": True,
+        "data": {
+            **cfg,
+            "min_threshold_hours": MIN_THRESHOLD_HOURS,
+            "max_threshold_hours": MAX_THRESHOLD_HOURS,
+        },
+    }
+
+
+@router.put("/inbox-sla-handoff")
+async def update_inbox_sla_handoff(
+    body: InboxSlaHandoffIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Guarda la config del auto-handoff por timeout SLA."""
+    saved = await _save_handoff_config(
+        db,
+        {
+            "enabled": body.enabled,
+            "threshold_hours": body.threshold_hours,
+        },
+    )
+    return {"ok": True, "data": saved}

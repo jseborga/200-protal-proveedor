@@ -188,6 +188,8 @@ const API = {
     inboxAutoAssignSave: (data) => API.put(`/admin/inbox-autoassign`, data),
     operatorScheduleGet: (userId) => API.get(`/admin/operator-schedule/${userId}`),
     operatorScheduleSave: (userId, windows) => API.put(`/admin/operator-schedule/${userId}`, { windows }),
+    inboxSlaHandoffGet: () => API.get(`/admin/inbox-sla-handoff`),
+    inboxSlaHandoffSave: (data) => API.put(`/admin/inbox-sla-handoff`, data),
 
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
@@ -9161,12 +9163,16 @@ async function openInboxAutoAssign() {
     const body = document.querySelector('.modal-overlay .modal-body');
     if (!body) return;
 
-    const resp = await API.inboxAutoAssignGet();
+    const [resp, slaResp] = await Promise.all([
+        API.inboxAutoAssignGet(),
+        API.inboxSlaHandoffGet(),
+    ]);
     if (!resp || !resp.ok) {
         body.innerHTML = `<div style="color:#dc2626;padding:20px">${icon('x',16)} ${esc(resp && (resp.error || resp.detail) || 'Error cargando configuracion')}</div>`;
         return;
     }
     const d = resp.data;
+    const sla = (slaResp && slaResp.ok) ? slaResp.data : { enabled: false, threshold_hours: 4, min_threshold_hours: 1, max_threshold_hours: 72 };
     const pool = new Set((d.pool_user_ids || []).map(x => Number(x)));
     const schedChip = (o) => {
         if (!o.has_schedule) {
@@ -9214,6 +9220,24 @@ async function openInboxAutoAssign() {
                     ${opRows || '<div style="padding:16px;color:#6b7280;text-align:center">Sin staff activo</div>'}
                 </div>
             </div>
+            <div style="border:1px solid #e5e7eb;border-radius:6px;padding:12px;background:#f9fafb">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                    <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+                        <input type="checkbox" id="sla-enabled" ${sla.enabled ? 'checked' : ''}>
+                        Auto-handoff por timeout SLA
+                    </label>
+                </div>
+                <div style="font-size:12px;color:#6b7280;margin-bottom:8px">
+                    Si el operador asignado no responde dentro del umbral y el cliente sigue esperando,
+                    la sesion se reasigna a otro operador on-duty (o se libera al pool si no hay candidato).
+                    Chequeo cada 15 minutos.
+                </div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <label for="sla-threshold" style="font-size:13px">Umbral (horas):</label>
+                    <input id="sla-threshold" type="number" min="${sla.min_threshold_hours || 1}" max="${sla.max_threshold_hours || 72}" value="${sla.threshold_hours}" style="width:80px;padding:4px 6px;border:1px solid #d1d5db;border-radius:4px">
+                    <span style="font-size:11px;color:#6b7280">(${sla.min_threshold_hours || 1}–${sla.max_threshold_hours || 72})</span>
+                </div>
+            </div>
             <div style="display:flex;justify-content:flex-end;gap:8px">
                 <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
                 <button class="btn btn-primary" onclick="saveInboxAutoAssign()">Guardar</button>
@@ -9228,12 +9252,23 @@ async function saveInboxAutoAssign() {
     const enabled = body.querySelector('#aa-enabled').checked;
     const strategy = (body.querySelector('input[name="aa-strategy"]:checked') || {}).value || 'round_robin';
     const pool_user_ids = Array.from(body.querySelectorAll('.aa-op:checked')).map(el => Number(el.dataset.id));
-    const resp = await API.inboxAutoAssignSave({ enabled, strategy, pool_user_ids });
-    if (resp && resp.ok) {
+
+    const slaEnabledEl = body.querySelector('#sla-enabled');
+    const slaThresholdEl = body.querySelector('#sla-threshold');
+    const slaEnabled = slaEnabledEl ? !!slaEnabledEl.checked : false;
+    const slaThreshold = slaThresholdEl ? Number(slaThresholdEl.value) : 4;
+
+    const [resp, slaResp] = await Promise.all([
+        API.inboxAutoAssignSave({ enabled, strategy, pool_user_ids }),
+        API.inboxSlaHandoffSave({ enabled: slaEnabled, threshold_hours: slaThreshold }),
+    ]);
+    const okBoth = resp && resp.ok && slaResp && slaResp.ok;
+    if (okBoth) {
         toast('Configuracion guardada', 'success');
         closeModal();
     } else {
-        toast((resp && (resp.error || resp.detail)) || 'Error al guardar', 'error');
+        const err = (resp && (resp.error || resp.detail)) || (slaResp && (slaResp.error || slaResp.detail)) || 'Error al guardar';
+        toast(err, 'error');
     }
 }
 

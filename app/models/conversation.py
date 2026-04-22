@@ -53,6 +53,10 @@ class ConversationSession(TimestampMixin, Base):
     operator_last_read_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 5.10: timestamp del ultimo auto-handoff (cooldown anti-ping-pong)
+    last_handoff_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     messages: Mapped[list["Message"]] = relationship(

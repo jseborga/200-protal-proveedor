@@ -75,13 +75,19 @@ async def save_config(db: AsyncSession, cfg: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _get_eligible_operators(
-    db: AsyncSession, pool_user_ids: list[int]
+    db: AsyncSession,
+    pool_user_ids: list[int],
+    *,
+    exclude_user_id: int | None = None,
 ) -> list[User]:
     """Staff activo. Si pool vacio -> todos los STAFF_ROLES con is_active.
 
     Fase 5.8: filtra por horario on-duty via
     `operator_availability.filter_on_duty` (operadores sin schedule
     definido pasan siempre).
+
+    Fase 5.10: soporta `exclude_user_id` para descartar al operador
+    actual en handoff.
     """
     from app.services.operator_availability import filter_on_duty
 
@@ -91,6 +97,8 @@ async def _get_eligible_operators(
     )
     if pool_user_ids:
         stmt = stmt.where(User.id.in_(pool_user_ids))
+    if exclude_user_id is not None:
+        stmt = stmt.where(User.id != exclude_user_id)
     stmt = stmt.order_by(User.id)
     users = list((await db.execute(stmt)).scalars().all())
     return await filter_on_duty(db, users)
@@ -144,6 +152,29 @@ async def _pick_least_loaded(
     return best
 
 
+async def pick_next_operator(
+    db: AsyncSession,
+    cfg: dict[str, Any],
+    *,
+    exclude_user_id: int | None = None,
+) -> User | None:
+    """Elige el proximo operador segun la estrategia de cfg.
+
+    Reutilizable desde handoff (Fase 5.10). Aplica pool + on-duty filter
+    + estrategia (round_robin/least_loaded). No muta cfg ni persiste.
+
+    Devuelve el User elegible o None si no hay candidatos.
+    """
+    eligible = await _get_eligible_operators(
+        db, cfg.get("pool_user_ids", []), exclude_user_id=exclude_user_id
+    )
+    if not eligible:
+        return None
+    if cfg.get("strategy") == "least_loaded":
+        return await _pick_least_loaded(db, eligible)
+    return _pick_round_robin(eligible, cfg.get("last_assigned_user_id"))
+
+
 async def auto_assign_if_needed(
     db: AsyncSession, session: ConversationSession
 ) -> User | None:
@@ -163,20 +194,11 @@ async def auto_assign_if_needed(
     if not cfg["enabled"]:
         return None
 
-    eligible = await _get_eligible_operators(db, cfg["pool_user_ids"])
-    if not eligible:
-        return None
-
-    picked: User | None = None
-    strategy = cfg["strategy"]
-    if strategy == "least_loaded":
-        picked = await _pick_least_loaded(db, eligible)
-    else:
-        picked = _pick_round_robin(eligible, cfg.get("last_assigned_user_id"))
-
+    picked = await pick_next_operator(db, cfg)
     if picked is None:
         return None
 
+    strategy = cfg["strategy"]
     session.operator_id = picked.id
 
     # Rastro en el timeline como nota de sistema (no propaga a WA/TG).
