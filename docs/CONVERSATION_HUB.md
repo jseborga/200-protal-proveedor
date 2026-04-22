@@ -363,8 +363,11 @@ Endpoints clave para humo-testear el inbox:
   suscripciones persistidas en `mkt_push_subscription`). El cliente cae al
   modo Web Notifications API si el servidor no tiene `VAPID_PUBLIC_KEY`
   configurada. Script `scripts/generate_vapid_keys.py` genera el par.
-- En prod conviene migracion explicita para `mkt_push_subscription` (por
-  ahora se crea via `Base.metadata.create_all` al boot, como el resto).
+- Migracion Alembic `0001_push_subscription_and_system_setting.py` crea
+  `mkt_push_subscription` y `mkt_system_setting` explicitamente. Es
+  idempotente (chequea `inspector.has_table` antes de crear/dropear) y
+  coexiste con `Base.metadata.create_all` del boot (este ultimo usa
+  `checkfirst` y omite tablas ya existentes).
 - Plantillas globales: solo manager/admin/superadmin. Se aplica
   consistentemente en create/update/delete. Cambio de `scope` requiere
   manager+.
