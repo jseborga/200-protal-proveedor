@@ -1,7 +1,7 @@
 # Conversation Hub — Estado del proyecto
 
 Documento de continuidad para el hub de conversaciones cliente <-> operador.
-Ultima actualizacion: **2026-04-22** (Fase 5.5 Web Push con VAPID).
+Ultima actualizacion: **2026-04-22** (Fase 5.7 auto-asignacion round-robin + least-loaded).
 
 ---
 
@@ -253,9 +253,68 @@ servidor no tiene claves VAPID configuradas.
   aware/naive (SQLite).
 - Tests: `TestMarkRead` en `tests/test_inbox_notes_templates_read.py`.
 
-### 5.7 Reglas de auto-asignacion — PENDIENTE
-Round-robin entre operadores activos cuando llega un nuevo cliente, con
-carga balanceada. Configurable por grupo/region. (Fuera del scope actual.)
+### 5.7 Reglas de auto-asignacion — **DONE**
+Round-robin o least-loaded entre operadores activos cuando llega un nuevo
+cliente, configurable por manager. Se dispara al **primer mensaje
+inbound** del cliente en `handle_whatsapp_message` (tras
+`mirror_client_to_topic`), no al crear la sesion; asi no se reservan
+operadores para sesiones que quiza nunca reciban un mensaje.
+
+**Backend**
+- Service `app/services/inbox_autoassign.py`:
+  - `get_config(db)` / `save_config(db, cfg)` sobre
+    `SystemSetting(key='inbox_autoassign')` con normalizacion
+    (strategy ∈ {round_robin, least_loaded}).
+  - `_get_eligible_operators(db, pool_ids)`: staff con `role in STAFF_ROLES`
+    + `is_active`. Si `pool_user_ids` vacio -> todos los staff activos.
+  - `_pick_round_robin(eligible, last_id)`: siguiente por id > last_id,
+    con wrap-around al primero.
+  - `_pick_least_loaded(db, eligible)`: operador con menor conteo de
+    sesiones `state != 'closed'`; desempate estable por id asc.
+  - `auto_assign_if_needed(db, session)`: no-op si ya hay operador o
+    `enabled=false`; en exito asigna, inserta `Message` de sistema
+    (`direction='internal'`, `channel='web'`, `sender_type='system'`,
+    body `"Auto-asignado a <nombre> (<strategy>)."`) y actualiza el
+    cursor `last_assigned_user_id`.
+- Hook en `app/services/messaging.py` tras `mirror_client_to_topic`:
+  si `session.operator_id` es NULL, llama a `auto_assign_if_needed`;
+  el webpush posterior (5.5) encuentra el operator_id recien asignado
+  y notifica al operador.
+- Endpoints `app/api/routes/admin.py` (require_manager):
+  - `GET /api/v1/admin/inbox-autoassign` devuelve la config normalizada
+    + `strategies` validos + lista `operators` de staff activo con su
+    `open_sessions` actual (util para que el manager decida).
+  - `PUT /api/v1/admin/inbox-autoassign` body
+    `{enabled, strategy, pool_user_ids}`. Valida que `pool_user_ids` sean
+    staff activo; rechaza 400 con la lista de ids invalidos. Preserva el
+    cursor round-robin existente.
+
+**Frontend**
+- `frontend/public/assets/app.js`:
+  - Nuevas API helpers `inboxAutoAssignGet` / `inboxAutoAssignSave`.
+  - Boton **"Auto-asignacion"** en el header del inbox, solo visible
+    para manager+ (uso de `isManager()`).
+  - `openInboxAutoAssign()` abre un modal con:
+    - Checkbox "Auto-asignacion activa".
+    - Radios estrategia (round_robin / least_loaded) con descripciones.
+    - Lista scrollable de operadores con checkbox para pool + badge
+      con `open_sessions` actual de cada uno.
+    - Guarda via PUT; toast de exito.
+
+**Tests**
+- `tests/test_inbox_autoassign.py` (22 casos):
+  - `TestConfig`: defaults, save+read, normalizacion de strategy invalida,
+    upsert.
+  - `TestRoundRobin`: vacio, primer pick, cursor siguiente, wrap-around,
+    cursor fuera de rango.
+  - `TestLeastLoaded`: vacio, conteo correcto filtrando closed, desempate
+    estable por id asc.
+  - `TestAutoAssignIfNeeded`: no-op cuando disabled / ya asignado / sin
+    eligibles; asignacion exitosa + mensaje de sistema; cursor avanza en
+    round-robin consecutivo; filtro de pool restringe al subset.
+  - `TestEndpoints`: GET devuelve defaults + operators, PUT guarda,
+    validacion rechaza user_ids no-staff (400), Pydantic rechaza strategy
+    invalida (422).
 
 ---
 
@@ -287,7 +346,8 @@ Endpoints clave para humo-testear el inbox:
 | `f8319bc` | Asignacion de operador (claim/release/assign)              |
 | `ff83e7d` | Docs: estado Conversation Hub + roadmap                     |
 | `b0eb08a` | Admin webhook logs (endpoint + UI + tests)                  |
-| _(next)_  | Inbox Fase 5 completa: metricas + notas + plantillas + mark-read + Web Push VAPID |
+| `c325f71` | Inbox Fase 5.5 Web Push completo con VAPID + Service Worker |
+| _(next)_  | Inbox Fase 5.7 auto-asignacion round-robin + least-loaded  |
 
 ---
 

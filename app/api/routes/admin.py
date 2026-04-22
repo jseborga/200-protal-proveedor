@@ -3008,3 +3008,104 @@ async def embeddings_backfill(
         "with_embedding": int(stats.get("with_emb") or 0),
         "missing": max(0, int(stats.get("active") or 0) - int(stats.get("with_emb") or 0)),
     }
+
+
+# ── Inbox auto-assign (5.7) ─────────────────────────────────────
+from typing import Literal
+
+from app.models.conversation import ConversationSession
+from app.services.inbox_autoassign import (
+    VALID_STRATEGIES,
+    get_config as _get_autoassign_config,
+    save_config as _save_autoassign_config,
+)
+
+
+class InboxAutoAssignIn(BaseModel):
+    enabled: bool = False
+    strategy: Literal["round_robin", "least_loaded"] = "round_robin"
+    pool_user_ids: list[int] = []
+
+
+@router.get("/inbox-autoassign")
+async def get_inbox_autoassign(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Config actual + lista de staff activo con su carga actual de sesiones."""
+    cfg = await _get_autoassign_config(db)
+
+    # Staff activo
+    staff_stmt = (
+        select(User)
+        .where(User.role.in_(STAFF_ROLES), User.is_active.is_(True))
+        .order_by(User.full_name)
+    )
+    staff = list((await db.execute(staff_stmt)).scalars().all())
+
+    # Carga abierta por operador (sesiones != closed)
+    load_stmt = (
+        select(
+            ConversationSession.operator_id,
+            func.count(ConversationSession.id).label("n"),
+        )
+        .where(
+            ConversationSession.state != "closed",
+            ConversationSession.operator_id.is_not(None),
+        )
+        .group_by(ConversationSession.operator_id)
+    )
+    load_by_op = {r.operator_id: int(r.n) for r in (await db.execute(load_stmt)).all()}
+
+    return {
+        "ok": True,
+        "data": {
+            **cfg,
+            "strategies": list(VALID_STRATEGIES),
+            "operators": [
+                {
+                    "id": u.id,
+                    "name": u.full_name,
+                    "email": u.email,
+                    "role": u.role,
+                    "open_sessions": load_by_op.get(u.id, 0),
+                }
+                for u in staff
+            ],
+        },
+    }
+
+
+@router.put("/inbox-autoassign")
+async def update_inbox_autoassign(
+    body: InboxAutoAssignIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Guarda la config. Valida que pool_user_ids sean staff activo."""
+    if body.pool_user_ids:
+        stmt = select(User.id).where(
+            User.id.in_(body.pool_user_ids),
+            User.role.in_(STAFF_ROLES),
+            User.is_active.is_(True),
+        )
+        valid_ids = {r for (r,) in (await db.execute(stmt)).all()}
+        invalid = [i for i in body.pool_user_ids if i not in valid_ids]
+        if invalid:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Los siguientes user_ids no son staff activo: {invalid}",
+            )
+
+    # Preservar cursor round-robin existente si no viene en payload
+    current = await _get_autoassign_config(db)
+    saved = await _save_autoassign_config(
+        db,
+        {
+            "enabled": body.enabled,
+            "strategy": body.strategy,
+            "pool_user_ids": body.pool_user_ids,
+            "last_assigned_user_id": current.get("last_assigned_user_id"),
+        },
+    )
+    return {"ok": True, "data": saved}

@@ -707,6 +707,14 @@ async def handle_whatsapp_message(db, msg: dict):
                 media_bytes=media_bytes, media_mime=media_mime, media_filename=media_filename,
             )
 
+            # 5.7: Auto-asignacion si la sesion aun no tiene operador
+            if not session.operator_id:
+                try:
+                    from app.services.inbox_autoassign import auto_assign_if_needed
+                    await auto_assign_if_needed(db, session)
+                except Exception as e:  # noqa: BLE001
+                    print(f"[autoassign] error: {e}")
+
             # 5.5: Web Push al operador asignado (si hay) por cada inbound
             if session.operator_id:
                 try:

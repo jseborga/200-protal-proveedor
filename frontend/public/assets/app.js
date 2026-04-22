@@ -184,6 +184,8 @@ const API = {
     inboxTemplateCreate: (data) => API.post(`/inbox/templates`, data),
     inboxTemplateUpdate: (id, data) => API.put(`/inbox/templates/${id}`, data),
     inboxTemplateDelete: (id) => API.del(`/inbox/templates/${id}`),
+    inboxAutoAssignGet: () => API.get(`/admin/inbox-autoassign`),
+    inboxAutoAssignSave: (data) => API.put(`/admin/inbox-autoassign`, data),
 
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
@@ -8680,6 +8682,7 @@ async function renderInbox() {
                 <button class="btn btn-secondary btn-sm" onclick="openInboxMetrics()">${icon('bar-chart',14)} Metricas / SLA</button>
                 <button id="inbox-notif-btn" class="btn btn-secondary btn-sm" onclick="toggleInboxNotifications()" title="Notificaciones del escritorio cuando hay un nuevo mensaje">${icon('bell',14)} Notif: off</button>
                 <button class="btn btn-secondary btn-sm" onclick="testInboxNotification()" title="Enviar push de prueba a los dispositivos suscritos">${icon('send',14)} Probar push</button>
+                ${isManager() ? `<button class="btn btn-secondary btn-sm" onclick="openInboxAutoAssign()" title="Configurar auto-asignacion de operadores">${icon('users',14)} Auto-asignacion</button>` : ''}
             </div>
         </div>
         <div class="inbox-layout">
@@ -9149,6 +9152,74 @@ function _fmtHours(h) {
     if (h < 1) return `${Math.round(h*60)}m`;
     if (h < 48) return `${h.toFixed(1)}h`;
     return `${(h/24).toFixed(1)}d`;
+}
+
+async function openInboxAutoAssign() {
+    showModal('Auto-asignacion de operadores', '<div style="padding:20px;text-align:center;color:#6b7280">Cargando...</div>');
+    const body = document.querySelector('.modal-overlay .modal-body');
+    if (!body) return;
+
+    const resp = await API.inboxAutoAssignGet();
+    if (!resp || !resp.ok) {
+        body.innerHTML = `<div style="color:#dc2626;padding:20px">${icon('x',16)} ${esc(resp && (resp.error || resp.detail) || 'Error cargando configuracion')}</div>`;
+        return;
+    }
+    const d = resp.data;
+    const pool = new Set((d.pool_user_ids || []).map(x => Number(x)));
+    const opRows = (d.operators || []).map(o => `
+        <label style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #f3f4f6;cursor:pointer">
+            <input type="checkbox" class="aa-op" data-id="${o.id}" ${pool.has(o.id) ? 'checked' : ''}>
+            <span style="flex:1">
+                <div style="font-weight:600">${esc(o.name || o.email)}</div>
+                <div style="font-size:11px;color:#6b7280">${esc(o.role)} · ${esc(o.email)}</div>
+            </span>
+            <span style="font-size:12px;padding:2px 8px;border-radius:10px;background:#eef2ff;color:#4338ca">${o.open_sessions} abiertas</span>
+        </label>
+    `).join('');
+
+    body.innerHTML = `
+        <div style="padding:16px;display:flex;flex-direction:column;gap:16px">
+            <div style="display:flex;align-items:center;gap:8px">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">
+                    <input type="checkbox" id="aa-enabled" ${d.enabled ? 'checked' : ''}>
+                    Auto-asignacion activa
+                </label>
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:6px">Estrategia</label>
+                <label style="display:block;padding:6px 0"><input type="radio" name="aa-strategy" value="round_robin" ${d.strategy === 'round_robin' ? 'checked' : ''}> <b>Round-robin</b> <span style="color:#6b7280;font-size:12px">— rota entre el pool en orden estable</span></label>
+                <label style="display:block;padding:6px 0"><input type="radio" name="aa-strategy" value="least_loaded" ${d.strategy === 'least_loaded' ? 'checked' : ''}> <b>Least-loaded</b> <span style="color:#6b7280;font-size:12px">— elige al que tiene menos sesiones abiertas</span></label>
+            </div>
+            <div>
+                <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">
+                    <label style="font-weight:600">Pool de operadores elegibles</label>
+                    <span style="font-size:11px;color:#6b7280">Deja todos sin marcar para usar todo el staff activo</span>
+                </div>
+                <div style="border:1px solid #e5e7eb;border-radius:6px;max-height:260px;overflow:auto">
+                    ${opRows || '<div style="padding:16px;color:#6b7280;text-align:center">Sin staff activo</div>'}
+                </div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:8px">
+                <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button class="btn btn-primary" onclick="saveInboxAutoAssign()">Guardar</button>
+            </div>
+        </div>
+    `;
+}
+
+async function saveInboxAutoAssign() {
+    const body = document.querySelector('.modal-overlay .modal-body');
+    if (!body) return;
+    const enabled = body.querySelector('#aa-enabled').checked;
+    const strategy = (body.querySelector('input[name="aa-strategy"]:checked') || {}).value || 'round_robin';
+    const pool_user_ids = Array.from(body.querySelectorAll('.aa-op:checked')).map(el => Number(el.dataset.id));
+    const resp = await API.inboxAutoAssignSave({ enabled, strategy, pool_user_ids });
+    if (resp && resp.ok) {
+        toast('Configuracion guardada', 'success');
+        closeModal();
+    } else {
+        toast((resp && (resp.error || resp.detail)) || 'Error al guardar', 'error');
+    }
 }
 
 async function openInboxMetrics() {
