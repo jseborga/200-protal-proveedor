@@ -50,7 +50,9 @@ Completada. Lo que entrega:
   desde Evolution API (`/chat/getBase64FromMediaMessage/{instance}`) y se
   reenvian al topic como `sendPhoto`/`sendDocument`/`sendAudio`/`sendVideo`
   via `send_telegram_media_bytes_to_topic`.
-- Nota: el relay TG -> WA de media **no** esta implementado aun (pendiente).
+- El relay inverso TG -> WA de media ya esta implementado: ver Fase 5.1
+  (`app/services/messaging.py` usa `_download_telegram_file` +
+  Evolution API para reenviar al cliente).
 
 ### 2.3 Comandos del operador en el topic
 - `/cerrar` — cierra la sesion.
@@ -368,6 +370,7 @@ Endpoints clave para humo-testear el inbox:
 | `6d33f6e` | Inbox Fase 5.7 auto-asignacion round-robin + least-loaded   |
 | `056bf69` | Alembic 0001 mkt_push_subscription + mkt_system_setting     |
 | `4892185` | Tests integracion auto-assign hook en handle_whatsapp_message |
+| _(next)_  | Alembic 0002 operator_last_read_at + fix doc Fase 1         |
 
 ---
 
@@ -376,9 +379,11 @@ Endpoints clave para humo-testear el inbox:
 - La clave interna del nav se mantiene `pedidos` aunque el label sea
   "Cotizaciones" para no romper `navigate('pedidos')`.
 - "Importar precios" vive dentro de Admin -> Catalogo, no en el nav principal.
-- El modelo ahora incluye `operator_last_read_at` (Fase 5.6). Se crea via
-  `Base.metadata.create_all` en el startup; para Postgres en prod conviene
-  una migracion explicita (aun no escrita).
+- El modelo incluye `operator_last_read_at` (Fase 5.6) en
+  `mkt_conversation_session`. Declarada formalmente en la migracion
+  Alembic `0002_operator_last_read_at.py` (idempotente: chequea columnas
+  via inspector). `Base.metadata.create_all` en el boot sigue creandola
+  en entornos frescos.
 - Notificaciones: se implemento Web Push completo (Service Worker + VAPID +
   suscripciones persistidas en `mkt_push_subscription`). El cliente cae al
   modo Web Notifications API si el servidor no tiene `VAPID_PUBLIC_KEY`
