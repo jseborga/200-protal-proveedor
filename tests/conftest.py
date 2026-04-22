@@ -13,8 +13,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Evitar cargar .env real
-os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
+# Evitar cargar .env real. Usamos URL postgres-shaped para que app.core.database
+# pueda crear su engine al importarse (no lo usamos; los tests montan su propio
+# engine SQLite via el fixture `engine` y override de get_db).
+# Nota: _clean_url de database.py corrompe URLs sqite con urlparse, por eso NO
+# usamos sqlite aquí.
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/testdb")
 
 import pytest
 import pytest_asyncio
