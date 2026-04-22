@@ -3057,6 +3057,15 @@ async def get_inbox_autoassign(
     )
     load_by_op = {r.operator_id: int(r.n) for r in (await db.execute(load_stmt)).all()}
 
+    # Fase 5.8: estado on-duty por operador (schedule + ahora)
+    from app.services.operator_availability import (
+        get_schedule_by_user,
+        is_on_duty,
+        now_local,
+    )
+    _now = now_local()
+    _schedules = await get_schedule_by_user(db, [u.id for u in staff])
+
     return {
         "ok": True,
         "data": {
@@ -3069,6 +3078,8 @@ async def get_inbox_autoassign(
                     "email": u.email,
                     "role": u.role,
                     "open_sessions": load_by_op.get(u.id, 0),
+                    "has_schedule": u.id in _schedules,
+                    "is_on_duty_now": is_on_duty(_schedules.get(u.id), _now),
                 }
                 for u in staff
             ],
@@ -3109,3 +3120,79 @@ async def update_inbox_autoassign(
         },
     )
     return {"ok": True, "data": saved}
+
+
+# ── Operator schedule (5.8) ─────────────────────────────────────
+from pydantic import Field as _Field
+from app.services.operator_availability import (
+    list_schedule as _list_schedule,
+    save_schedule as _save_schedule,
+)
+
+
+class ScheduleWindowIn(BaseModel):
+    weekday: int = _Field(ge=0, le=6)
+    start_time: str
+    end_time: str
+
+
+class ScheduleIn(BaseModel):
+    windows: list[ScheduleWindowIn] = []
+
+
+async def _assert_staff_user(db: AsyncSession, user_id: int) -> User:
+    u = await db.get(User, user_id)
+    if not u:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    if u.role not in STAFF_ROLES or not u.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail="El usuario no es staff activo",
+        )
+    return u
+
+
+@router.get("/operator-schedule/{user_id}")
+async def get_operator_schedule(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    caller: User = Depends(require_manager),
+):
+    """Ventanas horarias semanales del operador."""
+    u = await _assert_staff_user(db, user_id)
+    windows = await _list_schedule(db, user_id)
+    return {
+        "ok": True,
+        "data": {
+            "user_id": u.id,
+            "name": u.full_name,
+            "windows": windows,
+        },
+    }
+
+
+@router.put("/operator-schedule/{user_id}")
+async def update_operator_schedule(
+    user_id: int,
+    body: ScheduleIn,
+    db: AsyncSession = Depends(get_db),
+    caller: User = Depends(require_manager),
+):
+    """Reemplaza las ventanas del operador (delete + insert)."""
+    u = await _assert_staff_user(db, user_id)
+    try:
+        saved = await _save_schedule(
+            db,
+            user_id,
+            [w.model_dump() for w in body.windows],
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "ok": True,
+        "data": {
+            "user_id": u.id,
+            "name": u.full_name,
+            "windows": saved,
+        },
+    }

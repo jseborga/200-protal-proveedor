@@ -186,6 +186,8 @@ const API = {
     inboxTemplateDelete: (id) => API.del(`/inbox/templates/${id}`),
     inboxAutoAssignGet: () => API.get(`/admin/inbox-autoassign`),
     inboxAutoAssignSave: (data) => API.put(`/admin/inbox-autoassign`, data),
+    operatorScheduleGet: (userId) => API.get(`/admin/operator-schedule/${userId}`),
+    operatorScheduleSave: (userId, windows) => API.put(`/admin/operator-schedule/${userId}`, { windows }),
 
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
@@ -9166,15 +9168,28 @@ async function openInboxAutoAssign() {
     }
     const d = resp.data;
     const pool = new Set((d.pool_user_ids || []).map(x => Number(x)));
+    const schedChip = (o) => {
+        if (!o.has_schedule) {
+            return '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#fef3c7;color:#92400e" title="Sin horario definido — siempre on-duty">Sin horario</span>';
+        }
+        if (o.is_on_duty_now) {
+            return '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#166534" title="On-duty ahora">On-duty</span>';
+        }
+        return '<span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#e5e7eb;color:#374151" title="Off-duty ahora">Off-duty</span>';
+    };
     const opRows = (d.operators || []).map(o => `
-        <label style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #f3f4f6;cursor:pointer">
-            <input type="checkbox" class="aa-op" data-id="${o.id}" ${pool.has(o.id) ? 'checked' : ''}>
-            <span style="flex:1">
-                <div style="font-weight:600">${esc(o.name || o.email)}</div>
-                <div style="font-size:11px;color:#6b7280">${esc(o.role)} · ${esc(o.email)}</div>
-            </span>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px;border-bottom:1px solid #f3f4f6">
+            <label style="display:flex;align-items:center;gap:8px;flex:1;cursor:pointer">
+                <input type="checkbox" class="aa-op" data-id="${o.id}" ${pool.has(o.id) ? 'checked' : ''}>
+                <span style="flex:1">
+                    <div style="font-weight:600">${esc(o.name || o.email)}</div>
+                    <div style="font-size:11px;color:#6b7280">${esc(o.role)} · ${esc(o.email)}</div>
+                </span>
+            </label>
+            ${schedChip(o)}
             <span style="font-size:12px;padding:2px 8px;border-radius:10px;background:#eef2ff;color:#4338ca">${o.open_sessions} abiertas</span>
-        </label>
+            <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px" onclick="openOperatorSchedule(${o.id}, '${esc(o.name || o.email).replace(/'/g,"\\'")}')">Horario</button>
+        </div>
     `).join('');
 
     body.innerHTML = `
@@ -9219,6 +9234,113 @@ async function saveInboxAutoAssign() {
         closeModal();
     } else {
         toast((resp && (resp.error || resp.detail)) || 'Error al guardar', 'error');
+    }
+}
+
+// ── Operator schedule (5.8) ─────────────────────────────────────
+const WEEKDAY_LABELS = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom'];
+
+async function openOperatorSchedule(userId, userName) {
+    showModal(`Horario — ${userName}`, '<div style="padding:20px;text-align:center;color:#6b7280">Cargando...</div>');
+    const body = document.querySelector('.modal-overlay .modal-body');
+    if (!body) return;
+
+    const resp = await API.operatorScheduleGet(userId);
+    if (!resp || !resp.ok) {
+        body.innerHTML = `<div style="color:#dc2626;padding:20px">${icon('x',16)} ${esc(resp && (resp.error || resp.detail) || 'Error cargando horario')}</div>`;
+        return;
+    }
+
+    // Estado local: agrupado por weekday
+    const byDay = [[], [], [], [], [], [], []];
+    (resp.data.windows || []).forEach(w => {
+        byDay[w.weekday].push({ start_time: w.start_time, end_time: w.end_time });
+    });
+    window._opSchedState = { userId, byDay };
+
+    body.innerHTML = `
+        <div style="padding:16px;display:flex;flex-direction:column;gap:12px">
+            <div style="font-size:12px;color:#6b7280">
+                Sin ventanas definidas = operador siempre on-duty.
+                Para turnos que cruzan medianoche (ej: 22:00-02:00)
+                crea dos ventanas: 22:00-23:59 en un dia y 00:00-02:00 en el siguiente.
+            </div>
+            <div id="op-sched-days"></div>
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding-top:8px;border-top:1px solid #e5e7eb">
+                <button class="btn btn-secondary" style="padding:6px 12px" onclick="opSchedClearAll()">Borrar todas</button>
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+                    <button class="btn btn-primary" onclick="saveOperatorSchedule()">Guardar</button>
+                </div>
+            </div>
+        </div>
+    `;
+    renderOpSchedDays();
+}
+
+function renderOpSchedDays() {
+    const host = document.getElementById('op-sched-days');
+    if (!host) return;
+    const { byDay } = window._opSchedState;
+    host.innerHTML = byDay.map((windows, wd) => {
+        const rows = windows.map((w, idx) => `
+            <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+                <input type="time" value="${esc(w.start_time)}" onchange="opSchedUpdate(${wd}, ${idx}, 'start_time', this.value)" style="padding:4px 6px;border:1px solid #d1d5db;border-radius:4px">
+                <span style="color:#6b7280">-</span>
+                <input type="time" value="${esc(w.end_time)}" onchange="opSchedUpdate(${wd}, ${idx}, 'end_time', this.value)" style="padding:4px 6px;border:1px solid #d1d5db;border-radius:4px">
+                <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px" onclick="opSchedRemove(${wd}, ${idx})">Quitar</button>
+            </div>
+        `).join('');
+        return `
+            <div style="display:flex;gap:12px;padding:8px 0;border-bottom:1px solid #f3f4f6">
+                <div style="width:50px;font-weight:600">${WEEKDAY_LABELS[wd]}</div>
+                <div style="flex:1">
+                    ${rows || '<div style="font-size:11px;color:#9ca3af;font-style:italic">Sin ventanas</div>'}
+                    <button class="btn btn-secondary" style="padding:4px 8px;font-size:11px;margin-top:6px" onclick="opSchedAdd(${wd})">+ Agregar ventana</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function opSchedAdd(wd) {
+    window._opSchedState.byDay[wd].push({ start_time: '09:00', end_time: '17:00' });
+    renderOpSchedDays();
+}
+
+function opSchedRemove(wd, idx) {
+    window._opSchedState.byDay[wd].splice(idx, 1);
+    renderOpSchedDays();
+}
+
+function opSchedUpdate(wd, idx, field, value) {
+    window._opSchedState.byDay[wd][idx][field] = value;
+}
+
+function opSchedClearAll() {
+    if (!confirm('Borrar todas las ventanas de este operador?')) return;
+    window._opSchedState.byDay = [[], [], [], [], [], [], []];
+    renderOpSchedDays();
+}
+
+async function saveOperatorSchedule() {
+    const { userId, byDay } = window._opSchedState || {};
+    if (!userId) return;
+    const windows = [];
+    byDay.forEach((dayWindows, wd) => {
+        dayWindows.forEach(w => {
+            if (w.start_time && w.end_time) {
+                windows.push({ weekday: wd, start_time: w.start_time, end_time: w.end_time });
+            }
+        });
+    });
+    const resp = await API.operatorScheduleSave(userId, windows);
+    if (resp && resp.ok) {
+        toast('Horario guardado', 'success');
+        // Volver al modal de Auto-asignacion para reflejar estado actualizado
+        openInboxAutoAssign();
+    } else {
+        toast((resp && (resp.error || resp.detail)) || 'Error al guardar horario', 'error');
     }
 }
 

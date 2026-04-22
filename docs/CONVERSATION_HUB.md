@@ -1,7 +1,7 @@
 # Conversation Hub — Estado del proyecto
 
 Documento de continuidad para el hub de conversaciones cliente <-> operador.
-Ultima actualizacion: **2026-04-22** (Fase 5.7 auto-asignacion round-robin + least-loaded).
+Ultima actualizacion: **2026-04-22** (Fase 5.8 horarios/turnos de operador).
 
 ---
 
@@ -336,6 +336,81 @@ operadores para sesiones que quiza nunca reciban un mensaje.
     para que `mirror_client_to_topic` salga temprano y no intente TG.
 - **Suite total**: 218 tests passing.
 
+### 5.8 Horarios/turnos de operador — **DONE**
+Filtra automaticamente por ventanas on-duty semanales en la
+auto-asignacion. Operador sin schedule = siempre on-duty (backward compat
+con 5.7).
+
+**Backend**
+- Modelo `OperatorSchedule` (`app/models/operator_schedule.py`, tabla
+  `mkt_operator_schedule`): `user_id` (FK mkt_user ondelete=CASCADE),
+  `weekday` (0=Mon..6=Sun, CheckConstraint), `start_time`, `end_time`,
+  timestamps. Indices: `user_id`, `(user_id, weekday)`.
+- Migracion Alembic `0003_operator_schedule.py` (down_revision=0002).
+  Idempotente (inspector.has_table). Verificada contra Postgres:
+  `CREATE TABLE mkt_operator_schedule (...)` con CheckConstraint y FK.
+- Service `app/services/operator_availability.py`:
+  - `now_local(tz='America/La_Paz')`: datetime aware en TZ fija (misma
+    del scheduler).
+  - `is_on_duty(schedule, now)`: True si schedule vacio (backward
+    compat) o si `now.weekday()` y `now.time()` caen en alguna ventana
+    (start inclusive, end exclusive).
+  - `get_schedule_by_user(db, user_ids)`: bulk fetch `{user_id: [(wd, st, et)]}`.
+  - `filter_on_duty(db, users, now=None)`: filtra preservando orden.
+  - `save_schedule(db, user_id, windows)`: delete + insert atomico,
+    valida weekday 0..6 y start < end. Formato entrada:
+    `{"weekday": int, "start_time": "HH:MM", "end_time": "HH:MM"}`.
+  - `list_schedule(db, user_id)`: devuelve windows normalizadas.
+- Integracion en `inbox_autoassign._get_eligible_operators`: despues
+  de filtrar por STAFF_ROLES + is_active + pool, aplica
+  `filter_on_duty` usando `now_local()`. Transparente para el caller.
+- Endpoints en `app/api/routes/admin.py` (require_manager):
+  - `GET /api/v1/admin/operator-schedule/{user_id}` devuelve las
+    ventanas. 404 si usuario no existe; 400 si no es staff activo.
+  - `PUT /api/v1/admin/operator-schedule/{user_id}` body
+    `{windows: [ScheduleWindow]}`. Reemplaza todas las ventanas.
+    Valida weekday via Pydantic (ge=0, le=6) -> 422; valida
+    `start < end` en service -> 400.
+- Extension a `GET /api/v1/admin/inbox-autoassign`: cada operador del
+  array `operators` trae ahora `has_schedule: bool` y
+  `is_on_duty_now: bool` para que la UI muestre el estado actual.
+
+**Frontend**
+- `frontend/public/assets/app.js`:
+  - Nuevos API helpers `operatorScheduleGet(userId)` /
+    `operatorScheduleSave(userId, windows)`.
+  - En el modal **Auto-asignacion**: cada fila de operador muestra un
+    chip con estado del horario (verde "On-duty" / gris "Off-duty" /
+    ambar "Sin horario") y boton **Horario**.
+  - `openOperatorSchedule(userId, userName)` abre sub-modal con 7
+    filas (Lun..Dom), cada una con lista de ventanas (inputs
+    `<input type="time">`) + boton "Agregar ventana" + "Quitar". Boton
+    **Borrar todas** limpia todo. Al guardar, vuelve al modal de
+    Auto-asignacion para reflejar el estado actualizado.
+
+**Tests**
+- `tests/test_operator_availability.py` (24 casos unitarios +
+  integracion):
+  - `TestIsOnDuty`: schedule vacio, dentro, fuera, weekday equivocado,
+    bordes (start inclusive / end exclusive), multi-ventana.
+  - `TestGetScheduleByUser`: ids vacios, users sin filas, bulk fetch.
+  - `TestFilterOnDuty`: todos pasan sin schedule, preserva orden,
+    input vacio.
+  - `TestSaveSchedule`: upsert reemplaza, empty clears, rechaza
+    weekday invalido / start>=end / formato HH:MM invalido.
+  - `TestEndpoints`: GET vacio, PUT guarda, 422 weekday, 400 rango,
+    404 user inexistente, 400 user no-staff.
+- `tests/test_inbox_autoassign_schedule.py` (5 casos de integracion):
+  - `test_no_schedule_always_assigns`: operadores sin rows -> elegibles.
+  - `test_respects_on_duty_window`: mock `now_local` a 10am -> asigna.
+  - `test_off_duty_not_assigned`: mock a 20pm -> no asigna.
+  - `test_picks_only_on_duty_operator`: A sin schedule, B off-duty -> A.
+  - `test_all_off_duty_no_assignment`: ninguno on-duty -> no asigna,
+    no system message.
+- Fixtures `aa_db` e `integ_db` de Fase 5.7 actualizados para crear
+  tambien `mkt_operator_schedule` en el engine SQLite.
+- **Suite total**: 247 tests passing.
+
 ---
 
 ## 6. Como levantar localmente
@@ -371,6 +446,7 @@ Endpoints clave para humo-testear el inbox:
 | `056bf69` | Alembic 0001 mkt_push_subscription + mkt_system_setting     |
 | `4892185` | Tests integracion auto-assign hook en handle_whatsapp_message |
 | `5b3240f` | Alembic 0002 operator_last_read_at + fix doc Fase 1         |
+| _(next)_  | Inbox Fase 5.8 horarios/turnos de operador (on-duty windows) |
 
 ---
 
@@ -388,6 +464,11 @@ Endpoints clave para humo-testear el inbox:
   suscripciones persistidas en `mkt_push_subscription`). El cliente cae al
   modo Web Notifications API si el servidor no tiene `VAPID_PUBLIC_KEY`
   configurada. Script `scripts/generate_vapid_keys.py` genera el par.
+- Horarios de operador (Fase 5.8) se almacenan en
+  `mkt_operator_schedule` (migracion Alembic 0003). TZ fija
+  `America/La_Paz` en `app/services/operator_availability.now_local` —
+  misma TZ que el scheduler de APScheduler. Sin TZ por usuario por
+  ahora (extension futura).
 - Migracion Alembic `0001_push_subscription_and_system_setting.py` crea
   `mkt_push_subscription` y `mkt_system_setting` explicitamente. Es
   idempotente (chequea `inspector.has_table` antes de crear/dropear) y

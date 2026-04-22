@@ -21,6 +21,7 @@ from .system_setting import SystemSetting
 from .ai_agent import AIAgent
 from .banned_ip import BannedIP
 from .conversation import ConversationSession, Message
+from .operator_schedule import OperatorSchedule
 
 __all__ = [
     "Base", "Plan", "Company", "Subscription",
@@ -33,4 +34,5 @@ __all__ = [
     "SupplierSuggestion", "Notification", "TaskLog", "WebhookLog", "InboxTemplate",
     "PushSubscription", "SystemSetting", "AIAgent", "BannedIP",
     "ConversationSession", "Message",
+    "OperatorSchedule",
 ]

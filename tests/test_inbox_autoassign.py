@@ -19,6 +19,7 @@ from app.api.deps import require_manager
 from app.api.routes.admin import router as admin_router
 from app.core.database import get_db
 from app.models.conversation import ConversationSession, Message
+from app.models.operator_schedule import OperatorSchedule
 from app.models.system_setting import SystemSetting
 from app.models.user import User
 from app.services.inbox_autoassign import (
@@ -32,12 +33,16 @@ from app.services.inbox_autoassign import (
 
 @pytest_asyncio.fixture
 async def aa_db(db):
-    """Crea mkt_system_setting en el engine SQLite (JSONB -> JSON)."""
+    """Crea mkt_system_setting (+ mkt_operator_schedule para Fase 5.8)
+    en el engine SQLite (JSONB -> JSON)."""
     SystemSetting.__table__.c.value.type = JSON()
     eng = db.bind
     async with eng.begin() as conn:
         await conn.run_sync(
             lambda sc: SystemSetting.__table__.create(sc, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda sc: OperatorSchedule.__table__.create(sc, checkfirst=True)
         )
     return db
 

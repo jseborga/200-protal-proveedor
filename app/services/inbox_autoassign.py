@@ -77,7 +77,14 @@ async def save_config(db: AsyncSession, cfg: dict[str, Any]) -> dict[str, Any]:
 async def _get_eligible_operators(
     db: AsyncSession, pool_user_ids: list[int]
 ) -> list[User]:
-    """Staff activo. Si pool vacio -> todos los STAFF_ROLES con is_active."""
+    """Staff activo. Si pool vacio -> todos los STAFF_ROLES con is_active.
+
+    Fase 5.8: filtra por horario on-duty via
+    `operator_availability.filter_on_duty` (operadores sin schedule
+    definido pasan siempre).
+    """
+    from app.services.operator_availability import filter_on_duty
+
     stmt = select(User).where(
         User.role.in_(STAFF_ROLES),
         User.is_active.is_(True),
@@ -85,7 +92,8 @@ async def _get_eligible_operators(
     if pool_user_ids:
         stmt = stmt.where(User.id.in_(pool_user_ids))
     stmt = stmt.order_by(User.id)
-    return list((await db.execute(stmt)).scalars().all())
+    users = list((await db.execute(stmt)).scalars().all())
+    return await filter_on_duty(db, users)
 
 
 def _pick_round_robin(

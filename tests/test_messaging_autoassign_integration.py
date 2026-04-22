@@ -21,6 +21,7 @@ import pytest_asyncio
 from sqlalchemy import JSON, select
 
 from app.models.conversation import ConversationSession, Message
+from app.models.operator_schedule import OperatorSchedule
 from app.models.system_setting import SystemSetting
 from app.models.user import User
 from app.services.inbox_autoassign import save_config
@@ -28,12 +29,15 @@ from app.services.inbox_autoassign import save_config
 
 @pytest_asyncio.fixture
 async def integ_db(db):
-    """Anade mkt_system_setting al engine SQLite del fixture db."""
+    """Anade mkt_system_setting + mkt_operator_schedule al engine SQLite."""
     SystemSetting.__table__.c.value.type = JSON()
     eng = db.bind
     async with eng.begin() as conn:
         await conn.run_sync(
             lambda sc: SystemSetting.__table__.create(sc, checkfirst=True)
+        )
+        await conn.run_sync(
+            lambda sc: OperatorSchedule.__table__.create(sc, checkfirst=True)
         )
     return db
 
