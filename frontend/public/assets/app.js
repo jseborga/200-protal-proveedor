@@ -259,6 +259,18 @@ const API = {
     adminTestWhatsApp: (data) => API.post('/admin/integrations/test-whatsapp', data || {}),
     adminTestEmail: () => API.post('/admin/integrations/test-email'),
     adminEvolutionHealth: () => API.get('/admin/integrations/evolution-health'),
+    adminWebhookLogs: (params = {}) => {
+        const q = new URLSearchParams();
+        if (params.source) q.set('source', params.source);
+        if (params.event_type) q.set('event_type', params.event_type);
+        if (params.instance_name) q.set('instance_name', params.instance_name);
+        if (params.status) q.set('status', params.status);
+        if (params.limit) q.set('limit', String(params.limit));
+        if (params.offset) q.set('offset', String(params.offset));
+        const qs = q.toString();
+        return API.get('/admin/webhook-logs' + (qs ? '?' + qs : ''));
+    },
+    adminWebhookLogDetail: (id) => API.get('/admin/webhook-logs/' + encodeURIComponent(id)),
 
     // Public site config (no auth needed)
     siteConfig: () => fetch(`${API_BASE}/site-config`).then(r => r.json()),
@@ -7222,6 +7234,48 @@ async function renderAdminIntegrations() {
             </form>
         </div>
 
+        <!-- Historial reciente de webhooks -->
+        <div class="integ-section">
+            <div class="integ-header">
+                <span class="integ-icon" style="background:#e0e7ff;color:#4338ca">${icon('clock',20)}</span>
+                <div>
+                    <h3>Historial reciente de webhooks</h3>
+                    <p>Auditoría de eventos entrantes de Evolution y Telegram (últimos 1000 por source).</p>
+                </div>
+            </div>
+            <div id="wh-logs-filters" style="display:grid;grid-template-columns:repeat(4,1fr) auto;gap:8px;margin-bottom:10px;align-items:end">
+                <div class="form-group" style="margin:0">
+                    <label class="form-label">Source</label>
+                    <select id="wh-f-source" class="form-input">
+                        <option value="">Todos</option>
+                        <option value="whatsapp">whatsapp</option>
+                        <option value="telegram">telegram</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin:0">
+                    <label class="form-label">Event type</label>
+                    <input id="wh-f-event" class="form-input" placeholder="messages.upsert">
+                </div>
+                <div class="form-group" style="margin:0">
+                    <label class="form-label">Instancia</label>
+                    <input id="wh-f-instance" class="form-input" placeholder="apu">
+                </div>
+                <div class="form-group" style="margin:0">
+                    <label class="form-label">Status</label>
+                    <select id="wh-f-status" class="form-input">
+                        <option value="">Todos</option>
+                        <option value="received">received</option>
+                        <option value="processed">processed</option>
+                        <option value="error">error</option>
+                    </select>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="refreshWebhookLogs(true)">${icon('search',14)} Filtrar</button>
+            </div>
+            <div id="wh-logs-content">
+                <small style="color:var(--gray-400)">Cargando historial...</small>
+            </div>
+        </div>
+
         <!-- Claude Code Routine -->
         <div class="integ-section">
             <div class="integ-header">
@@ -7257,6 +7311,8 @@ async function renderAdminIntegrations() {
 
     // Arrancar el polling de salud Evolution (connectionState + last webhook)
     _startEvolutionHealthPolling();
+    // Primer load del historial de webhooks
+    refreshWebhookLogs(true);
 }
 
 // ── Evolution health polling ─────────────────────────────────────
@@ -7333,6 +7389,132 @@ async function refreshEvolutionHealth() {
         }
     } catch (e) {
         // silencioso: el polling sigue corriendo
+    }
+}
+
+// ── Webhook logs history ─────────────────────────────────────────
+let _whLogsState = { offset: 0, limit: 25 };
+
+function _whLogsFilters() {
+    const src = document.getElementById('wh-f-source');
+    const ev = document.getElementById('wh-f-event');
+    const inst = document.getElementById('wh-f-instance');
+    const st = document.getElementById('wh-f-status');
+    return {
+        source: src ? src.value.trim() : '',
+        event_type: ev ? ev.value.trim() : '',
+        instance_name: inst ? inst.value.trim() : '',
+        status: st ? st.value.trim() : '',
+    };
+}
+
+function _whStatusBadge(s) {
+    const v = (s || '').toLowerCase();
+    if (v === 'error') return `<span style="color:#dc2626">${icon('x',12)} error</span>`;
+    if (v === 'processed') return `<span style="color:#16a34a">${icon('check',12)} processed</span>`;
+    return `<span style="color:var(--gray-400)">${icon('clock',12)} ${esc(s || 'received')}</span>`;
+}
+
+async function refreshWebhookLogs(reset = false) {
+    const box = document.getElementById('wh-logs-content');
+    if (!box) return;
+    if (reset) _whLogsState.offset = 0;
+    const f = _whLogsFilters();
+    const params = { limit: _whLogsState.limit, offset: _whLogsState.offset };
+    if (f.source) params.source = f.source;
+    if (f.event_type) params.event_type = f.event_type;
+    if (f.instance_name) params.instance_name = f.instance_name;
+    if (f.status) params.status = f.status;
+
+    box.innerHTML = '<small style="color:var(--gray-400)">Cargando historial...</small>';
+    const resp = await API.adminWebhookLogs(params);
+    if (!resp || !resp.ok) {
+        box.innerHTML = `<div style="color:#dc2626;font-size:13px">${icon('x',14)} ${esc(resp && (resp.error || resp.detail) || 'Error cargando historial')}</div>`;
+        return;
+    }
+    const data = resp.data || {};
+    const items = data.items || [];
+    const total = data.total || 0;
+    const offset = data.offset || 0;
+    const limit = data.limit || _whLogsState.limit;
+    const from = total === 0 ? 0 : offset + 1;
+    const to = Math.min(offset + items.length, total);
+
+    const rows = items.length === 0
+        ? `<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--gray-400)">Sin eventos</td></tr>`
+        : items.map(r => `
+            <tr>
+                <td style="white-space:nowrap">${esc(_relativeTime(r.received_at) || '-')}</td>
+                <td>${esc(r.source || '-')}</td>
+                <td><code style="font-size:11px">${esc(r.event_type || '-')}</code></td>
+                <td>${esc(r.instance_name || '-')}</td>
+                <td>${_whStatusBadge(r.status)}</td>
+                <td><button type="button" class="btn btn-secondary" style="padding:3px 8px;font-size:11px" onclick="viewWebhookLogDetail(${r.id})">${icon('eye',12)} Ver</button></td>
+            </tr>
+        `).join('');
+
+    const canPrev = offset > 0;
+    const canNext = offset + items.length < total;
+    box.innerHTML = `
+        <div style="overflow-x:auto">
+            <table class="table" style="width:100%;font-size:13px">
+                <thead>
+                    <tr>
+                        <th style="text-align:left">Recibido</th>
+                        <th style="text-align:left">Source</th>
+                        <th style="text-align:left">Event</th>
+                        <th style="text-align:left">Instancia</th>
+                        <th style="text-align:left">Status</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px">
+            <small style="color:var(--gray-400)">${from}–${to} de ${total}</small>
+            <div style="display:flex;gap:6px">
+                <button type="button" class="btn btn-secondary" ${canPrev ? '' : 'disabled'} onclick="_whLogsPage(-1)">${icon('chevron-left',12)} Anterior</button>
+                <button type="button" class="btn btn-secondary" ${canNext ? '' : 'disabled'} onclick="_whLogsPage(1)">Siguiente ${icon('chevron-right',12)}</button>
+            </div>
+        </div>
+    `;
+}
+
+function _whLogsPage(delta) {
+    const next = _whLogsState.offset + delta * _whLogsState.limit;
+    if (next < 0) return;
+    _whLogsState.offset = next;
+    refreshWebhookLogs(false);
+}
+
+async function viewWebhookLogDetail(id) {
+    const resp = await API.adminWebhookLogDetail(id);
+    if (!resp || !resp.ok) {
+        toast(resp && (resp.error || resp.detail) || 'Error cargando detalle', 'error');
+        return;
+    }
+    const d = resp.data || {};
+    const payloadStr = d.payload ? JSON.stringify(d.payload, null, 2) : '(sin payload)';
+    const html = `
+        <div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:12px;margin-bottom:10px">
+                <div><strong>ID:</strong> ${esc(String(d.id))}</div>
+                <div><strong>Recibido:</strong> ${esc(d.received_at || '-')}</div>
+                <div><strong>Source:</strong> ${esc(d.source || '-')}</div>
+                <div><strong>Event:</strong> <code>${esc(d.event_type || '-')}</code></div>
+                <div><strong>Instancia:</strong> ${esc(d.instance_name || '-')}</div>
+                <div><strong>Status:</strong> ${esc(d.status || '-')}</div>
+            </div>
+            ${d.error ? `<div style="background:#fee2e2;color:#991b1b;padding:8px;border-radius:6px;font-size:12px;margin-bottom:8px"><strong>Error:</strong> ${esc(d.error)}</div>` : ''}
+            <pre style="background:#0f172a;color:#e2e8f0;padding:10px;border-radius:6px;max-height:50vh;overflow:auto;font-size:11px;margin:0"><code>${esc(payloadStr)}</code></pre>
+        </div>
+    `;
+    if (typeof showModal === 'function') {
+        showModal(`Webhook #${d.id}`, html);
+    } else {
+        const w = window.open('', '_blank');
+        if (w) w.document.write(`<pre>${payloadStr.replace(/</g, '&lt;')}</pre>`);
     }
 }
 

@@ -2151,6 +2151,121 @@ async def evolution_health(
     }
 
 
+@router.get("/webhook-logs")
+async def list_webhook_logs(
+    source: str | None = None,
+    event_type: str | None = None,
+    instance_name: str | None = None,
+    status: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Lista historial reciente de webhooks con filtros.
+
+    Query params:
+      - source: "whatsapp" | "telegram"
+      - event_type: p.ej. "messages.upsert"
+      - instance_name: p.ej. "apu"
+      - status: "received" | "processed" | "error"
+      - limit: default 50, max 200
+      - offset: default 0
+
+    Response:
+      { ok: true, data: { items: [...], total: N, limit, offset } }
+
+    Los items excluyen el payload completo (solo keys de primer nivel para
+    no explotar el JSON). Para ver el payload completo consultar por id.
+    """
+    from app.models.webhook_log import WebhookLog
+
+    # Normalizar l\u00edmites
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    conds = []
+    if source:
+        conds.append(WebhookLog.source == source)
+    if event_type:
+        conds.append(WebhookLog.event_type == event_type)
+    if instance_name:
+        conds.append(WebhookLog.instance_name == instance_name)
+    if status:
+        conds.append(WebhookLog.status == status)
+
+    # Total count
+    count_stmt = select(func.count()).select_from(WebhookLog)
+    if conds:
+        count_stmt = count_stmt.where(*conds)
+    total = (await db.execute(count_stmt)).scalar() or 0
+
+    # Items
+    stmt = select(WebhookLog).order_by(WebhookLog.id.desc()).limit(limit).offset(offset)
+    if conds:
+        stmt = stmt.where(*conds)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    def _preview(payload):
+        if not isinstance(payload, dict):
+            return None
+        # Solo keys de primer nivel + un extracto corto
+        return {k: (str(v)[:80] if not isinstance(v, (dict, list)) else type(v).__name__)
+                for k, v in list(payload.items())[:10]}
+
+    items = [
+        {
+            "id": r.id,
+            "source": r.source,
+            "event_type": r.event_type,
+            "instance_name": r.instance_name,
+            "status": r.status,
+            "error": r.error,
+            "received_at": (
+                r.received_at.isoformat() if r.received_at else None
+            ),
+            "payload_preview": _preview(r.payload),
+        }
+        for r in rows
+    ]
+
+    return {
+        "ok": True,
+        "data": {
+            "items": items,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        },
+    }
+
+
+@router.get("/webhook-logs/{log_id}")
+async def get_webhook_log(
+    log_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Devuelve el detalle completo de un webhook por id (incluye payload)."""
+    from app.models.webhook_log import WebhookLog
+    row = await db.get(WebhookLog, log_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="WebhookLog no encontrado")
+    return {
+        "ok": True,
+        "data": {
+            "id": row.id,
+            "source": row.source,
+            "event_type": row.event_type,
+            "instance_name": row.instance_name,
+            "status": row.status,
+            "error": row.error,
+            "received_at": row.received_at.isoformat() if row.received_at else None,
+            "payload": row.payload,
+        },
+    }
+
+
 @router.post("/integrations/test-whatsapp")
 async def test_whatsapp_connection(
     body: dict | None = None,
