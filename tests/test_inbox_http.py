@@ -7,10 +7,9 @@ Usa FastAPI TestClient con dependency_overrides para:
 Mockea send_whatsapp/send_telegram para no llamar servicios externos.
 """
 import os
-# app.core.database._clean_url usa urlparse que corrompe URLs de sqlite;
-# seteamos un URL postgres-shaped antes del import para evitar el bug al
-# crear el engine real (que no usamos, todo se overridea con dependency_overrides).
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/db")
+# El engine real no se usa (dependency_overrides sustituye get_db por la
+# sesion SQLite in-memory del conftest).
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, patch

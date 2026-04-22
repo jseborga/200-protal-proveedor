@@ -11,7 +11,7 @@ o documento dentro de un topic del grupo hub de operadores:
 - Se registran los Message outbound (WA) + inbound (TG log)
 """
 import os
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://u:p@localhost:5432/db")
+os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
