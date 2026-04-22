@@ -446,7 +446,7 @@ Endpoints clave para humo-testear el inbox:
 | `056bf69` | Alembic 0001 mkt_push_subscription + mkt_system_setting     |
 | `4892185` | Tests integracion auto-assign hook en handle_whatsapp_message |
 | `5b3240f` | Alembic 0002 operator_last_read_at + fix doc Fase 1         |
-| _(next)_  | Inbox Fase 5.8 horarios/turnos de operador (on-duty windows) |
+| `002c3c0` | Inbox Fase 5.8 horarios/turnos de operador (on-duty windows) |
 
 ---
 
