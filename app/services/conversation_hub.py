@@ -103,7 +103,8 @@ def is_wa_window_open(session: ConversationSession) -> bool:
     """True si la ventana de 24h de WhatsApp sigue abierta."""
     if session.last_client_msg_at is None:
         return False
-    delta = datetime.now(timezone.utc) - session.last_client_msg_at
+    last = session.last_client_msg_at if session.last_client_msg_at.tzinfo else session.last_client_msg_at.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - last
     return delta < timedelta(hours=WA_WINDOW_HOURS)
 
 
