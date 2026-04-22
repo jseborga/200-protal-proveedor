@@ -537,7 +537,7 @@ Endpoints clave para humo-testear el inbox:
 | `4892185` | Tests integracion auto-assign hook en handle_whatsapp_message |
 | `5b3240f` | Alembic 0002 operator_last_read_at + fix doc Fase 1         |
 | `002c3c0` | Inbox Fase 5.8 horarios/turnos de operador (on-duty windows) |
-| `PENDING` | Inbox Fase 5.10 auto-handoff por timeout SLA breach + Alembic 0004 |
+| `707a34d` | Inbox Fase 5.10 auto-handoff por timeout SLA breach + Alembic 0004 |
 
 ---
 
