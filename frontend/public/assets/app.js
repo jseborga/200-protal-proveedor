@@ -177,6 +177,13 @@ const API = {
     inboxRelease: (id) => API.post(`/inbox/sessions/${id}/release`),
     inboxAssign: (id, operatorId) => API.post(`/inbox/sessions/${id}/assign`, { operator_id: operatorId }),
     inboxOperators: () => API.get(`/inbox/operators`),
+    inboxMetrics: (days = 7, slaHours = 1) => API.get(`/inbox/metrics?days=${days}&sla_hours=${slaHours}`),
+    inboxNote: (id, text) => API.post(`/inbox/sessions/${id}/note`, { text }),
+    inboxMarkRead: (id) => API.post(`/inbox/sessions/${id}/mark-read`),
+    inboxTemplates: () => API.get(`/inbox/templates`),
+    inboxTemplateCreate: (data) => API.post(`/inbox/templates`, data),
+    inboxTemplateUpdate: (id, data) => API.put(`/inbox/templates/${id}`, data),
+    inboxTemplateDelete: (id) => API.del(`/inbox/templates/${id}`),
 
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
@@ -8361,7 +8368,103 @@ const _inbox = {
     pollTimer: null,
     searchDebounce: null,
     operators: null,  // cache lazy
+    // 5.5: Web Notifications
+    notifLastSeenIds: null,   // Set<number> de session ids con unread en ultimo poll
+    notifEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('inboxNotifEnabled') === '1'),
+    notifInit: false,         // primer poll: solo baseline, no notificar
 };
+
+function _inboxNotifSupported() {
+    return typeof window !== 'undefined' && 'Notification' in window;
+}
+
+async function toggleInboxNotifications() {
+    if (!_inboxNotifSupported()) {
+        toast('Tu navegador no soporta notificaciones', 'error');
+        return;
+    }
+    if (_inbox.notifEnabled) {
+        _inbox.notifEnabled = false;
+        try { localStorage.setItem('inboxNotifEnabled', '0'); } catch (_) {}
+        toast('Notificaciones desactivadas', 'info');
+        _inboxUpdateNotifButton();
+        return;
+    }
+    let perm = Notification.permission;
+    if (perm === 'default') {
+        try { perm = await Notification.requestPermission(); } catch (_) { perm = 'denied'; }
+    }
+    if (perm !== 'granted') {
+        toast('Permiso de notificacion denegado', 'error');
+        return;
+    }
+    _inbox.notifEnabled = true;
+    try { localStorage.setItem('inboxNotifEnabled', '1'); } catch (_) {}
+    toast('Notificaciones activadas', 'success');
+    _inboxUpdateNotifButton();
+}
+
+function _inboxUpdateNotifButton() {
+    const btn = document.getElementById('inbox-notif-btn');
+    if (!btn) return;
+    const enabled = _inbox.notifEnabled && _inboxNotifSupported() &&
+        (typeof Notification === 'undefined' || Notification.permission === 'granted');
+    btn.textContent = enabled ? 'Notif: on' : 'Notif: off';
+    btn.classList.toggle('btn-primary', enabled);
+    btn.classList.toggle('btn-secondary', !enabled);
+}
+
+function _inboxMaybeNotify(sessionsPayload) {
+    // Extrae ids de sesiones unread
+    const currentUnreadIds = new Set(
+        (sessionsPayload || []).filter(s => s.unread).map(s => s.id)
+    );
+    // Primer poll: solo baseline
+    if (!_inbox.notifInit) {
+        _inbox.notifLastSeenIds = currentUnreadIds;
+        _inbox.notifInit = true;
+        return;
+    }
+    // Si el usuario desactivo o no tiene permiso, saltamos (pero actualizamos baseline)
+    const enabled = _inbox.notifEnabled && _inboxNotifSupported() &&
+        (typeof Notification !== 'undefined' && Notification.permission === 'granted');
+    if (!enabled) {
+        _inbox.notifLastSeenIds = currentUnreadIds;
+        return;
+    }
+    // Sesiones con unread nuevas respecto al poll anterior
+    const prev = _inbox.notifLastSeenIds || new Set();
+    const newOnes = [];
+    (sessionsPayload || []).forEach(s => {
+        if (s.unread && !prev.has(s.id)) newOnes.push(s);
+    });
+    _inbox.notifLastSeenIds = currentUnreadIds;
+    // No notificar si la pestana esta visible y la sesion ya esta abierta
+    const docVisible = (typeof document !== 'undefined' && document.visibilityState === 'visible');
+    newOnes.forEach(s => {
+        if (docVisible && _inbox.selectedId === s.id) return;
+        try {
+            const title = s.client_name || s.client_phone || `Pedido #${s.pedido_id}`;
+            const body = (s.last_msg_preview || 'Nuevo mensaje').slice(0, 140);
+            const n = new Notification(`Inbox · ${title}`, {
+                body,
+                tag: `inbox-${s.id}`,
+                icon: '/assets/icon-192.png',
+                silent: false,
+            });
+            n.onclick = () => {
+                try { window.focus(); } catch (_) {}
+                try { n.close(); } catch (_) {}
+                if (typeof selectInboxSession === 'function') {
+                    if (state.currentPage !== 'inbox' && typeof go === 'function') {
+                        go('inbox');
+                    }
+                    selectInboxSession(s.id);
+                }
+            };
+        } catch (_) {}
+    });
+}
 
 const _INBOX_STATE_LABELS = {
     waiting_first_contact: 'Esperando 1er contacto',
@@ -8469,6 +8572,10 @@ async function renderInbox() {
         <div class="page-header">
             <h1 class="page-title">Inbox — Conversaciones <span id="inbox-header-unread"></span></h1>
             <p class="page-subtitle">Vista unificada de clientes y operadores</p>
+            <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn btn-secondary btn-sm" onclick="openInboxMetrics()">${icon('bar-chart',14)} Metricas / SLA</button>
+                <button id="inbox-notif-btn" class="btn btn-secondary btn-sm" onclick="toggleInboxNotifications()" title="Notificaciones del escritorio cuando hay un nuevo mensaje">${icon('bell',14)} Notif: off</button>
+            </div>
         </div>
         <div class="inbox-layout">
             <aside class="inbox-list">
@@ -8533,6 +8640,10 @@ async function renderInbox() {
         loadInboxSessions();
     });
 
+    // Reset baseline de notificaciones al entrar al inbox
+    _inbox.notifInit = false;
+    _inbox.notifLastSeenIds = null;
+    _inboxUpdateNotifButton();
     await loadInboxSessions();
     _inbox.pollTimer = setInterval(() => {
         if (state.currentPage !== 'inbox') { _inboxStopPolling(); return; }
@@ -8559,6 +8670,7 @@ async function loadInboxSessions({ silent = false } = {}) {
     _inbox.sessions = resp.data || [];
     _inbox.unreadCount = resp.unread_count || 0;
     _inboxUpdateUnreadBadges(resp.total || 0);
+    _inboxMaybeNotify(_inbox.sessions);
     if (!_inbox.sessions.length) {
         const msg = _inbox.search ? 'Sin resultados para esa busqueda' : (_inbox.unreadOnly ? 'Sin conversaciones no leidas' : 'Sin conversaciones');
         container.innerHTML = `<div class="inbox-empty">${msg}</div>`;
@@ -8661,10 +8773,19 @@ async function loadInboxSession(id, { silent = false } = {}) {
         <div class="inbox-timeline" id="inbox-timeline">${msgsHtml || '<div class="inbox-empty" style="margin:auto">Sin mensajes todavia</div>'}</div>
         ${composerReason ? `<div class="hint">${esc(composerReason)}</div>` : ''}
         <div class="inbox-composer">
-            <textarea id="inbox-input" placeholder="${canSend ? 'Escribe un mensaje… (Enter para enviar, Shift+Enter nueva linea)' : 'Envio deshabilitado'}" ${canSend ? '' : 'disabled'} onkeydown="_inboxComposerKey(event,${s.id})"></textarea>
+            <div style="display:flex;flex-direction:column;gap:4px;flex:1">
+                <div style="display:flex;gap:4px;font-size:11px">
+                    <button type="button" class="btn btn-secondary btn-sm" style="padding:2px 8px" onclick="openInboxTemplatesPicker(${s.id})" title="Plantillas">${icon('bookmark',12)} Plantillas</button>
+                    <button type="button" class="btn btn-secondary btn-sm" style="padding:2px 8px" onclick="addInboxNote(${s.id})" title="Nota interna (solo web)">${icon('edit',12)} Nota</button>
+                    <button type="button" class="btn btn-secondary btn-sm" style="padding:2px 8px" onclick="markInboxRead(${s.id})" title="Marcar como leido">${icon('check',12)} Leido</button>
+                </div>
+                <textarea id="inbox-input" placeholder="${canSend ? 'Escribe un mensaje… (Enter para enviar, Shift+Enter nueva linea)' : 'Envio deshabilitado'}" ${canSend ? '' : 'disabled'} onkeydown="_inboxComposerKey(event,${s.id})"></textarea>
+            </div>
             <button class="btn btn-primary" ${canSend ? '' : 'disabled'} onclick="sendInboxMessage(${s.id})">${icon('send',16)} Enviar</button>
         </div>
     `;
+    // 5.6: marcar leida automaticamente al abrir
+    markInboxRead(s.id, { silent: true });
     const tl = document.getElementById('inbox-timeline');
     if (tl) tl.scrollTop = tl.scrollHeight;
     const input = document.getElementById('inbox-input');
@@ -8762,6 +8883,132 @@ async function doAssignInbox(id) {
     }
 }
 
+// ── 5.3 Notas internas ─────────────────────────────────────────
+async function addInboxNote(id) {
+    const text = prompt('Nota interna (solo visible en el inbox web):');
+    if (!text || !text.trim()) return;
+    const resp = await API.inboxNote(id, text.trim());
+    if (resp.ok) {
+        toast('Nota agregada', 'success');
+        await loadInboxSession(id, { silent: true });
+    } else {
+        toast(resp.detail || 'Error agregando nota', 'error');
+    }
+}
+
+// ── 5.6 Marcado explicito de leido ─────────────────────────────
+async function markInboxRead(id, { silent = false } = {}) {
+    const resp = await API.inboxMarkRead(id);
+    if (resp.ok) {
+        if (!silent) toast('Marcada como leida', 'success');
+        loadInboxSessions({ silent: true });
+    } else if (!silent) {
+        toast(resp.detail || 'Error marcando leida', 'error');
+    }
+}
+
+// ── 5.4 Plantillas de respuesta rapida ─────────────────────────
+async function openInboxTemplatesPicker(sessionId) {
+    const resp = await API.inboxTemplates();
+    const items = (resp && resp.ok) ? (resp.data || []) : [];
+    const isManager = state.user && ['admin','superadmin','manager'].includes(state.user.role);
+
+    const rows = items.length === 0
+        ? `<div style="padding:16px;color:#6b7280;text-align:center">No hay plantillas. Crea la primera abajo.</div>`
+        : items.map(t => `
+            <div style="padding:8px;border:1px solid var(--gray-200);border-radius:6px;margin-bottom:6px">
+                <div style="display:flex;justify-content:space-between;gap:8px;align-items:center">
+                    <strong style="font-size:13px">${esc(t.title)}</strong>
+                    <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:${t.scope==='global'?'#e0e7ff;color:#4338ca':'#f3f4f6;color:#6b7280'}">${t.scope}</span>
+                </div>
+                <div style="font-size:12px;color:#4b5563;margin:4px 0;white-space:pre-wrap">${esc(t.body)}</div>
+                <div style="display:flex;gap:4px">
+                    <button class="btn btn-primary btn-sm" style="padding:2px 8px;font-size:11px" onclick="useInboxTemplate(${t.id}, ${sessionId})">Usar</button>
+                    ${(t.scope==='personal' || isManager) ? `<button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px" onclick="editInboxTemplate(${t.id}, ${sessionId})">Editar</button>` : ''}
+                    ${(t.scope==='personal' || isManager) ? `<button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px;color:#dc2626" onclick="deleteInboxTemplate(${t.id}, ${sessionId})">Eliminar</button>` : ''}
+                </div>
+            </div>
+        `).join('');
+
+    const html = `
+        <div style="max-width:520px">
+            <div style="max-height:40vh;overflow-y:auto;margin-bottom:12px">${rows}</div>
+            <div style="border-top:1px solid var(--gray-200);padding-top:10px">
+                <h4 style="margin:0 0 6px;font-size:13px">Nueva plantilla</h4>
+                <input id="tpl-new-title" class="form-input" placeholder="Titulo" style="margin-bottom:6px">
+                <textarea id="tpl-new-body" class="form-input" placeholder="Mensaje..." rows="3" style="margin-bottom:6px"></textarea>
+                <div style="display:flex;gap:6px;align-items:center">
+                    <select id="tpl-new-scope" class="form-input" style="flex:0 0 140px">
+                        <option value="personal">Personal</option>
+                        ${isManager ? '<option value="global">Global</option>' : ''}
+                    </select>
+                    <button class="btn btn-primary" onclick="createInboxTemplate(${sessionId})">Crear</button>
+                </div>
+            </div>
+        </div>
+    `;
+    showModal('Plantillas', html);
+}
+
+async function createInboxTemplate(sessionId) {
+    const title = (document.getElementById('tpl-new-title')?.value || '').trim();
+    const body = (document.getElementById('tpl-new-body')?.value || '').trim();
+    const scope = document.getElementById('tpl-new-scope')?.value || 'personal';
+    if (!title || !body) {
+        toast('Titulo y mensaje son requeridos', 'error');
+        return;
+    }
+    const resp = await API.inboxTemplateCreate({ title, body, scope });
+    if (resp.ok) {
+        toast('Plantilla creada', 'success');
+        openInboxTemplatesPicker(sessionId);
+    } else {
+        toast(resp.detail || 'Error creando plantilla', 'error');
+    }
+}
+
+async function editInboxTemplate(id, sessionId) {
+    const resp = await API.inboxTemplates();
+    const t = (resp.data || []).find(x => x.id === id);
+    if (!t) return;
+    const title = prompt('Nuevo titulo:', t.title);
+    if (title === null) return;
+    const body = prompt('Nuevo mensaje:', t.body);
+    if (body === null) return;
+    const r = await API.inboxTemplateUpdate(id, {
+        title: title.trim(), body: body.trim(), scope: t.scope,
+    });
+    if (r.ok) {
+        toast('Plantilla actualizada', 'success');
+        openInboxTemplatesPicker(sessionId);
+    } else {
+        toast(r.detail || 'Error', 'error');
+    }
+}
+
+async function deleteInboxTemplate(id, sessionId) {
+    if (!confirm('Eliminar esta plantilla?')) return;
+    const r = await API.inboxTemplateDelete(id);
+    if (r.ok) {
+        toast('Plantilla eliminada', 'success');
+        openInboxTemplatesPicker(sessionId);
+    } else {
+        toast(r.detail || 'Error eliminando', 'error');
+    }
+}
+
+async function useInboxTemplate(tplId, sessionId) {
+    const resp = await API.inboxTemplates();
+    const t = (resp.data || []).find(x => x.id === tplId);
+    if (!t) return;
+    closeModal();
+    const input = document.getElementById('inbox-input');
+    if (input && !input.disabled) {
+        input.value = input.value ? (input.value + '\n' + t.body) : t.body;
+        input.focus();
+    }
+}
+
 async function sendInboxMessage(id) {
     const input = document.getElementById('inbox-input');
     if (!input) return;
@@ -8785,9 +9032,110 @@ async function sendInboxMessage(id) {
     }
 }
 
+// ── Inbox metrics dashboard ────────────────────────────────────
+function _fmtSec(s) {
+    if (s === null || s === undefined) return '—';
+    if (s < 60) return `${Math.round(s)}s`;
+    if (s < 3600) return `${Math.round(s/60)}m`;
+    return `${(s/3600).toFixed(1)}h`;
+}
+function _fmtHours(h) {
+    if (h === null || h === undefined) return '—';
+    if (h < 1) return `${Math.round(h*60)}m`;
+    if (h < 48) return `${h.toFixed(1)}h`;
+    return `${(h/24).toFixed(1)}d`;
+}
+
+async function openInboxMetrics() {
+    showModal('Metricas del inbox', '<div style="padding:20px;text-align:center;color:#6b7280">Cargando...</div>');
+    const body = document.querySelector('.modal-overlay .modal-body');
+    if (!body) return;
+
+    const days = 7;
+    const slaHours = 1;
+    const resp = await API.inboxMetrics(days, slaHours);
+    if (!resp || !resp.ok) {
+        body.innerHTML = `<div style="color:#dc2626;padding:20px">${icon('x',16)} ${esc(resp && (resp.error || resp.detail) || 'Error cargando metricas')}</div>`;
+        return;
+    }
+    const d = resp.data;
+
+    const kpi = (label, value, color) => `
+        <div style="flex:1;min-width:120px;padding:12px;background:${color}20;border-radius:8px;text-align:center">
+            <div style="font-size:22px;font-weight:700;color:${color}">${value}</div>
+            <div style="font-size:11px;color:#6b7280;margin-top:2px">${esc(label)}</div>
+        </div>
+    `;
+
+    const opRows = (d.by_operator || []).map(o => `
+        <tr>
+            <td>${esc(o.operator_name || `user#${o.operator_id}`)}</td>
+            <td style="text-align:center">${o.open}</td>
+            <td style="text-align:center">${o.closed_in_window}</td>
+            <td style="text-align:right">${_fmtSec(o.first_response_avg_seconds)} <small style="color:#9ca3af">(${o.responses_counted})</small></td>
+        </tr>
+    `).join('') || `<tr><td colspan="4" style="text-align:center;color:#9ca3af;padding:12px">Sin datos</td></tr>`;
+
+    const maxVol = Math.max(1, ...(d.volume_by_day || []).map(v => v.count));
+    const volHtml = (d.volume_by_day || []).map(v => `
+        <div style="display:flex;align-items:center;gap:8px;font-size:12px;margin-bottom:3px">
+            <div style="width:80px;color:#6b7280">${esc(v.day)}</div>
+            <div style="flex:1;background:#e0e7ff;height:14px;border-radius:3px;position:relative">
+                <div style="width:${(v.count/maxVol)*100}%;background:#4f46e5;height:100%;border-radius:3px"></div>
+            </div>
+            <div style="width:40px;text-align:right;font-weight:600">${v.count}</div>
+        </div>
+    `).join('') || `<div style="color:#9ca3af;font-size:12px">Sin mensajes en la ventana</div>`;
+
+    body.innerHTML = `
+        <div style="display:grid;gap:14px;max-width:720px">
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                ${kpi('Abiertas', d.open_sessions, '#0284c7')}
+                ${kpi('Sin asignar', d.open_unassigned, '#d97706')}
+                ${kpi('Pendientes', d.pending_response, '#dc2626')}
+                ${kpi(`SLA breach >${d.sla_hours}h`, d.sla_breach, '#991b1b')}
+            </div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                ${kpi('1er respuesta promedio', _fmtSec(d.first_response_avg_seconds) + ` (${d.first_response_samples})`, '#16a34a')}
+                ${kpi('Resolucion promedio', _fmtHours(d.resolution_avg_hours) + ` (${d.resolution_samples})`, '#7c3aed')}
+            </div>
+            <div>
+                <h4 style="margin:0 0 8px 0;font-size:14px">Volumen inbound ultimos ${d.window_days} dias</h4>
+                <div>${volHtml}</div>
+            </div>
+            <div>
+                <h4 style="margin:0 0 8px 0;font-size:14px">Por operador</h4>
+                <table class="table" style="width:100%;font-size:12.5px">
+                    <thead>
+                        <tr>
+                            <th style="text-align:left">Operador</th>
+                            <th>Abiertas</th>
+                            <th>Cerradas (${d.window_days}d)</th>
+                            <th style="text-align:right">1er resp. prom.</th>
+                        </tr>
+                    </thead>
+                    <tbody>${opRows}</tbody>
+                </table>
+            </div>
+            <small style="color:#9ca3af">Generado: ${esc(d.generated_at)}</small>
+        </div>
+    `;
+}
+
 function _renderInboxMessage(m) {
     let cls = 'inbox-msg-in';
     let prefix = '';
+    if (m.sender_type === 'note') {
+        // 5.3 nota interna: estilo diferenciado
+        const when = m.created_at ? new Date(m.created_at).toLocaleString() : '';
+        const bodyN = m.body ? esc(m.body).replace(/\n/g, '<br>') : '';
+        return `
+            <div class="inbox-msg" style="align-self:center;background:#fef3c7;color:#78350f;border:1px dashed #f59e0b;max-width:90%;font-style:italic;font-size:12.5px">
+                📝 Nota · ${bodyN}
+                <div class="inbox-msg-meta" style="color:#92400e">${when}</div>
+            </div>
+        `;
+    }
     if (m.direction === 'outbound' && m.sender_type === 'bot') {
         cls = 'inbox-msg-bot';
         prefix = '🤖 Bot';

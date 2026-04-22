@@ -1,7 +1,7 @@
 # Conversation Hub — Estado del proyecto
 
 Documento de continuidad para el hub de conversaciones cliente <-> operador.
-Ultima actualizacion: **2026-04-20**.
+Ultima actualizacion: **2026-04-22**.
 
 ---
 
@@ -133,49 +133,82 @@ Completada hoy (**2026-04-20**, commit `f8319bc`).
 
 ---
 
-## 5. Lo que falta
+## 5. Fase 5 — Operacion avanzada del inbox
 
-### 5.1 Relay TG -> WA de media (riesgo medio)
-El cliente puede enviar fotos/audio a WA y se ven en TG, pero lo inverso no
-funciona: si el operador envia una foto en el topic, no llega al cliente por
-WA. Falta:
-- Detectar media en el webhook de Telegram (`message.photo`, `document`,
-  `voice`, `audio`, `video`).
-- Descargar el archivo via `getFile` de TG Bot API.
-- Enviarlo al cliente por Evolution API (`/message/sendMedia/{instance}` con
-  base64).
-- Registrar el mensaje en `Message` con `media_type` + `media_url`.
+### 5.1 Relay TG -> WA de media — **DONE**
+Commit previo. El operador puede enviar fotos/audios/documentos/videos desde
+el topic de Telegram y se entregan al cliente por Evolution API con el
+Message correspondiente en DB (`media_type`, `media_url`).
 
-### 5.2 Metricas / SLA (riesgo bajo)
-Dashboard read-only con:
-- Tiempo primera respuesta promedio por operador (diferencia entre primer
-  `inbound` y primer `outbound` de tipo operator).
-- Tiempo total de resolucion (hasta `state=closed`).
-- Sesiones abiertas por operador.
-- Sesiones sin responder > N horas (SLA breach).
-- Volumen por canal/dia.
+### 5.2 Metricas / SLA — **DONE**
+- Endpoint `GET /api/v1/inbox/metrics?days=7&sla_hours=1`:
+  - `open_sessions`, `open_unassigned`, `open_assigned`.
+  - `pending_response`, `sla_breach` (usando `sla_hours`).
+  - `first_response_avg_seconds` (primer `inbound` vs primer `outbound`
+    con `sender_type='operator'`).
+  - `resolution_avg_hours` sobre sesiones cerradas en la ventana.
+  - `volume_by_day` (inbound por dia).
+  - `by_operator` con `open`, `closed_in_window`, `first_response_avg_seconds`.
+- UI: boton **"Metricas / SLA"** en el header del inbox abre un modal con
+  KPI cards + tabla por operador + barras de volumen diario.
+- Tests: `tests/test_inbox_metrics.py` (9 casos).
 
-### 5.3 Notas / internal comments (riesgo bajo)
-Tipo `sender_type="system"` pero visible solo en la web (no se propaga ni a
-TG ni a WA). Util para handoff entre operadores.
+### 5.3 Notas internas — **DONE**
+- Mensaje en `Message` con `sender_type='note'`, `channel='web'`,
+  `direction='internal'`. No se propaga a TG ni a WA por el hub (los bridging
+  filtran por canal/direccion).
+- Endpoint: `POST /api/v1/inbox/sessions/{id}/note` body `{"text": "..."}`.
+  El body se guarda prefijado con `[<nombre_operador>]`.
+- UI: boton **"Nota"** en el composer pide el texto con `prompt()` y lo
+  renderiza con estilo distintivo (fondo ambar + italica, centrado).
+- Tests: ver `TestInternalNotes` en
+  `tests/test_inbox_notes_templates_read.py`.
 
-### 5.4 Plantillas de respuesta rapida (riesgo bajo)
-Tabla `mkt_inbox_template` con `title`, `body`, `scope` (global/personal).
-Panel flotante en el composer para elegir una plantilla.
+### 5.4 Plantillas de respuesta rapida — **DONE**
+- Modelo `InboxTemplate` (tabla `mkt_inbox_template`):
+  `title`, `body`, `scope` (`global|personal`), `owner_id`.
+- Endpoints: `GET/POST/PUT/DELETE /api/v1/inbox/templates`. RBAC:
+  - `global`: solo `manager/admin/superadmin` pueden crear/editar/eliminar.
+  - `personal`: solo el `owner` puede editar/eliminar; al listar se ven
+    todas las globales + las propias del usuario.
+- UI: boton **"Plantillas"** en el composer abre modal con picker + gestor
+  (crear, editar, borrar). Al elegir una, el texto se inserta en el textarea.
+- Tests: `TestTemplatesList`, `TestTemplatesCreate`, `TestTemplatesUpdate`,
+  `TestTemplatesDelete`.
 
-### 5.5 Notificaciones push al operador (riesgo medio)
-Web Push / browser notification cuando llega un mensaje del cliente a una
-sesion asignada al operador actual. Requiere service worker + suscripcion
-VAPID.
+### 5.5 Notificaciones push del escritorio — **DONE (sin VAPID)**
+Implementacion basada en **Web Notifications API** (sin Service Worker ni
+VAPID; funciona solo con la pestana abierta, que es el caso real de un
+operador trabajando en el inbox).
+- Boton **"Notif: on/off"** en el header del inbox pide `Notification.requestPermission()`
+  y persiste la preferencia en `localStorage['inboxNotifEnabled']`.
+- En cada poll (`loadInboxSessions`) se calculan los `session.id` con `unread`
+  nuevos respecto al poll anterior y se dispara una `Notification` por
+  cada uno (con `tag=inbox-<id>` para deduplicar).
+- No notifica si la pestana esta visible y la sesion ya esta seleccionada.
+- Click en la notificacion: `window.focus()` + `selectInboxSession(id)`.
+- No se notifica en el primer poll (baseline) para evitar ruido al abrir la
+  pagina.
 
-### 5.6 Marcado explicito de "leido" (riesgo bajo)
-Hoy "no leido" se calcula por timestamps. Podria agregarse una marca
-explicita `operator_last_read_at` por sesion para que el badge no desaparezca
-al enviar respuesta, sino al abrir la sesion.
+### 5.6 Marcado explicito de "leido" — **DONE**
+- Nueva columna `operator_last_read_at` (`DateTime` nullable) en
+  `mkt_conversation_session`.
+- `_is_unread(session)` ahora considera: si `operator_last_read_at >=
+  last_client_msg_at`, la sesion se considera leida aunque no haya
+  respondido el operador. El filtro `unread_only`, el `unread_count` global
+  del header y las metricas de `pending_response`/`sla_breach` usan la misma
+  regla.
+- Endpoint: `POST /api/v1/inbox/sessions/{id}/mark-read`.
+- UI:
+  - Boton **"Leido"** en el composer (silencioso).
+  - Auto mark-read al abrir una sesion (`loadInboxSession` con `{silent:true}`).
+- Fix relacionado: helper `_as_utc()` para comparar timestamps mezclando
+  aware/naive (SQLite).
+- Tests: `TestMarkRead` en `tests/test_inbox_notes_templates_read.py`.
 
-### 5.7 Reglas de auto-asignacion (riesgo medio)
+### 5.7 Reglas de auto-asignacion — PENDIENTE
 Round-robin entre operadores activos cuando llega un nuevo cliente, con
-carga balanceada. Configurable por grupo/region.
+carga balanceada. Configurable por grupo/region. (Fuera del scope actual.)
 
 ---
 
@@ -205,6 +238,9 @@ Endpoints clave para humo-testear el inbox:
 | `b22fa3e` | Fase 1 gaps + nav reorg + Inbox hitos A/B                  |
 | `0e5bcfc` | Inbox hito C (busqueda + no-leidas + contador)             |
 | `f8319bc` | Asignacion de operador (claim/release/assign)              |
+| `ff83e7d` | Docs: estado Conversation Hub + roadmap                     |
+| `b0eb08a` | Admin webhook logs (endpoint + UI + tests)                  |
+| _(next)_  | Inbox Fase 5: metricas + notas + plantillas + mark-read + notif |
 
 ---
 
@@ -213,8 +249,18 @@ Endpoints clave para humo-testear el inbox:
 - La clave interna del nav se mantiene `pedidos` aunque el label sea
   "Cotizaciones" para no romper `navigate('pedidos')`.
 - "Importar precios" vive dentro de Admin -> Catalogo, no en el nav principal.
-- El modelo NO tiene campo `operator_last_read_at`: el "no leido" se deriva
-  de timestamps. Cambiar esto implica migracion (ver 5.6).
+- El modelo ahora incluye `operator_last_read_at` (Fase 5.6). Se crea via
+  `Base.metadata.create_all` en el startup; para Postgres en prod conviene
+  una migracion explicita (aun no escrita).
+- Notificaciones: se opto por Web Notifications API pura (tab-open) para no
+  montar service worker + VAPID. Si se necesita push aun con el navegador
+  cerrado, reemplazar por Web Push con VAPID (`pywebpush`).
+- Plantillas globales: solo manager/admin/superadmin. Se aplica
+  consistentemente en create/update/delete. Cambio de `scope` requiere
+  manager+.
+- Notas internas: usan `direction='internal'` + `channel='web'` +
+  `sender_type='note'`. El bridging TG<->WA no toca mensajes con
+  `direction='internal'`, por lo que no se filtran al cliente.
 - EasyPanel + BuildKit puede fallar con `No such image: ...:latest` al
   arrancar si no tiene containerd image store. Fix recomendado:
   `/etc/docker/daemon.json` -> `{"features":{"containerd-snapshotter":true}}`.

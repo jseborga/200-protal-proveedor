@@ -37,13 +37,31 @@ def _wa_window_status(session: ConversationSession) -> dict:
     return {"open": remaining > 0, "seconds_left": max(remaining, 0)}
 
 
+def _as_utc(dt):
+    """Normaliza un datetime a UTC-aware; soporta naive/aware mezclados."""
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 def _is_unread(session: ConversationSession) -> bool:
-    """Cliente envio algo sin respuesta del operador."""
-    if not session.last_client_msg_at:
+    """Cliente envio algo sin respuesta del operador.
+
+    5.6: si hay operator_last_read_at y es >= last_client_msg_at,
+    se considera leido aunque el operador aun no haya respondido.
+    """
+    last_client = _as_utc(session.last_client_msg_at)
+    if not last_client:
         return False
-    if not session.last_operator_msg_at:
+    read_at = _as_utc(getattr(session, "operator_last_read_at", None))
+    if read_at and read_at >= last_client:
+        return False
+    last_op = _as_utc(session.last_operator_msg_at)
+    if not last_op:
         return True
-    return session.last_client_msg_at > session.last_operator_msg_at
+    return last_client > last_op
 
 
 def _session_summary(session: ConversationSession, last_msg: Message | None, pedido: Pedido | None, client_name: str | None, operator: User | None = None) -> dict:
@@ -123,6 +141,10 @@ async def list_sessions(
         if unread_only:
             q = q.where(
                 ConversationSession.last_client_msg_at.is_not(None),
+                or_(
+                    ConversationSession.operator_last_read_at.is_(None),
+                    ConversationSession.last_client_msg_at > ConversationSession.operator_last_read_at,
+                ),
                 or_(
                     ConversationSession.last_operator_msg_at.is_(None),
                     ConversationSession.last_client_msg_at > ConversationSession.last_operator_msg_at,
@@ -233,6 +255,10 @@ async def list_sessions(
         ConversationSession.state != "closed",
         ConversationSession.last_client_msg_at.is_not(None),
         or_(
+            ConversationSession.operator_last_read_at.is_(None),
+            ConversationSession.last_client_msg_at > ConversationSession.operator_last_read_at,
+        ),
+        or_(
             ConversationSession.last_operator_msg_at.is_(None),
             ConversationSession.last_client_msg_at > ConversationSession.last_operator_msg_at,
         ),
@@ -285,6 +311,63 @@ async def get_session(
     )
     summary["messages"] = [_message_to_dict(m) for m in messages]
     return {"ok": True, "data": summary}
+
+
+# ── POST /sessions/{id}/mark-read (5.6 marcado explicito) ──────
+@router.post("/sessions/{session_id}/mark-read")
+async def mark_session_read(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Marca la sesion como leida por el operador actual.
+
+    Actualiza operator_last_read_at = now(). El badge "no leido" se calcula
+    comparando este timestamp con last_client_msg_at.
+    """
+    session = await db.get(ConversationSession, session_id)
+    if session is None:
+        raise HTTPException(404, "Sesion no encontrada")
+    session.operator_last_read_at = datetime.now(timezone.utc)
+    await db.commit()
+    return {"ok": True, "read_at": session.operator_last_read_at.isoformat()}
+
+
+# ── POST /sessions/{id}/note (5.3 Notas internas) ──────────────
+class InboxNoteIn(BaseModel):
+    text: str = Field(..., min_length=1, max_length=4000)
+
+
+@router.post("/sessions/{session_id}/note")
+async def add_internal_note(
+    session_id: int,
+    payload: InboxNoteIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Agregar una nota interna visible solo en el inbox web.
+
+    No se propaga a TG ni a WA. Util para handoff entre operadores.
+    Se guarda como Message con sender_type='note', channel='web',
+    direction='internal'.
+    """
+    session = await db.get(ConversationSession, session_id)
+    if session is None:
+        raise HTTPException(404, "Sesion no encontrada")
+
+    name = user.full_name or user.email or f"user#{user.id}"
+    msg = Message(
+        session_id=session_id,
+        direction="internal",
+        channel="web",
+        sender_type="note",
+        sender_ref=str(user.id),
+        body=f"[{name}] {payload.text}",
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return {"ok": True, "data": _message_to_dict(msg)}
 
 
 # ── POST /sessions/{id}/send (Hito B) ──────────────────────────
@@ -453,4 +536,349 @@ async def list_operators(
             {"id": u.id, "name": u.full_name, "email": u.email, "role": u.role}
             for u in users
         ],
+    }
+
+
+# ── Templates (5.4 respuestas rapidas) ─────────────────────────
+class TemplateIn(BaseModel):
+    title: str = Field(..., min_length=1, max_length=100)
+    body: str = Field(..., min_length=1, max_length=4000)
+    scope: str = Field("personal", pattern="^(personal|global)$")
+
+
+def _tpl_to_dict(t) -> dict:
+    return {
+        "id": t.id,
+        "title": t.title,
+        "body": t.body,
+        "scope": t.scope,
+        "owner_id": t.owner_id,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+        "updated_at": t.updated_at.isoformat() if t.updated_at else None,
+    }
+
+
+@router.get("/templates")
+async def list_templates(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Lista plantillas visibles al usuario: todas las globales + las propias."""
+    from app.models.inbox_template import InboxTemplate
+    stmt = select(InboxTemplate).where(
+        or_(
+            InboxTemplate.scope == "global",
+            and_(InboxTemplate.scope == "personal", InboxTemplate.owner_id == user.id),
+        )
+    ).order_by(InboxTemplate.scope.desc(), InboxTemplate.title)
+    rows = (await db.execute(stmt)).scalars().all()
+    return {"ok": True, "data": [_tpl_to_dict(t) for t in rows]}
+
+
+@router.post("/templates")
+async def create_template(
+    payload: TemplateIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Crea una plantilla. scope=global solo managers/admins; personal => owner=user."""
+    from app.models.inbox_template import InboxTemplate
+    if payload.scope == "global" and user.role not in MANAGER_ROLES:
+        raise HTTPException(403, "Solo manager/admin puede crear plantillas globales")
+    t = InboxTemplate(
+        title=payload.title.strip(),
+        body=payload.body,
+        scope=payload.scope,
+        owner_id=user.id if payload.scope == "personal" else None,
+    )
+    db.add(t)
+    await db.commit()
+    await db.refresh(t)
+    return {"ok": True, "data": _tpl_to_dict(t)}
+
+
+@router.put("/templates/{tpl_id}")
+async def update_template(
+    tpl_id: int,
+    payload: TemplateIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Edita plantilla. Globales: solo manager. Personales: solo owner."""
+    from app.models.inbox_template import InboxTemplate
+    t = await db.get(InboxTemplate, tpl_id)
+    if t is None:
+        raise HTTPException(404, "Plantilla no encontrada")
+    if t.scope == "global" and user.role not in MANAGER_ROLES:
+        raise HTTPException(403, "Solo manager/admin puede editar plantillas globales")
+    if t.scope == "personal" and t.owner_id != user.id:
+        raise HTTPException(403, "Solo el owner puede editar esta plantilla")
+    if payload.scope != t.scope and user.role not in MANAGER_ROLES:
+        raise HTTPException(403, "Solo manager/admin puede cambiar scope")
+    t.title = payload.title.strip()
+    t.body = payload.body
+    t.scope = payload.scope
+    if payload.scope == "global":
+        t.owner_id = None
+    elif t.owner_id is None:
+        t.owner_id = user.id
+    await db.commit()
+    await db.refresh(t)
+    return {"ok": True, "data": _tpl_to_dict(t)}
+
+
+@router.delete("/templates/{tpl_id}")
+async def delete_template(
+    tpl_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    from app.models.inbox_template import InboxTemplate
+    t = await db.get(InboxTemplate, tpl_id)
+    if t is None:
+        raise HTTPException(404, "Plantilla no encontrada")
+    if t.scope == "global" and user.role not in MANAGER_ROLES:
+        raise HTTPException(403, "Solo manager/admin puede eliminar plantillas globales")
+    if t.scope == "personal" and t.owner_id != user.id:
+        raise HTTPException(403, "Solo el owner puede eliminar esta plantilla")
+    await db.delete(t)
+    await db.commit()
+    return {"ok": True}
+
+
+# ── Metrics / SLA ──────────────────────────────────────────────
+@router.get("/metrics")
+async def inbox_metrics(
+    days: int = Query(7, ge=1, le=90, description="Ventana de analisis en dias"),
+    sla_hours: float = Query(1.0, ge=0.1, le=48.0, description="Umbral SLA de primera respuesta en horas"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Metricas de desempeno del inbox (read-only dashboard).
+
+    Calculos:
+    - open_sessions: sesiones no cerradas
+    - open_unassigned / open_assigned
+    - pending_response: sesiones abiertas donde ultimo cliente > ultimo operador
+    - sla_breach: pendientes con last_client_msg_at > sla_hours
+    - first_response_avg_seconds: sobre sesiones creadas en la ventana,
+      diferencia entre primer inbound y primer outbound (operator).
+    - resolution_avg_hours: para sesiones cerradas en la ventana,
+      horas entre created_at y updated_at.
+    - volume_by_day: conteo de mensajes inbound por dia (ultimos N dias).
+    - by_operator: por cada operador con >=1 sesion, {open, closed_in_window,
+      avg_first_response_seconds}.
+    """
+    from datetime import timedelta
+
+    now = datetime.now(timezone.utc)
+    window_start = now - timedelta(days=days)
+
+    # ── 1. Contadores basicos de sesiones abiertas ────────────
+    open_stmt = select(func.count(ConversationSession.id)).where(
+        ConversationSession.state != "closed"
+    )
+    open_sessions = (await db.execute(open_stmt)).scalar() or 0
+
+    open_unassigned = (await db.execute(
+        open_stmt.where(ConversationSession.operator_id.is_(None))
+    )).scalar() or 0
+    open_assigned = open_sessions - open_unassigned
+
+    pending_stmt = select(func.count(ConversationSession.id)).where(
+        ConversationSession.state != "closed",
+        ConversationSession.last_client_msg_at.is_not(None),
+        or_(
+            ConversationSession.operator_last_read_at.is_(None),
+            ConversationSession.last_client_msg_at > ConversationSession.operator_last_read_at,
+        ),
+        or_(
+            ConversationSession.last_operator_msg_at.is_(None),
+            ConversationSession.last_client_msg_at > ConversationSession.last_operator_msg_at,
+        ),
+    )
+    pending_response = (await db.execute(pending_stmt)).scalar() or 0
+
+    sla_threshold = now - timedelta(hours=sla_hours)
+    sla_stmt = select(func.count(ConversationSession.id)).where(
+        ConversationSession.state != "closed",
+        ConversationSession.last_client_msg_at.is_not(None),
+        ConversationSession.last_client_msg_at < sla_threshold,
+        or_(
+            ConversationSession.operator_last_read_at.is_(None),
+            ConversationSession.last_client_msg_at > ConversationSession.operator_last_read_at,
+        ),
+        or_(
+            ConversationSession.last_operator_msg_at.is_(None),
+            ConversationSession.last_client_msg_at > ConversationSession.last_operator_msg_at,
+        ),
+    )
+    sla_breach = (await db.execute(sla_stmt)).scalar() or 0
+
+    # ── 2. Tiempo de primera respuesta (sesiones creadas en ventana) ──
+    # Subquery: primer inbound y primer outbound-operator por sesion
+    first_inbound_subq = (
+        select(
+            Message.session_id.label("sid"),
+            func.min(Message.created_at).label("first_in"),
+        )
+        .where(Message.direction == "inbound")
+        .group_by(Message.session_id)
+        .subquery()
+    )
+    first_op_subq = (
+        select(
+            Message.session_id.label("sid"),
+            func.min(Message.created_at).label("first_out"),
+        )
+        .where(
+            Message.direction == "outbound",
+            Message.sender_type == "operator",
+        )
+        .group_by(Message.session_id)
+        .subquery()
+    )
+
+    # Sesiones creadas en la ventana con ambos timestamps
+    sessions_in_window_stmt = (
+        select(
+            ConversationSession.id,
+            ConversationSession.operator_id,
+            first_inbound_subq.c.first_in,
+            first_op_subq.c.first_out,
+        )
+        .select_from(ConversationSession)
+        .join(first_inbound_subq, first_inbound_subq.c.sid == ConversationSession.id)
+        .join(first_op_subq, first_op_subq.c.sid == ConversationSession.id)
+        .where(ConversationSession.created_at >= window_start)
+    )
+    rows = (await db.execute(sessions_in_window_stmt)).all()
+
+    fr_deltas: list[float] = []
+    per_op_deltas: dict[int, list[float]] = {}
+    for r in rows:
+        first_in = r.first_in
+        first_out = r.first_out
+        if first_in is None or first_out is None or first_out < first_in:
+            continue
+        if first_in.tzinfo is None:
+            first_in = first_in.replace(tzinfo=timezone.utc)
+        if first_out.tzinfo is None:
+            first_out = first_out.replace(tzinfo=timezone.utc)
+        delta = (first_out - first_in).total_seconds()
+        fr_deltas.append(delta)
+        if r.operator_id:
+            per_op_deltas.setdefault(r.operator_id, []).append(delta)
+
+    first_response_avg_seconds = (
+        sum(fr_deltas) / len(fr_deltas) if fr_deltas else None
+    )
+
+    # ── 3. Resolucion promedio (sesiones cerradas en la ventana) ──
+    closed_stmt = select(ConversationSession).where(
+        ConversationSession.state == "closed",
+        ConversationSession.updated_at >= window_start,
+    )
+    closed_sessions = (await db.execute(closed_stmt)).scalars().all()
+    res_deltas = []
+    for s in closed_sessions:
+        if s.created_at is None or s.updated_at is None:
+            continue
+        c = s.created_at if s.created_at.tzinfo else s.created_at.replace(tzinfo=timezone.utc)
+        u = s.updated_at if s.updated_at.tzinfo else s.updated_at.replace(tzinfo=timezone.utc)
+        if u < c:
+            continue
+        res_deltas.append((u - c).total_seconds())
+    resolution_avg_hours = (
+        (sum(res_deltas) / len(res_deltas)) / 3600.0 if res_deltas else None
+    )
+
+    # ── 4. Volumen inbound por dia ─────────────────────────────
+    volume_stmt = (
+        select(
+            func.date(Message.created_at).label("day"),
+            func.count(Message.id).label("n"),
+        )
+        .where(
+            Message.direction == "inbound",
+            Message.created_at >= window_start,
+        )
+        .group_by(func.date(Message.created_at))
+        .order_by(func.date(Message.created_at))
+    )
+    volume_rows = (await db.execute(volume_stmt)).all()
+    volume_by_day = [
+        {"day": str(r.day), "count": int(r.n)} for r in volume_rows
+    ]
+
+    # ── 5. Por operador ────────────────────────────────────────
+    # Abiertas por operador
+    open_by_op_stmt = (
+        select(
+            ConversationSession.operator_id,
+            func.count(ConversationSession.id).label("n"),
+        )
+        .where(
+            ConversationSession.state != "closed",
+            ConversationSession.operator_id.is_not(None),
+        )
+        .group_by(ConversationSession.operator_id)
+    )
+    open_by_op = {r.operator_id: int(r.n) for r in (await db.execute(open_by_op_stmt)).all()}
+
+    # Cerradas por operador en la ventana
+    closed_by_op_stmt = (
+        select(
+            ConversationSession.operator_id,
+            func.count(ConversationSession.id).label("n"),
+        )
+        .where(
+            ConversationSession.state == "closed",
+            ConversationSession.operator_id.is_not(None),
+            ConversationSession.updated_at >= window_start,
+        )
+        .group_by(ConversationSession.operator_id)
+    )
+    closed_by_op = {r.operator_id: int(r.n) for r in (await db.execute(closed_by_op_stmt)).all()}
+
+    all_op_ids = set(open_by_op) | set(closed_by_op) | set(per_op_deltas)
+    op_users: dict[int, User] = {}
+    if all_op_ids:
+        u_stmt = select(User).where(User.id.in_(all_op_ids))
+        op_users = {u.id: u for u in (await db.execute(u_stmt)).scalars().all()}
+
+    by_operator = []
+    for op_id in all_op_ids:
+        u = op_users.get(op_id)
+        deltas = per_op_deltas.get(op_id, [])
+        avg = sum(deltas) / len(deltas) if deltas else None
+        by_operator.append({
+            "operator_id": op_id,
+            "operator_name": (u.full_name if u else None),
+            "operator_email": (u.email if u else None),
+            "open": open_by_op.get(op_id, 0),
+            "closed_in_window": closed_by_op.get(op_id, 0),
+            "first_response_avg_seconds": avg,
+            "responses_counted": len(deltas),
+        })
+    by_operator.sort(key=lambda x: -(x["open"] + x["closed_in_window"]))
+
+    return {
+        "ok": True,
+        "data": {
+            "window_days": days,
+            "sla_hours": sla_hours,
+            "generated_at": now.isoformat(),
+            "open_sessions": int(open_sessions),
+            "open_unassigned": int(open_unassigned),
+            "open_assigned": int(open_assigned),
+            "pending_response": int(pending_response),
+            "sla_breach": int(sla_breach),
+            "first_response_avg_seconds": first_response_avg_seconds,
+            "first_response_samples": len(fr_deltas),
+            "resolution_avg_hours": resolution_avg_hours,
+            "resolution_samples": len(res_deltas),
+            "volume_by_day": volume_by_day,
+            "by_operator": by_operator,
+        },
     }

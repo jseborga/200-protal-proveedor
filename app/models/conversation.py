@@ -49,6 +49,10 @@ class ConversationSession(TimestampMixin, Base):
     last_operator_msg_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # 5.6: marcado explicito de "leido" por el operador
+    operator_last_read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     # Relationships
     messages: Mapped[list["Message"]] = relationship(

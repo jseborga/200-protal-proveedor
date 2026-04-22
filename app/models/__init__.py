@@ -15,6 +15,7 @@ from .supplier_suggestion import SupplierSuggestion
 from .notification import Notification
 from .task_log import TaskLog
 from .webhook_log import WebhookLog
+from .inbox_template import InboxTemplate
 from .system_setting import SystemSetting
 from .ai_agent import AIAgent
 from .banned_ip import BannedIP
@@ -28,7 +29,7 @@ __all__ = [
     "ProductMatch", "User", "ApiKey",
     "Category", "UnitOfMeasure", "PriceHistory",
     "Pedido", "PedidoItem", "PedidoPrecio",
-    "SupplierSuggestion", "Notification", "TaskLog", "WebhookLog",
+    "SupplierSuggestion", "Notification", "TaskLog", "WebhookLog", "InboxTemplate",
     "SystemSetting", "AIAgent", "BannedIP",
     "ConversationSession", "Message",
 ]
