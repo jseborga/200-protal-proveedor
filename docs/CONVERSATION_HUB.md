@@ -302,7 +302,7 @@ operadores para sesiones que quiza nunca reciban un mensaje.
     - Guarda via PUT; toast de exito.
 
 **Tests**
-- `tests/test_inbox_autoassign.py` (22 casos):
+- `tests/test_inbox_autoassign.py` (22 casos unitarios):
   - `TestConfig`: defaults, save+read, normalizacion de strategy invalida,
     upsert.
   - `TestRoundRobin`: vacio, primer pick, cursor siguiente, wrap-around,
@@ -315,6 +315,24 @@ operadores para sesiones que quiza nunca reciban un mensaje.
   - `TestEndpoints`: GET devuelve defaults + operators, PUT guarda,
     validacion rechaza user_ids no-staff (400), Pydantic rechaza strategy
     invalida (422).
+- `tests/test_messaging_autoassign_integration.py` (5 casos de
+  integracion, end-to-end desde `handle_whatsapp_message`):
+  - `test_assigns_on_first_inbound_when_enabled`: con `enabled=True` +
+    `round_robin`, el primer inbound WA a una sesion sin operador asigna
+    al primer elegible y registra el Message de sistema "Auto-asignado".
+  - `test_no_assignment_when_disabled`: `enabled=False` deja
+    `operator_id=None` y no crea mensaje de sistema.
+  - `test_no_reassignment_when_already_assigned`: sesion con operador
+    preexistente no se reasigna (idempotencia).
+  - `test_webpush_fires_with_newly_assigned_operator`: verifica que el
+    hook webpush posterior recibe `user_id = operador recien asignado`
+    (mock de `send_push_to_user` con `await_args`).
+  - `test_least_loaded_strategy_picks_less_busy`: con un operador ya
+    cargado y otro libre, `least_loaded` elige al libre.
+  - Mocks de red: `send_whatsapp`, `get_whatsapp_media_from_evolution`,
+    `send_push_to_user`. La sesion se crea sin `tg_group_id/tg_topic_id`
+    para que `mirror_client_to_topic` salga temprano y no intente TG.
+- **Suite total**: 218 tests passing.
 
 ---
 
@@ -347,7 +365,9 @@ Endpoints clave para humo-testear el inbox:
 | `ff83e7d` | Docs: estado Conversation Hub + roadmap                     |
 | `b0eb08a` | Admin webhook logs (endpoint + UI + tests)                  |
 | `c325f71` | Inbox Fase 5.5 Web Push completo con VAPID + Service Worker |
-| _(next)_  | Inbox Fase 5.7 auto-asignacion round-robin + least-loaded  |
+| `6d33f6e` | Inbox Fase 5.7 auto-asignacion round-robin + least-loaded   |
+| `056bf69` | Alembic 0001 mkt_push_subscription + mkt_system_setting     |
+| `4892185` | Tests integracion auto-assign hook en handle_whatsapp_message |
 
 ---
 
