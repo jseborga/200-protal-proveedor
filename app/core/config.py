@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     smtp_from: str = "noreply@localhost"
     smtp_tls: bool = True
 
+    # Web Push (VAPID) — 5.5
+    vapid_public_key: str = ""
+    vapid_private_key: str = ""
+    vapid_subject: str = "mailto:admin@localhost"
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
     @model_validator(mode="after")

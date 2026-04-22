@@ -16,6 +16,7 @@ from .notification import Notification
 from .task_log import TaskLog
 from .webhook_log import WebhookLog
 from .inbox_template import InboxTemplate
+from .push_subscription import PushSubscription
 from .system_setting import SystemSetting
 from .ai_agent import AIAgent
 from .banned_ip import BannedIP
@@ -30,6 +31,6 @@ __all__ = [
     "Category", "UnitOfMeasure", "PriceHistory",
     "Pedido", "PedidoItem", "PedidoPrecio",
     "SupplierSuggestion", "Notification", "TaskLog", "WebhookLog", "InboxTemplate",
-    "SystemSetting", "AIAgent", "BannedIP",
+    "PushSubscription", "SystemSetting", "AIAgent", "BannedIP",
     "ConversationSession", "Message",
 ]

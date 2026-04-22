@@ -8378,6 +8378,70 @@ function _inboxNotifSupported() {
     return typeof window !== 'undefined' && 'Notification' in window;
 }
 
+function _urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const raw = atob(base64);
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; ++i) out[i] = raw.charCodeAt(i);
+    return out;
+}
+
+async function _inboxRegisterWebPush() {
+    // Intenta registrar una suscripcion Web Push VAPID. Devuelve
+    // 'subscribed' | 'local' | 'unsupported'.
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+        return 'unsupported';
+    }
+    let resp;
+    try {
+        resp = await API.get('/inbox/push/vapid-public-key');
+    } catch (_) {
+        return 'local';
+    }
+    if (!resp || !resp.enabled || !resp.public_key) {
+        return 'local';
+    }
+    try {
+        const reg = await navigator.serviceWorker.register('/assets/inbox-sw.js');
+        await navigator.serviceWorker.ready;
+        let sub = await reg.pushManager.getSubscription();
+        if (!sub) {
+            sub = await reg.pushManager.subscribe({
+                userVisibleOnly: true,
+                applicationServerKey: _urlBase64ToUint8Array(resp.public_key),
+            });
+        }
+        const json = sub.toJSON();
+        await API.post('/inbox/push/subscribe', {
+            endpoint: json.endpoint,
+            keys: json.keys,
+            user_agent: navigator.userAgent.slice(0, 500),
+        });
+        try { localStorage.setItem('inboxPushEndpoint', json.endpoint); } catch (_) {}
+        return 'subscribed';
+    } catch (e) {
+        console.warn('[inbox] web push subscribe failed', e);
+        return 'local';
+    }
+}
+
+async function _inboxUnregisterWebPush() {
+    try {
+        if (!('serviceWorker' in navigator)) return;
+        const reg = await navigator.serviceWorker.getRegistration('/assets/inbox-sw.js');
+        if (!reg) return;
+        const sub = await reg.pushManager.getSubscription();
+        if (!sub) return;
+        const endpoint = sub.endpoint;
+        try { await sub.unsubscribe(); } catch (_) {}
+        try { await API.post('/inbox/push/unsubscribe', { endpoint }); } catch (_) {}
+        try { localStorage.removeItem('inboxPushEndpoint'); } catch (_) {}
+    } catch (e) {
+        console.warn('[inbox] unsubscribe failed', e);
+    }
+}
+
 async function toggleInboxNotifications() {
     if (!_inboxNotifSupported()) {
         toast('Tu navegador no soporta notificaciones', 'error');
@@ -8386,6 +8450,7 @@ async function toggleInboxNotifications() {
     if (_inbox.notifEnabled) {
         _inbox.notifEnabled = false;
         try { localStorage.setItem('inboxNotifEnabled', '0'); } catch (_) {}
+        await _inboxUnregisterWebPush();
         toast('Notificaciones desactivadas', 'info');
         _inboxUpdateNotifButton();
         return;
@@ -8400,8 +8465,47 @@ async function toggleInboxNotifications() {
     }
     _inbox.notifEnabled = true;
     try { localStorage.setItem('inboxNotifEnabled', '1'); } catch (_) {}
-    toast('Notificaciones activadas', 'success');
+    const mode = await _inboxRegisterWebPush();
+    _inbox.notifMode = mode;
+    if (mode === 'subscribed') {
+        toast('Web Push activado (con VAPID)', 'success');
+    } else if (mode === 'unsupported') {
+        toast('Notificaciones activadas (sin Service Worker)', 'info');
+    } else {
+        toast('Notificaciones activadas (modo local)', 'success');
+    }
     _inboxUpdateNotifButton();
+}
+
+// Listener para mensajes del Service Worker (click en notificacion Web Push)
+if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+    try {
+        navigator.serviceWorker.addEventListener('message', (ev) => {
+            const d = ev && ev.data;
+            if (!d || d.type !== 'inbox-open-session') return;
+            const sid = d.session_id;
+            try { window.focus(); } catch (_) {}
+            if (state.currentPage !== 'inbox' && typeof go === 'function') {
+                try { go('inbox'); } catch (_) {}
+            }
+            if (sid && typeof selectInboxSession === 'function') {
+                try { selectInboxSession(sid); } catch (_) {}
+            }
+        });
+    } catch (_) {}
+}
+
+async function testInboxNotification() {
+    try {
+        const r = await API.post('/inbox/push/test', {});
+        if (r && r.delivered > 0) {
+            toast(`Push enviado (${r.delivered} dispositivos)`, 'success');
+        } else {
+            toast('No hay suscripciones activas (usa el modo local con la pestana abierta)', 'info');
+        }
+    } catch (e) {
+        toast('No se pudo enviar la prueba', 'error');
+    }
 }
 
 function _inboxUpdateNotifButton() {
@@ -8575,6 +8679,7 @@ async function renderInbox() {
             <div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">
                 <button class="btn btn-secondary btn-sm" onclick="openInboxMetrics()">${icon('bar-chart',14)} Metricas / SLA</button>
                 <button id="inbox-notif-btn" class="btn btn-secondary btn-sm" onclick="toggleInboxNotifications()" title="Notificaciones del escritorio cuando hay un nuevo mensaje">${icon('bell',14)} Notif: off</button>
+                <button class="btn btn-secondary btn-sm" onclick="testInboxNotification()" title="Enviar push de prueba a los dispositivos suscritos">${icon('send',14)} Probar push</button>
             </div>
         </div>
         <div class="inbox-layout">

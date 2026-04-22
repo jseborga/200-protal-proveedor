@@ -1,7 +1,7 @@
 # Conversation Hub — Estado del proyecto
 
 Documento de continuidad para el hub de conversaciones cliente <-> operador.
-Ultima actualizacion: **2026-04-22**.
+Ultima actualizacion: **2026-04-22** (Fase 5.5 Web Push con VAPID).
 
 ---
 
@@ -176,19 +176,66 @@ Message correspondiente en DB (`media_type`, `media_url`).
 - Tests: `TestTemplatesList`, `TestTemplatesCreate`, `TestTemplatesUpdate`,
   `TestTemplatesDelete`.
 
-### 5.5 Notificaciones push del escritorio — **DONE (sin VAPID)**
-Implementacion basada en **Web Notifications API** (sin Service Worker ni
-VAPID; funciona solo con la pestana abierta, que es el caso real de un
-operador trabajando en el inbox).
-- Boton **"Notif: on/off"** en el header del inbox pide `Notification.requestPermission()`
-  y persiste la preferencia en `localStorage['inboxNotifEnabled']`.
-- En cada poll (`loadInboxSessions`) se calculan los `session.id` con `unread`
-  nuevos respecto al poll anterior y se dispara una `Notification` por
-  cada uno (con `tag=inbox-<id>` para deduplicar).
-- No notifica si la pestana esta visible y la sesion ya esta seleccionada.
-- Click en la notificacion: `window.focus()` + `selectInboxSession(id)`.
-- No se notifica en el primer poll (baseline) para evitar ruido al abrir la
-  pagina.
+### 5.5 Notificaciones push del escritorio — **DONE (Web Push + VAPID)**
+Implementacion completa con **Service Worker + VAPID + suscripciones
+persistidas** en DB, con fallback gradual a Web Notifications API si el
+servidor no tiene claves VAPID configuradas.
+
+**Backend**
+- Config (`app/core/config.py`): `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`,
+  `VAPID_SUBJECT` (default `mailto:admin@localhost`).
+- Modelo `PushSubscription` (`app/models/push_subscription.py`, tabla
+  `mkt_push_subscription`): `user_id`, `endpoint` (unique), `p256dh`, `auth`,
+  `user_agent`, `created_at`, `last_used_at`.
+- Service `app/services/webpush.py`:
+  - `send_push_to_user(db, user_id, payload)` envia a todas las subs del
+    usuario via `pywebpush`; devuelve delivered count.
+  - Purga subs expiradas (HTTP 404/410) y actualiza `last_used_at` en exitos.
+  - No-op si `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY` vacios.
+- Endpoints en `app/api/routes/inbox.py`:
+  - `GET /api/v1/inbox/push/vapid-public-key` -> `{enabled, public_key}`.
+  - `POST /api/v1/inbox/push/subscribe` body `{endpoint, keys:{p256dh,auth}, user_agent?}`.
+    Upsert por `endpoint` (reusa fila si ya existe) + reasigna owner.
+  - `POST /api/v1/inbox/push/unsubscribe` body `{endpoint}`. Owner o manager+.
+  - `POST /api/v1/inbox/push/test` envia un push de prueba al caller.
+- Hook en `app/services/messaging.py`: al terminar `mirror_client_to_topic`,
+  si la sesion tiene `operator_id` se dispara `send_push_to_user` con titulo
+  `Inbox · <phone>`, body = preview del mensaje (140 chars) y
+  `{url:'/#inbox', session_id}`. Errores se loggean sin romper el flujo WA.
+
+**Frontend**
+- Service Worker: `frontend/public/assets/inbox-sw.js`.
+  - `push` event: muestra `Notification` con `tag=inbox-<session_id>`,
+    icon/badge `/assets/icon-192.png`, `renotify:true`.
+  - `notificationclick`: enfoca pestana existente y postMessage
+    `{type:'inbox-open-session', session_id}`; si no hay, `openWindow(url)`.
+- SPA (`frontend/public/assets/app.js`):
+  - `toggleInboxNotifications()` pide permiso, llama a
+    `_inboxRegisterWebPush()` que:
+    1. GET `/inbox/push/vapid-public-key` -> si `enabled:false`, retorna
+       'local' (modo solo Notifications API como antes).
+    2. Registra `/assets/inbox-sw.js`, `pushManager.subscribe` con
+       `applicationServerKey` (helper `_urlBase64ToUint8Array`).
+    3. POST `/inbox/push/subscribe` con endpoint + keys. Guarda endpoint en
+       `localStorage['inboxPushEndpoint']`.
+  - `_inboxUnregisterWebPush()` hace `unsubscribe` del pushManager y POST
+    `/inbox/push/unsubscribe`.
+  - Boton **"Probar push"** en el header del inbox (solo visible cuando el
+    toggle esta on) llama a `testInboxNotification` -> POST `/inbox/push/test`.
+  - Listener `navigator.serviceWorker.addEventListener('message', ...)` para
+    `inbox-open-session`: enfoca el inbox y `selectInboxSession(id)`.
+  - Si VAPID no disponible, cae al comportamiento previo (Notifications API
+    con polling + tab abierta).
+
+**Generacion de claves VAPID**
+- Script `scripts/generate_vapid_keys.py` usa `cryptography` (SECP256R1) y
+  emite claves URL-safe base64 listas para `.env`.
+
+**Tests**
+- `tests/test_inbox_webpush.py` (11 casos): key publica
+  disponible/no-disponible, subscribe/upsert/validacion, unsubscribe con
+  RBAC (owner, unknown, non-owner 403, manager puede cualquiera), test
+  endpoint sin VAPID = delivered:0, y auth requerida en los 4 endpoints.
 
 ### 5.6 Marcado explicito de "leido" — **DONE**
 - Nueva columna `operator_last_read_at` (`DateTime` nullable) en
@@ -240,7 +287,7 @@ Endpoints clave para humo-testear el inbox:
 | `f8319bc` | Asignacion de operador (claim/release/assign)              |
 | `ff83e7d` | Docs: estado Conversation Hub + roadmap                     |
 | `b0eb08a` | Admin webhook logs (endpoint + UI + tests)                  |
-| _(next)_  | Inbox Fase 5: metricas + notas + plantillas + mark-read + notif |
+| _(next)_  | Inbox Fase 5 completa: metricas + notas + plantillas + mark-read + Web Push VAPID |
 
 ---
 
@@ -252,9 +299,12 @@ Endpoints clave para humo-testear el inbox:
 - El modelo ahora incluye `operator_last_read_at` (Fase 5.6). Se crea via
   `Base.metadata.create_all` en el startup; para Postgres en prod conviene
   una migracion explicita (aun no escrita).
-- Notificaciones: se opto por Web Notifications API pura (tab-open) para no
-  montar service worker + VAPID. Si se necesita push aun con el navegador
-  cerrado, reemplazar por Web Push con VAPID (`pywebpush`).
+- Notificaciones: se implemento Web Push completo (Service Worker + VAPID +
+  suscripciones persistidas en `mkt_push_subscription`). El cliente cae al
+  modo Web Notifications API si el servidor no tiene `VAPID_PUBLIC_KEY`
+  configurada. Script `scripts/generate_vapid_keys.py` genera el par.
+- En prod conviene migracion explicita para `mkt_push_subscription` (por
+  ahora se crea via `Base.metadata.create_all` al boot, como el resto).
 - Plantillas globales: solo manager/admin/superadmin. Se aplica
   consistentemente en create/update/delete. Cambio de `scope` requiere
   manager+.

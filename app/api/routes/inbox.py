@@ -882,3 +882,105 @@ async def inbox_metrics(
             "by_operator": by_operator,
         },
     }
+
+
+# ── Web Push (VAPID) ──────────────────────────────────────────
+class PushKeys(BaseModel):
+    p256dh: str = Field(..., min_length=1, max_length=255)
+    auth: str = Field(..., min_length=1, max_length=255)
+
+
+class PushSubscribeIn(BaseModel):
+    endpoint: str = Field(..., min_length=1, max_length=2000)
+    keys: PushKeys
+    user_agent: str | None = Field(None, max_length=500)
+
+
+class PushUnsubscribeIn(BaseModel):
+    endpoint: str = Field(..., min_length=1, max_length=2000)
+
+
+@router.get("/push/vapid-public-key")
+async def get_vapid_public_key(user: User = Depends(require_staff)):
+    """Devuelve la clave publica VAPID para que el navegador se suscriba.
+
+    Si no esta configurada, devuelve {enabled: false}.
+    """
+    from app.core.config import settings
+    if not settings.vapid_public_key:
+        return {"ok": True, "enabled": False, "public_key": None}
+    return {"ok": True, "enabled": True, "public_key": settings.vapid_public_key}
+
+
+@router.post("/push/subscribe")
+async def subscribe_push(
+    payload: PushSubscribeIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Registra (o actualiza) una suscripcion Web Push del usuario actual."""
+    from app.models.push_subscription import PushSubscription
+
+    existing = (await db.execute(
+        select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint)
+    )).scalar_one_or_none()
+
+    if existing:
+        existing.user_id = user.id
+        existing.p256dh = payload.keys.p256dh
+        existing.auth = payload.keys.auth
+        if payload.user_agent is not None:
+            existing.user_agent = payload.user_agent[:500]
+        await db.commit()
+        return {"ok": True, "id": existing.id, "updated": True}
+
+    sub = PushSubscription(
+        user_id=user.id,
+        endpoint=payload.endpoint,
+        p256dh=payload.keys.p256dh,
+        auth=payload.keys.auth,
+        user_agent=(payload.user_agent[:500] if payload.user_agent else None),
+    )
+    db.add(sub)
+    await db.commit()
+    await db.refresh(sub)
+    return {"ok": True, "id": sub.id, "updated": False}
+
+
+@router.post("/push/unsubscribe")
+async def unsubscribe_push(
+    payload: PushUnsubscribeIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Elimina la suscripcion con el endpoint dado (solo si es del usuario)."""
+    from app.models.push_subscription import PushSubscription
+
+    existing = (await db.execute(
+        select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint)
+    )).scalar_one_or_none()
+    if existing is None:
+        return {"ok": True, "removed": False}
+    if existing.user_id != user.id and user.role not in MANAGER_ROLES:
+        raise HTTPException(403, "No puede eliminar suscripciones de otro usuario")
+    await db.delete(existing)
+    await db.commit()
+    return {"ok": True, "removed": True}
+
+
+@router.post("/push/test")
+async def send_push_test(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Envia una notificacion de prueba al usuario actual."""
+    from app.services.webpush import send_push_to_user
+    delivered = await send_push_to_user(
+        db, user.id,
+        {
+            "title": "Inbox · Prueba",
+            "body": "Notificaciones Web Push activas",
+            "url": "/#inbox",
+        },
+    )
+    return {"ok": True, "delivered": delivered}

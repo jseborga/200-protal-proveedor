@@ -707,6 +707,23 @@ async def handle_whatsapp_message(db, msg: dict):
                 media_bytes=media_bytes, media_mime=media_mime, media_filename=media_filename,
             )
 
+            # 5.5: Web Push al operador asignado (si hay) por cada inbound
+            if session.operator_id:
+                try:
+                    from app.services.webpush import send_push_to_user
+                    preview = (text or media_note or "Nuevo mensaje")[:140]
+                    await send_push_to_user(
+                        db, session.operator_id,
+                        {
+                            "title": f"Inbox · {phone}",
+                            "body": preview,
+                            "url": f"/#inbox",
+                            "session_id": session.id,
+                        },
+                    )
+                except Exception as e:  # noqa: BLE001
+                    print(f"[webpush] hub error: {e}")
+
             # Bot autoreply (if appropriate)
             reply = await bot_autoreply(db, session, text or "")
             if reply:
