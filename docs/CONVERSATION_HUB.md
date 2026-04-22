@@ -577,6 +577,7 @@ Endpoints clave para humo-testear el inbox:
 | `5b3240f` | Alembic 0002 operator_last_read_at + fix doc Fase 1         |
 | `002c3c0` | Inbox Fase 5.8 horarios/turnos de operador (on-duty windows) |
 | `707a34d` | Inbox Fase 5.10 auto-handoff por timeout SLA breach + Alembic 0004 |
+| `1ca7452` | Inbox Fase 5.10 correccion: no release al pool + sla_hours compartido |
 
 ---
 
