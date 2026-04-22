@@ -2,17 +2,19 @@
 
 Cuando una sesion asignada lleva demasiado tiempo sin respuesta del
 operador (y el cliente escribio despues), un cron periodico (`inbox_sla_handoff`)
-la reasigna a otro operador on-duty. Si no hay candidato, la libera al
-pool (operator_id=None).
+la reasigna a otro operador on-duty. Si no hay candidato disponible,
+la sesion se deja intacta (asignada al operador actual) y se vuelve a
+intentar en el siguiente tick.
 
-Config persistida en `mkt_system_setting` con key `inbox_sla_handoff`:
+Config compartida con /metrics en `mkt_system_setting` key `inbox_sla`:
     {
-        "enabled": bool,
-        "threshold_hours": int (1-72),
+        "sla_hours": int (1-72),   # umbral SLA unico, default 4
+        "handoff_enabled": bool,   # activa el auto-handoff
     }
 
 El cooldown anti-ping-pong usa `ConversationSession.last_handoff_at`
-(columna agregada en migracion 0004).
+(columna agregada en migracion 0004). Solo se actualiza cuando
+efectivamente se reasigna.
 """
 from __future__ import annotations
 
@@ -26,45 +28,70 @@ from sqlalchemy.orm import attributes as sa_attrs
 
 from app.models.conversation import ConversationSession, Message
 from app.models.system_setting import SystemSetting
-from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
-SETTING_KEY = "inbox_sla_handoff"
+SETTING_KEY = "inbox_sla"
+LEGACY_SETTING_KEY = "inbox_sla_handoff"  # Fase 5.10 inicial (pre-correccion)
 
-DEFAULT_CONFIG: dict[str, Any] = {
-    "enabled": False,
-    "threshold_hours": 4,
-}
-
+DEFAULT_SLA_HOURS = 4
 MIN_THRESHOLD_HOURS = 1
 MAX_THRESHOLD_HOURS = 72
 
+DEFAULT_SHARED_CONFIG: dict[str, Any] = {
+    "sla_hours": DEFAULT_SLA_HOURS,
+    "handoff_enabled": False,
+}
 
-def _normalize(cfg: dict[str, Any] | None) -> dict[str, Any]:
-    """Coerciona claves faltantes a defaults y clampea threshold."""
-    base = {**DEFAULT_CONFIG}
+
+def _clamp_hours(v: Any) -> int:
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return DEFAULT_SLA_HOURS
+    return max(MIN_THRESHOLD_HOURS, min(MAX_THRESHOLD_HOURS, n))
+
+
+def _normalize_shared(cfg: dict[str, Any] | None) -> dict[str, Any]:
+    base = {**DEFAULT_SHARED_CONFIG}
     if cfg:
-        if "enabled" in cfg:
-            base["enabled"] = bool(cfg["enabled"])
-        if "threshold_hours" in cfg:
-            try:
-                v = int(cfg["threshold_hours"])
-            except (TypeError, ValueError):
-                v = DEFAULT_CONFIG["threshold_hours"]
-            base["threshold_hours"] = max(MIN_THRESHOLD_HOURS, min(MAX_THRESHOLD_HOURS, v))
+        if "sla_hours" in cfg:
+            base["sla_hours"] = _clamp_hours(cfg["sla_hours"])
+        if "handoff_enabled" in cfg:
+            base["handoff_enabled"] = bool(cfg["handoff_enabled"])
     return base
 
 
-async def get_handoff_config(db: AsyncSession) -> dict[str, Any]:
-    """Lee la config o devuelve defaults si no existe."""
-    setting = await db.get(SystemSetting, SETTING_KEY)
-    return _normalize(setting.value if setting else None)
+async def _get_shared_config(db: AsyncSession) -> dict[str, Any]:
+    """Lee la config unificada. Migra silenciosamente la key vieja si existe.
+
+    Si la tabla `mkt_system_setting` no existe (entornos minimos de test),
+    devuelve defaults sin fallar.
+    """
+    try:
+        setting = await db.get(SystemSetting, SETTING_KEY)
+    except Exception:  # noqa: BLE001  (tabla ausente u otro error de DB)
+        await db.rollback()
+        return {**DEFAULT_SHARED_CONFIG}
+    if setting is None:
+        # Migracion silenciosa desde la key antigua (Fase 5.10 pre-correccion)
+        legacy = await db.get(SystemSetting, LEGACY_SETTING_KEY)
+        if legacy and isinstance(legacy.value, dict):
+            migrated = {
+                "sla_hours": _clamp_hours(legacy.value.get("threshold_hours")),
+                "handoff_enabled": bool(legacy.value.get("enabled", False)),
+            }
+            db.add(SystemSetting(key=SETTING_KEY, value=migrated))
+            await db.commit()
+            return migrated
+        return {**DEFAULT_SHARED_CONFIG}
+    return _normalize_shared(setting.value)
 
 
-async def save_handoff_config(db: AsyncSession, cfg: dict[str, Any]) -> dict[str, Any]:
-    """Upsert con normalizacion. Devuelve la config guardada."""
-    normalized = _normalize(cfg)
+async def _save_shared_config(
+    db: AsyncSession, cfg: dict[str, Any]
+) -> dict[str, Any]:
+    normalized = _normalize_shared(cfg)
     setting = await db.get(SystemSetting, SETTING_KEY)
     if setting:
         setting.value = normalized
@@ -75,6 +102,48 @@ async def save_handoff_config(db: AsyncSession, cfg: dict[str, Any]) -> dict[str
     await db.commit()
     return normalized
 
+
+# ── API publica: handoff config (compat con endpoints de admin) ──
+
+async def get_handoff_config(db: AsyncSession) -> dict[str, Any]:
+    """Devuelve la config del auto-handoff en shape estable.
+
+    Shape: `{"enabled": bool, "threshold_hours": int}`.
+    Internamente mapea desde la key compartida `inbox_sla`.
+    """
+    shared = await _get_shared_config(db)
+    return {
+        "enabled": bool(shared["handoff_enabled"]),
+        "threshold_hours": int(shared["sla_hours"]),
+    }
+
+
+async def save_handoff_config(
+    db: AsyncSession, cfg: dict[str, Any]
+) -> dict[str, Any]:
+    """Guarda `enabled` y `threshold_hours` en la key compartida.
+
+    Preserva otros campos si los hubiera (por ahora solo esos dos).
+    """
+    current = await _get_shared_config(db)
+    updated = {
+        "sla_hours": _clamp_hours(cfg.get("threshold_hours", current["sla_hours"])),
+        "handoff_enabled": bool(cfg.get("enabled", current["handoff_enabled"])),
+    }
+    saved = await _save_shared_config(db, updated)
+    return {
+        "enabled": bool(saved["handoff_enabled"]),
+        "threshold_hours": int(saved["sla_hours"]),
+    }
+
+
+async def get_sla_default_hours(db: AsyncSession) -> int:
+    """Default compartido de `sla_hours` para `/metrics`."""
+    shared = await _get_shared_config(db)
+    return int(shared["sla_hours"])
+
+
+# ── Criterio de breach + handoff action ──────────────────────────
 
 async def find_breached_sessions(
     db: AsyncSession, now: datetime, threshold_hours: int
@@ -123,20 +192,24 @@ async def handoff_session(
     session: ConversationSession,
     *,
     now: datetime | None = None,
-) -> Literal["reassigned", "released", "noop"]:
-    """Intenta reasignar a otro on-duty; si no hay, libera al pool.
+) -> Literal["reassigned", "noop"]:
+    """Intenta reasignar a otro operador on-duty.
 
-    - Persiste `last_handoff_at = now`.
-    - Agrega Message sistema al timeline.
-    - Dispara push al nuevo operador (si hubo reasignacion).
-    - NO commitea; el caller debe comitear.
+    Comportamiento (Fase 5.10 corregida):
+    - Si hay candidato on-duty distinto al actual: reasigna, persiste
+      `last_handoff_at = now`, agrega Message sistema, dispara push
+      best-effort al nuevo operador. Devuelve "reassigned".
+    - Si NO hay candidato: deja la sesion intacta (no libera al pool,
+      no toca `last_handoff_at`). Devuelve "noop".
+    - Si la sesion no tiene operador actual: "noop" sin cambios.
 
-    Devuelve:
-      - "reassigned" si operator_id cambio a otro usuario on-duty.
-      - "released"   si no hubo candidato y operator_id quedo en None.
-      - "noop"       si no se pudo hacer nada (ej: sesion ya sin operador).
+    NO commitea (caller comitea).
     """
-    from app.services.inbox_autoassign import get_config, pick_next_operator
+    from app.services.inbox_autoassign import (
+        get_config as _get_aa_config,
+        pick_next_operator,
+        save_config as _save_aa_config,
+    )
 
     if now is None:
         now = datetime.now(timezone.utc)
@@ -145,63 +218,49 @@ async def handoff_session(
     if previous_id is None:
         return "noop"
 
-    cfg = await get_config(db)
+    cfg = await _get_aa_config(db)
     new_op = await pick_next_operator(db, cfg, exclude_user_id=previous_id)
 
+    if new_op is None:
+        # Sin candidato: no mover nada. El proximo tick reintentara.
+        return "noop"
+
+    session.operator_id = new_op.id
     session.last_handoff_at = now
-
-    if new_op is not None:
-        session.operator_id = new_op.id
-        strategy = cfg.get("strategy", "round_robin")
-        db.add(
-            Message(
-                session_id=session.id,
-                direction="internal",
-                channel="web",
-                sender_type="system",
-                body=(
-                    f"Reasignado por timeout SLA a "
-                    f"{new_op.full_name or new_op.email} ({strategy})."
-                ),
-            )
-        )
-        # Actualizar cursor round-robin para consistencia con auto-assign.
-        try:
-            from app.services.inbox_autoassign import save_config as _save_aa_config
-            cfg["last_assigned_user_id"] = new_op.id
-            await _save_aa_config(db, cfg)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("No se pudo actualizar cursor round-robin: %s", exc)
-
-        # Push al nuevo operador (best-effort).
-        try:
-            from app.services.webpush import send_push_to_user
-
-            await send_push_to_user(
-                db,
-                new_op.id,
-                {
-                    "title": "Nueva conversacion reasignada",
-                    "body": (
-                        f"Sesion #{session.id} reasignada por timeout SLA."
-                    ),
-                    "url": f"/inbox/{session.id}",
-                },
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Fallo push handoff a user %s: %s", new_op.id, exc)
-
-        return "reassigned"
-
-    # No hay candidato on-duty -> liberar al pool.
-    session.operator_id = None
+    strategy = cfg.get("strategy", "round_robin")
     db.add(
         Message(
             session_id=session.id,
             direction="internal",
             channel="web",
             sender_type="system",
-            body="Liberado al pool por timeout SLA (sin operadores on-duty).",
+            body=(
+                f"Reasignado por timeout SLA a "
+                f"{new_op.full_name or new_op.email} ({strategy})."
+            ),
         )
     )
-    return "released"
+    # Cursor round-robin consistente con auto-assign (best-effort).
+    try:
+        cfg["last_assigned_user_id"] = new_op.id
+        await _save_aa_config(db, cfg)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("No se pudo actualizar cursor round-robin: %s", exc)
+
+    # Push al nuevo operador (best-effort).
+    try:
+        from app.services.webpush import send_push_to_user
+
+        await send_push_to_user(
+            db,
+            new_op.id,
+            {
+                "title": "Nueva conversacion reasignada",
+                "body": f"Sesion #{session.id} reasignada por timeout SLA.",
+                "url": f"/inbox/{session.id}",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Fallo push handoff a user %s: %s", new_op.id, exc)
+
+    return "reassigned"

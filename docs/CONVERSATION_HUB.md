@@ -1,7 +1,7 @@
 # Conversation Hub — Estado del proyecto
 
 Documento de continuidad para el hub de conversaciones cliente <-> operador.
-Ultima actualizacion: **2026-04-22** (Fase 5.10 auto-handoff por timeout SLA breach).
+Ultima actualizacion: **2026-04-22** (Fase 5.10 corregida: no release-to-pool + sla_hours compartido).
 
 ---
 
@@ -411,24 +411,45 @@ con 5.7).
   tambien `mkt_operator_schedule` en el engine SQLite.
 - **Suite total**: 247 tests passing.
 
-### 5.10 Auto-handoff por timeout SLA breach — **DONE**
+### 5.10 Auto-handoff por timeout SLA breach — **DONE** (corregida)
 Cuando una sesion asignada lleva mas de `threshold_hours` sin respuesta
 del operador (y el cliente sigue esperando), un cron periodico la
-reasigna a otro operador on-duty (o la libera al pool si no hay
-candidato). Respeta pool, estrategia y filtros de 5.7/5.8.
+reasigna a **otro** operador on-duty. Si no hay candidato, la sesion
+queda asignada al operador actual y el proximo tick reintenta. Respeta
+pool, estrategia y filtros de 5.7/5.8.
+
+**Correccion aplicada** (sobre implementacion inicial `707a34d`):
+- Se elimino el comportamiento "release-to-pool": si no hay otro
+  candidato on-duty, la sesion NO se libera (no se pone
+  `operator_id=None`). Simplemente devuelve `"noop"` y el proximo
+  tick (15 min) reintentara.
+- El threshold SLA se unifico con el de `/metrics`: ahora ambos
+  leen de la key compartida `mkt_system_setting[inbox_sla]` (shape
+  `{sla_hours, handoff_enabled}`). Migracion silenciosa en runtime
+  desde la key vieja `inbox_sla_handoff` si existia.
 
 **Backend**
 - Columna `last_handoff_at TIMESTAMPTZ NULL` en
   `mkt_conversation_session` (migracion Alembic `0004_last_handoff_at.py`,
   idempotente con inspector). Se usa como cooldown anti-ping-pong:
   cooldown = `threshold_hours`, es decir una sesion no se re-handoff
-  hasta que pasen `threshold_hours` desde el ultimo.
+  hasta que pasen `threshold_hours` desde el ultimo. En caso `noop`
+  (sin candidato) NO se actualiza, para preservar reactividad.
 - Service `app/services/inbox_sla_handoff.py`:
-  - Config persistida en `mkt_system_setting[inbox_sla_handoff]`:
-    `{"enabled": bool, "threshold_hours": int}`. Default
-    `{enabled: False, threshold_hours: 4}`.
-  - `get_handoff_config` / `save_handoff_config` con normalize +
-    clamp 1..72.
+  - Config persistida en `mkt_system_setting[inbox_sla]`:
+    `{"sla_hours": int, "handoff_enabled": bool}`. Default
+    `{sla_hours: 4, handoff_enabled: False}`. Fuente unica para
+    `/metrics` (default de `sla_hours`) y para el handoff.
+  - API publica estable: `get_handoff_config` /
+    `save_handoff_config` exponen `{enabled, threshold_hours}` y
+    mapean internamente a la key compartida (admin endpoints sin
+    cambio de contrato).
+  - `get_sla_default_hours(db) -> int`: helper consumido por
+    `/api/v1/inbox/metrics` para el default de `sla_hours` cuando
+    no llega query param. Resiliente a tabla ausente (tests minimos).
+  - Migracion silenciosa: si existe `inbox_sla_handoff` (key vieja)
+    y no hay `inbox_sla`, se migra `threshold_hours -> sla_hours` y
+    `enabled -> handoff_enabled` en la primera lectura.
   - `find_breached_sessions(db, now, threshold_hours)`: reusa el
     criterio SLA del endpoint `/metrics` (inbox.py):
     `state != "closed"`, `operator_id IS NOT NULL`,
@@ -439,14 +460,17 @@ candidato). Respeta pool, estrategia y filtros de 5.7/5.8.
     1. Usa `pick_next_operator` (helper reusable de
        `inbox_autoassign`) con `exclude_user_id = operator actual`.
     2. Si hay candidato: reasigna, mensaje sistema
-       "Reasignado por timeout SLA a ... (strategy)", actualiza cursor
-       round-robin, dispara `webpush.send_push_to_user` al nuevo
-       operador (best-effort).
-    3. Si no hay candidato: libera (`operator_id=None`), mensaje
-       sistema "Liberado al pool por timeout SLA (sin operadores
-       on-duty)".
-    4. Persiste `last_handoff_at = now` siempre (previene bucle).
-    Devuelve `"reassigned"` / `"released"` / `"noop"`.
+       "Reasignado por timeout SLA a ... (strategy)", persiste
+       `last_handoff_at = now`, actualiza cursor round-robin,
+       dispara `webpush.send_push_to_user` al nuevo operador
+       (best-effort). Devuelve `"reassigned"`.
+    3. Si NO hay candidato: deja la sesion intacta (operador y
+       `last_handoff_at` sin cambios). Devuelve `"noop"`.
+    Return type: `Literal["reassigned", "noop"]`.
+- Endpoint `/api/v1/inbox/metrics` (`app/api/routes/inbox.py`):
+  - `sla_hours` es opcional en la query (antes default duro 1h).
+  - Si no llega, se resuelve con `get_sla_default_hours(db)` (default
+    persistido compartido). Rango validado `0.1..72.0`.
 - Refactor en `app/services/inbox_autoassign.py`: nuevo helper
   publico `pick_next_operator(db, cfg, *, exclude_user_id=None)` que
   extrae la logica eligible + strategy pick. `auto_assign_if_needed`
@@ -455,51 +479,66 @@ candidato). Respeta pool, estrategia y filtros de 5.7/5.8.
 - Tarea programada `app/tasks/inbox_sla_handoff.py` registrada en
   `app/core/scheduler.py` como job `inbox_sla_handoff` con cron
   `*/15 * * * *` (cada 15 min, TZ America/La_Paz). Devuelve stats
-  `{threshold_hours, checked, handoffs, released}` persistidas en
+  `{threshold_hours, checked, handoffs, noop}` persistidas en
   `mkt_task_log`. Si `enabled=False` sale temprano con
   `{"skipped": "disabled", ...}`.
 - Endpoints en `app/api/routes/admin.py` (require_manager):
   - `GET /api/v1/admin/inbox-sla-handoff` -> config + limites.
   - `PUT /api/v1/admin/inbox-sla-handoff` body
     `{enabled: bool, threshold_hours: int (1..72)}`. Pydantic
-    `InboxSlaHandoffIn` valida rango -> 422.
+    `InboxSlaHandoffIn` valida rango -> 422. Contrato inalterado:
+    al guardar desde el modal de auto-asignacion tambien se
+    actualiza el default de `sla_hours` en `/metrics` (una sola
+    fuente de verdad).
 
 **Frontend**
-- `frontend/public/assets/app.js`:
-  - Nuevos helpers `inboxSlaHandoffGet()` / `inboxSlaHandoffSave(cfg)`.
-  - Modal **Auto-asignacion** extendido con una seccion
-    "Auto-handoff por timeout SLA": checkbox `enabled` + input
-    numerico `threshold_hours` (min/max del backend). Se guarda en
-    paralelo con la config de auto-asignacion al presionar Guardar.
+- `frontend/public/assets/app.js` (sin cambios vs. `707a34d`):
+  - Helpers `inboxSlaHandoffGet()` / `inboxSlaHandoffSave(cfg)`.
+  - Modal **Auto-asignacion** con seccion "Auto-handoff por timeout
+    SLA": checkbox `enabled` + input numerico `threshold_hours`.
+  - El contrato del endpoint es el mismo; la unica diferencia
+    observable es que al cambiar el threshold tambien cambia el
+    default de `sla_hours` que ve `/metrics` cuando se abre sin
+    query param.
 
 **Tests**
-- `tests/test_inbox_sla_handoff_service.py` (17 tests):
+- `tests/test_inbox_sla_handoff_service.py` (21 tests):
   - `TestConfig`: defaults, roundtrip, clamp low/high, invalid input
     cae a default.
+  - `TestSharedKey`: escribe en key compartida `inbox_sla`,
+    `get_sla_default_hours` refleja lo guardado, default cuando vacia,
+    migracion silenciosa desde `inbox_sla_handoff` legacy.
   - `TestFindBreachedSessions`: sin operador -> no, operador leyo
     -> no, cliente reciente -> no, breached se encuentra, cooldown
     excluye, closed excluye.
-  - `TestHandoffSession`: noop sin operador, release cuando no hay
-    otro candidato, reasigna a otro operador, respeta filtro
-    on-duty (5.8), excluye al actual del pick, llama push al
-    reasignar.
+  - `TestHandoffSession`: noop sin operador, noop cuando no hay otro
+    candidato (preserva operador y NO toca `last_handoff_at`),
+    reasigna a otro, noop cuando el otro esta off-duty, noop cuando
+    el actual es unico en pool, push al reasignar.
 - `tests/test_inbox_sla_handoff_task.py` (5 tests):
   - `test_returns_skipped_when_disabled`: no toca DB cuando
     `enabled=False`.
   - `test_reassigns_breached`: procesa y reasigna una sesion
     breached.
-  - `test_releases_when_no_candidate`: libera cuando no hay otro.
+  - `test_noop_when_no_candidate_preserves_assignment`: preserva
+    operador y `last_handoff_at=None` cuando no hay candidato.
   - `test_skips_non_breached`: ignora sesiones con mensaje cliente
     reciente.
   - `test_reports_threshold_hours`: incluye `threshold_hours` en
     stats.
-- **Suite total**: 269 tests passing (247 previos + 22 nuevos).
+- **Suite total**: 273 tests passing (269 previos + 4 nuevos tests
+  de correccion, `test_released_*` eliminados/reescritos a noop).
 
 **Verificacion migracion (offline postgres)**:
 ```
 ALTER TABLE mkt_conversation_session ADD COLUMN last_handoff_at TIMESTAMP WITH TIME ZONE;
 UPDATE alembic_version SET version_num='0004' WHERE alembic_version.version_num = '0003';
 ```
+
+**Comportamiento esperado bajo la regla nueva**: si el operador
+asignado nunca vuelve on-duty y no hay nadie mas on-duty en el pool,
+la sesion queda indefinidamente con ese operador. Tradeoff aceptado
+para evitar sesiones huerfanas en el pool sin dueno.
 
 ---
 
@@ -560,14 +599,19 @@ Endpoints clave para humo-testear el inbox:
   `America/La_Paz` en `app/services/operator_availability.now_local` —
   misma TZ que el scheduler de APScheduler. Sin TZ por usuario por
   ahora (extension futura).
-- Auto-handoff por timeout (Fase 5.10): el cron `inbox_sla_handoff`
-  (cada 15 min) reasigna o libera sesiones con SLA breach. Config
-  global en `mkt_system_setting[inbox_sla_handoff]`; `threshold_hours`
-  clampea 1..72. El cooldown anti-ping-pong es igual al `threshold_hours`
-  (una sesion no se re-handoff hasta que pase ese lapso desde el
-  ultimo handoff). Disabled por default para no alterar el
-  comportamiento al upgrade. Reusa `pick_next_operator` de
-  `inbox_autoassign` para respetar pool + strategy + filtro on-duty.
+- Auto-handoff por timeout (Fase 5.10, corregida): el cron
+  `inbox_sla_handoff` (cada 15 min) reasigna sesiones con SLA breach
+  a **otro** operador on-duty. Si no hay candidato -> `noop` (la
+  sesion queda con el operador actual, sin tocar `last_handoff_at`;
+  el proximo tick reintentara). No hay "release-to-pool". Config
+  global en `mkt_system_setting[inbox_sla]` (shape
+  `{sla_hours, handoff_enabled}`), compartida con `/metrics` como
+  fuente unica de verdad del umbral SLA. `threshold_hours` clampea
+  1..72. Cooldown anti-ping-pong = `threshold_hours` (solo se
+  actualiza al reasignar). Disabled por default al upgrade. Reusa
+  `pick_next_operator` de `inbox_autoassign` para respetar pool +
+  strategy + filtro on-duty. Migracion silenciosa desde key vieja
+  `inbox_sla_handoff` en runtime (no requiere Alembic).
 - Migracion Alembic `0001_push_subscription_and_system_setting.py` crea
   `mkt_push_subscription` y `mkt_system_setting` explicitamente. Es
   idempotente (chequea `inspector.has_table` antes de crear/dropear) y

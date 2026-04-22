@@ -650,11 +650,14 @@ async def delete_template(
 @router.get("/metrics")
 async def inbox_metrics(
     days: int = Query(7, ge=1, le=90, description="Ventana de analisis en dias"),
-    sla_hours: float = Query(1.0, ge=0.1, le=48.0, description="Umbral SLA de primera respuesta en horas"),
+    sla_hours: float | None = Query(None, ge=0.1, le=72.0, description="Umbral SLA de primera respuesta en horas (default: config persistida)"),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_staff),
 ):
     """Metricas de desempeno del inbox (read-only dashboard).
+
+    `sla_hours` se resuelve: query param > config persistida
+    (`mkt_system_setting[inbox_sla].sla_hours`) > default 4.
 
     Calculos:
     - open_sessions: sesiones no cerradas
@@ -670,6 +673,10 @@ async def inbox_metrics(
       avg_first_response_seconds}.
     """
     from datetime import timedelta
+    from app.services.inbox_sla_handoff import get_sla_default_hours
+
+    if sla_hours is None:
+        sla_hours = float(await get_sla_default_hours(db))
 
     now = datetime.now(timezone.utc)
     window_start = now - timedelta(days=days)

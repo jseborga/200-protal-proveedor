@@ -2,12 +2,12 @@
 
 Detecta sesiones de inbox asignadas donde el operador no respondio
 dentro de `threshold_hours` despues del ultimo mensaje del cliente
-y las reasigna a otro operador on-duty (o las libera al pool si no
-hay candidato).
+y las reasigna a otro operador on-duty. Si no hay candidato, la
+sesion queda intacta (el proximo tick reintentara).
 
-Config en `mkt_system_setting[inbox_sla_handoff]`:
-  - enabled: bool (default False)
-  - threshold_hours: int 1-72 (default 4)
+Config en `mkt_system_setting[inbox_sla]`:
+  - sla_hours: int 1-72 (default 4, compartido con /metrics)
+  - handoff_enabled: bool (default False)
 
 Cooldown anti-ping-pong: >= `threshold_hours` via
 `ConversationSession.last_handoff_at`.
@@ -34,7 +34,7 @@ async def run(db: AsyncSession) -> dict:
             "skipped": "disabled",
             "checked": 0,
             "handoffs": 0,
-            "released": 0,
+            "noop": 0,
         }
 
     threshold_hours = int(cfg["threshold_hours"])
@@ -44,7 +44,7 @@ async def run(db: AsyncSession) -> dict:
     checked = len(sessions)
 
     handoffs = 0
-    released = 0
+    noop = 0
     for sess in sessions:
         try:
             result = await handoff_session(db, sess, now=now)
@@ -53,13 +53,13 @@ async def run(db: AsyncSession) -> dict:
             continue
         if result == "reassigned":
             handoffs += 1
-        elif result == "released":
-            released += 1
+        else:
+            noop += 1
 
     await db.commit()
     return {
         "threshold_hours": threshold_hours,
         "checked": checked,
         "handoffs": handoffs,
-        "released": released,
+        "noop": noop,
     }

@@ -111,11 +111,11 @@ class TestRunEnabled:
         result = await handoff_task.run(task_db)
         assert result["checked"] == 1
         assert result["handoffs"] == 1
-        assert result["released"] == 0
+        assert result["noop"] == 0
         await task_db.refresh(sess)
         assert sess.operator_id == b.id
 
-    async def test_releases_when_no_candidate(self, task_db, two_ops):
+    async def test_noop_when_no_candidate_preserves_assignment(self, task_db, two_ops):
         a, _b = two_ops
         await save_handoff_config(task_db, {"enabled": True, "threshold_hours": 4})
         await save_aa_config(task_db, {
@@ -126,9 +126,11 @@ class TestRunEnabled:
         result = await handoff_task.run(task_db)
         assert result["checked"] == 1
         assert result["handoffs"] == 0
-        assert result["released"] == 1
+        assert result["noop"] == 1
         await task_db.refresh(sess)
-        assert sess.operator_id is None
+        # Operador preservado (no release-to-pool)
+        assert sess.operator_id == a.id
+        assert sess.last_handoff_at is None
 
     async def test_skips_non_breached(self, task_db, two_ops):
         """Sesion con last_client_msg_at reciente (< threshold) no procesada."""

@@ -1,8 +1,9 @@
-"""Tests Fase 5.10: servicio inbox_sla_handoff.
+"""Tests Fase 5.10 (corregida): servicio inbox_sla_handoff.
 
 Cubre:
-- Config defaults + normalize/clamping.
-- handoff_session: reassigned / released / noop.
+- Config defaults + normalize/clamping (shape estable {enabled, threshold_hours}).
+- Migracion silenciosa desde key vieja `inbox_sla_handoff` -> `inbox_sla`.
+- handoff_session: reassigned / noop (sin release-to-pool).
 - find_breached_sessions: criterio SLA + cooldown + sin operador.
 - Integracion con operador on-duty (Fase 5.8).
 """
@@ -22,11 +23,14 @@ from app.models.system_setting import SystemSetting
 from app.models.user import User
 from app.services.inbox_autoassign import save_config as save_aa_config
 from app.services.inbox_sla_handoff import (
-    DEFAULT_CONFIG,
+    DEFAULT_SLA_HOURS,
+    LEGACY_SETTING_KEY,
     MAX_THRESHOLD_HOURS,
     MIN_THRESHOLD_HOURS,
+    SETTING_KEY,
     find_breached_sessions,
     get_handoff_config,
+    get_sla_default_hours,
     handoff_session,
     save_handoff_config,
 )
@@ -77,9 +81,8 @@ async def _no_push():
 class TestConfig:
     async def test_defaults_when_empty(self, ho_db):
         cfg = await get_handoff_config(ho_db)
-        assert cfg == DEFAULT_CONFIG
         assert cfg["enabled"] is False
-        assert cfg["threshold_hours"] == 4
+        assert cfg["threshold_hours"] == DEFAULT_SLA_HOURS
 
     async def test_save_and_roundtrip(self, ho_db):
         saved = await save_handoff_config(ho_db, {"enabled": True, "threshold_hours": 2})
@@ -98,7 +101,39 @@ class TestConfig:
 
     async def test_threshold_invalid_falls_back_default(self, ho_db):
         saved = await save_handoff_config(ho_db, {"enabled": True, "threshold_hours": "abc"})
-        assert saved["threshold_hours"] == DEFAULT_CONFIG["threshold_hours"]
+        assert saved["threshold_hours"] == DEFAULT_SLA_HOURS
+
+
+class TestSharedKey:
+    async def test_writes_to_shared_inbox_sla_key(self, ho_db):
+        await save_handoff_config(ho_db, {"enabled": True, "threshold_hours": 6})
+        row = await ho_db.get(SystemSetting, SETTING_KEY)
+        assert row is not None
+        assert row.value["sla_hours"] == 6
+        assert row.value["handoff_enabled"] is True
+
+    async def test_sla_default_hours_reflects_saved(self, ho_db):
+        await save_handoff_config(ho_db, {"enabled": False, "threshold_hours": 12})
+        assert await get_sla_default_hours(ho_db) == 12
+
+    async def test_sla_default_hours_when_empty(self, ho_db):
+        assert await get_sla_default_hours(ho_db) == DEFAULT_SLA_HOURS
+
+    async def test_silent_migration_from_legacy_key(self, ho_db):
+        """Si existe `inbox_sla_handoff` viejo, se migra al leer."""
+        ho_db.add(SystemSetting(
+            key=LEGACY_SETTING_KEY,
+            value={"enabled": True, "threshold_hours": 8},
+        ))
+        await ho_db.commit()
+        cfg = await get_handoff_config(ho_db)
+        assert cfg["enabled"] is True
+        assert cfg["threshold_hours"] == 8
+        # La nueva key fue creada
+        new_row = await ho_db.get(SystemSetting, SETTING_KEY)
+        assert new_row is not None
+        assert new_row.value["sla_hours"] == 8
+        assert new_row.value["handoff_enabled"] is True
 
 
 class TestFindBreachedSessions:
@@ -166,11 +201,12 @@ class TestHandoffSession:
         result = await handoff_session(ho_db, sample_session)
         assert result == "noop"
         assert sample_session.operator_id is None
+        assert sample_session.last_handoff_at is None
 
-    async def test_released_when_no_other_candidate(
+    async def test_noop_when_no_other_candidate_preserves_operator(
         self, ho_db, agents_ab, sample_session
     ):
-        """A asignado, B inexistente en pool -> release."""
+        """A asignado, unico en pool -> noop (no se libera al pool)."""
         a, _ = agents_ab
         sample_session.operator_id = a.id
         await ho_db.commit()
@@ -180,14 +216,17 @@ class TestHandoffSession:
         })
         now = datetime.now(timezone.utc)
         result = await handoff_session(ho_db, sample_session, now=now)
-        assert result == "released"
-        assert sample_session.operator_id is None
-        assert sample_session.last_handoff_at == now
-        # verifica mensaje sistema
+        assert result == "noop"
+        # Operador preservado
+        assert sample_session.operator_id == a.id
+        # last_handoff_at NO se actualiza en noop (para reactividad)
+        assert sample_session.last_handoff_at is None
+        # No debe haber mensaje sistema de handoff
         msgs = (await ho_db.execute(
             select(Message).where(Message.session_id == sample_session.id)
         )).scalars().all()
-        assert any("Liberado al pool" in (m.body or "") for m in msgs)
+        assert not any("Liberado al pool" in (m.body or "") for m in msgs)
+        assert not any("Reasignado por timeout SLA" in (m.body or "") for m in msgs)
 
     async def test_reassigns_to_other_operator(
         self, ho_db, agents_ab, sample_session
@@ -210,10 +249,10 @@ class TestHandoffSession:
         )).scalars().all()
         assert any("Reasignado por timeout SLA" in (m.body or "") for m in msgs)
 
-    async def test_respects_on_duty_filter(
+    async def test_noop_when_other_is_off_duty(
         self, ho_db, agents_ab, sample_session
     ):
-        """A asignado, B off-duty -> release (B no es candidato)."""
+        """A asignado, B off-duty -> noop (B no es candidato, A se conserva)."""
         a, b = agents_ab
         # B solo lunes, ahora miercoles
         ho_db.add(OperatorSchedule(
@@ -232,13 +271,14 @@ class TestHandoffSession:
             return_value=_wed_14pm(),
         ):
             result = await handoff_session(ho_db, sample_session, now=now)
-        assert result == "released"
-        assert sample_session.operator_id is None
+        assert result == "noop"
+        assert sample_session.operator_id == a.id
+        assert sample_session.last_handoff_at is None
 
-    async def test_excludes_current_operator_from_pick(
+    async def test_noop_excludes_current_operator_from_pick(
         self, ho_db, agents_ab, sample_session
     ):
-        """A asignado y unico en pool -> release (no se reasigna a si mismo)."""
+        """A asignado y unico en pool -> noop (no se reasigna a si mismo)."""
         a, _b = agents_ab
         sample_session.operator_id = a.id
         await ho_db.commit()
@@ -248,8 +288,9 @@ class TestHandoffSession:
         })
         now = datetime.now(timezone.utc)
         result = await handoff_session(ho_db, sample_session, now=now)
-        assert result == "released"
-        assert sample_session.operator_id is None
+        assert result == "noop"
+        assert sample_session.operator_id == a.id
+        assert sample_session.last_handoff_at is None
 
     async def test_push_called_on_reassign(
         self, ho_db, agents_ab, sample_session
