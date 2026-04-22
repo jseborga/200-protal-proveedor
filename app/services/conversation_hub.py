@@ -358,6 +358,51 @@ async def mirror_operator_to_client(
     return ok
 
 
+async def mirror_operator_media_to_client(
+    db: AsyncSession,
+    session: ConversationSession,
+    content: bytes,
+    mime: str,
+    filename: str,
+    caption: str | None = None,
+    operator_ref: str | None = None,
+) -> bool:
+    """Forward media (photo/document) sent by the operator in TG to client's WA.
+
+    Respeta ventana 24h y presencia de client_phone. Usa Evolution API
+    sendMedia (variante base64). Registra el mensaje con media_type.
+    """
+    if not session.client_phone:
+        return False
+    if not is_wa_window_open(session):
+        return False
+    if not content:
+        return False
+
+    from app.services.messaging import send_whatsapp_media_bytes, _wa_mediatype_from_mime
+
+    ok = await send_whatsapp_media_bytes(
+        session.client_phone,
+        content,
+        mime,
+        filename,
+        caption or "",
+    )
+    if ok:
+        mediatype = _wa_mediatype_from_mime(mime)
+        await record_message(
+            db, session,
+            direction="outbound", channel="whatsapp",
+            sender_type="operator", sender_ref=operator_ref,
+            body=caption or None,
+            media_type=mediatype,
+        )
+        if session.state != "operator_engaged":
+            session.state = "operator_engaged"
+        await db.flush()
+    return ok
+
+
 # ── Bot auto-reply ─────────────────────────────────────────────
 
 def _needs_attention(text: str) -> bool:

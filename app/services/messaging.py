@@ -126,6 +126,71 @@ async def send_whatsapp_file(phone: str, file_url: str, caption: str, *, instanc
         return False
 
 
+def _wa_mediatype_from_mime(mime: str | None) -> str:
+    """Map a MIME type to Evolution's mediatype field (image|video|audio|document)."""
+    if not mime:
+        return "document"
+    m = mime.lower()
+    if m.startswith("image/"):
+        return "image"
+    if m.startswith("video/"):
+        return "video"
+    if m.startswith("audio/"):
+        return "audio"
+    return "document"
+
+
+async def send_whatsapp_media_bytes(
+    phone: str,
+    content: bytes,
+    mime: str,
+    filename: str,
+    caption: str = "",
+    *,
+    instance_id: str | None = None,
+) -> bool:
+    """Send media bytes via WhatsApp using Evolution's base64 variant of sendMedia.
+
+    Evolution API v2 accepts base64-encoded payload in the same /message/sendMedia
+    endpoint by passing the media field as a base64 string (no data URI prefix).
+    """
+    import base64 as _b64
+
+    inst = await _resolve_wa_instance(instance_id)
+    if not inst:
+        return False
+
+    mediatype = _wa_mediatype_from_mime(mime)
+    url = f"{inst['url']}/message/sendMedia/{inst['instance_name']}"
+    payload = {
+        "number": _format_phone(phone),
+        "mediatype": mediatype,
+        "media": _b64.b64encode(content).decode("ascii"),
+        "fileName": filename or "archivo",
+        "mimetype": mime or "application/octet-stream",
+    }
+    if caption:
+        payload["caption"] = caption[:1024]
+
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            resp = await client.post(
+                url,
+                headers={
+                    "apikey": inst["api_key"],
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+            )
+        if resp.status_code in (200, 201):
+            return True
+        print(f"[WA] sendMedia(bytes) failed: {resp.status_code} {resp.text[:200]}")
+        return False
+    except httpx.HTTPError as e:
+        print(f"[WA] sendMedia(bytes) error: {e}")
+        return False
+
+
 def _format_phone(phone: str) -> str:
     """Ensure phone number has country code."""
     phone = phone.strip().replace(" ", "").replace("-", "").replace("+", "")
@@ -777,25 +842,73 @@ async def _try_handle_operator_topic_reply(
                     message_thread_id=message_thread_id,
                 )
         elif has_photo or has_document:
-            # Media from operator: Phase 1 notifies client to check portal.
-            # TODO Phase 1.5: download from TG and relay via Evolution sendMedia.
-            kind = "una foto" if has_photo else "un documento"
-            caption_line = f"\nNota del cotizador: {text}" if text else ""
-            client_msg = (
-                f"El equipo te envió {kind} sobre tu pedido {session.pedido_id}. "
-                f"Abrí el portal para verlo.{caption_line}"
-            )
-            await mirror_operator_to_client(
-                db, session, client_msg, operator_ref=from_user_id,
-            )
-            await record_message(
-                db, session,
-                direction="inbound", channel="telegram",
-                sender_type="operator", sender_ref=from_user_id,
-                body=text or None,
-                media_type="photo" if has_photo else "document",
-                ext_message_id=ext_msg_id,
-            )
+            # Fase 1.5: descargar de TG y reenviar a WA del cliente via
+            # Evolution sendMedia (base64). Si falla, caer al aviso de Fase 1.
+            from app.services.conversation_hub import mirror_operator_media_to_client
+
+            file_id = None
+            filename = "archivo"
+            mime = "application/octet-stream"
+            if has_photo:
+                photos = msg.get("photo") or []
+                if photos:
+                    file_id = photos[-1].get("file_id")
+                    filename = "foto.jpg"
+                    mime = "image/jpeg"
+            elif has_document:
+                doc = msg.get("document") or {}
+                file_id = doc.get("file_id")
+                filename = doc.get("file_name") or "documento"
+                mime = doc.get("mime_type") or "application/octet-stream"
+
+            relayed = False
+            if file_id:
+                fetched = await _download_telegram_file(file_id)
+                if fetched:
+                    content, _ = fetched
+                    relayed = await mirror_operator_media_to_client(
+                        db, session, content, mime, filename,
+                        caption=text or None,
+                        operator_ref=from_user_id,
+                    )
+                else:
+                    print(f"[TG→WA] no se pudo descargar file_id={file_id}")
+
+            if relayed:
+                # Log inbound TG event para trazabilidad; el outbound ya lo
+                # escribió mirror_operator_media_to_client.
+                await record_message(
+                    db, session,
+                    direction="inbound", channel="telegram",
+                    sender_type="operator", sender_ref=from_user_id,
+                    body=text or None,
+                    media_type="photo" if has_photo else "document",
+                    ext_message_id=ext_msg_id,
+                )
+            else:
+                # Fallback Fase 1: avisar al cliente y dejar constancia.
+                kind = "una foto" if has_photo else "un documento"
+                caption_line = f"\nNota del cotizador: {text}" if text else ""
+                client_msg = (
+                    f"El equipo te envió {kind} sobre tu pedido {session.pedido_id}. "
+                    f"Abrí el portal para verlo.{caption_line}"
+                )
+                await mirror_operator_to_client(
+                    db, session, client_msg, operator_ref=from_user_id,
+                )
+                await record_message(
+                    db, session,
+                    direction="inbound", channel="telegram",
+                    sender_type="operator", sender_ref=from_user_id,
+                    body=text or None,
+                    media_type="photo" if has_photo else "document",
+                    ext_message_id=ext_msg_id,
+                )
+                await send_telegram(
+                    chat_id,
+                    "⚠️ No pude reenviar el archivo al cliente por WhatsApp (ventana 24h cerrada, WA sin configurar o falla de Evolution). Se notificó con texto.",
+                    message_thread_id=message_thread_id,
+                )
 
         await db.commit()
     except Exception as e:
