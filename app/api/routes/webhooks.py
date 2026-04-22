@@ -15,6 +15,10 @@ async def whatsapp_webhook(request: Request, db: AsyncSession = Depends(get_db))
     body = await request.json()
     event = body.get("event")
 
+    # Log del webhook recibido (no levanta si falla)
+    from app.services.webhook_monitor import record_webhook
+    await record_webhook(db, source="whatsapp", payload=body, event_type=event)
+
     if event == "messages.upsert":
         messages = body.get("data", [])
         for msg in messages if isinstance(messages, list) else [messages]:
@@ -43,6 +47,13 @@ async def telegram_webhook(request: Request, db: AsyncSession = Depends(get_db))
         raise HTTPException(status_code=403, detail="Invalid secret")
 
     body = await request.json()
+
+    # Log del webhook TG recibido
+    from app.services.webhook_monitor import record_webhook
+    tg_event = "callback_query" if "callback_query" in body else (
+        "message" if "message" in body else "other"
+    )
+    await record_webhook(db, source="telegram", payload=body, event_type=tg_event)
 
     try:
         if "callback_query" in body:

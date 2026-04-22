@@ -2060,6 +2060,97 @@ async def update_integrations(
     return {"ok": True, "data": config}
 
 
+@router.get("/integrations/evolution-health")
+async def evolution_health(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Return per-instance Evolution health: connectionState + last webhook.
+
+    Response:
+      {
+        ok: true,
+        data: {
+          instances: [
+            {
+              id, label, instance_name,
+              connection_state: "open" | "close" | "connecting" | "unknown",
+              connection_error: str | null,
+              last_webhook_at: ISO string | null,
+              last_webhook_event: str | null,
+              last_webhook_status: str | null,
+            }
+          ],
+          global_last_webhook_at: ISO | null,
+        }
+      }
+    """
+    import asyncio as _asyncio
+    from app.services.webhook_monitor import (
+        evolution_connection_state,
+        last_webhook_by_instance,
+    )
+
+    setting = await db.get(SystemSetting, "integrations")
+    cfg = setting.value if setting and setting.value else {}
+    instances = cfg.get("evolution_instances", []) or []
+
+    # Fallback: si no hay multi-instancia configurada, usar single de .env/DB
+    if not instances:
+        from app.core.config import settings as env
+        single_url = cfg.get("evolution_api_url") or env.evolution_api_url
+        single_key = cfg.get("evolution_api_key") or env.evolution_api_key
+        single_name = cfg.get("evolution_instance_name") or env.evolution_instance_name
+        if single_url and single_name:
+            instances = [{
+                "id": "_single",
+                "label": single_name,
+                "url": single_url,
+                "api_key": single_key,
+                "instance_name": single_name,
+                "is_default": True,
+            }]
+
+    last_by_inst = await last_webhook_by_instance(db, source="whatsapp")
+
+    async def _probe(inst: dict) -> dict:
+        conn = await evolution_connection_state(
+            inst.get("url", ""), inst.get("instance_name", ""), inst.get("api_key", ""),
+        )
+        last = last_by_inst.get(inst.get("instance_name") or "") or {}
+        return {
+            "id": inst.get("id"),
+            "label": inst.get("label") or inst.get("instance_name"),
+            "instance_name": inst.get("instance_name"),
+            "is_default": bool(inst.get("is_default")),
+            "connection_state": conn.get("state"),
+            "connection_error": conn.get("error"),
+            "last_webhook_at": last.get("received_at"),
+            "last_webhook_event": last.get("event_type"),
+            "last_webhook_status": last.get("status"),
+        }
+
+    # Probar conexiones en paralelo (timeout 5s c/u dentro de evolution_connection_state)
+    results = await _asyncio.gather(
+        *[_probe(i) for i in instances], return_exceptions=False,
+    )
+
+    # Timestamp global (\u00faltimo webhook WA sin importar instancia)
+    global_last = None
+    for v in last_by_inst.values():
+        ts = v.get("received_at")
+        if ts and (global_last is None or ts > global_last):
+            global_last = ts
+
+    return {
+        "ok": True,
+        "data": {
+            "instances": results,
+            "global_last_webhook_at": global_last,
+        },
+    }
+
+
 @router.post("/integrations/test-whatsapp")
 async def test_whatsapp_connection(
     body: dict | None = None,

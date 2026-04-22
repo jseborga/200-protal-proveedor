@@ -258,6 +258,7 @@ const API = {
     adminUpdateIntegrations: (data) => API.put('/admin/integrations', data),
     adminTestWhatsApp: (data) => API.post('/admin/integrations/test-whatsapp', data || {}),
     adminTestEmail: () => API.post('/admin/integrations/test-email'),
+    adminEvolutionHealth: () => API.get('/admin/integrations/evolution-health'),
 
     // Public site config (no auth needed)
     siteConfig: () => fetch(`${API_BASE}/site-config`).then(r => r.json()),
@@ -7075,6 +7076,10 @@ async function renderAdminIntegrations() {
                             <span>${icon('server',12)} ${esc(inst.instance_name)}</span>
                             <span>${icon('lock',12)} ${esc(inst.api_key_masked || '***')}</span>
                         </div>
+                        <div class="wa-instance-health" data-health-slot="${esc(inst.id)}" style="margin-top:8px;display:flex;gap:8px;align-items:center;font-size:12px;color:var(--gray-500)">
+                            <span data-slot="conn">${icon('clock',12)} Cargando...</span>
+                            <span data-slot="webhook"></span>
+                        </div>
                     </div>
                 `).join('') : `
                     <div style="text-align:center;padding:20px;color:var(--gray-400)">
@@ -7249,6 +7254,86 @@ async function renderAdminIntegrations() {
             </form>
         </div>
     `;
+
+    // Arrancar el polling de salud Evolution (connectionState + last webhook)
+    _startEvolutionHealthPolling();
+}
+
+// ── Evolution health polling ─────────────────────────────────────
+let _evoHealthTimer = null;
+
+function _stopEvolutionHealthPolling() {
+    if (_evoHealthTimer) {
+        clearInterval(_evoHealthTimer);
+        _evoHealthTimer = null;
+    }
+}
+
+function _startEvolutionHealthPolling() {
+    _stopEvolutionHealthPolling();
+    refreshEvolutionHealth();  // primer tick inmediato
+    _evoHealthTimer = setInterval(() => {
+        // Si la sección ya no está montada, detener
+        if (!document.getElementById('wa-instances-list')) {
+            _stopEvolutionHealthPolling();
+            return;
+        }
+        refreshEvolutionHealth();
+    }, 30000);
+}
+
+function _connStateBadge(state) {
+    const s = (state || 'unknown').toLowerCase();
+    if (s === 'open') return `<span style="color:#16a34a">${icon('check',12)} Conectado</span>`;
+    if (s === 'connecting') return `<span style="color:#ca8a04">${icon('clock',12)} Conectando</span>`;
+    if (s === 'close') return `<span style="color:#dc2626">${icon('x',12)} Desconectado</span>`;
+    return `<span style="color:var(--gray-400)">${icon('clock',12)} Desconocido</span>`;
+}
+
+function _relativeTime(iso) {
+    if (!iso) return null;
+    const t = new Date(iso).getTime();
+    if (isNaN(t)) return null;
+    const diff = Math.floor((Date.now() - t) / 1000);
+    if (diff < 60) return `hace ${diff}s`;
+    if (diff < 3600) return `hace ${Math.floor(diff/60)}m`;
+    if (diff < 86400) return `hace ${Math.floor(diff/3600)}h`;
+    return `hace ${Math.floor(diff/86400)}d`;
+}
+
+function _webhookFreshnessColor(iso) {
+    if (!iso) return 'var(--gray-400)';
+    const diffMin = (Date.now() - new Date(iso).getTime()) / 60000;
+    if (diffMin < 5) return '#16a34a';
+    if (diffMin < 60) return '#ca8a04';
+    return '#dc2626';
+}
+
+async function refreshEvolutionHealth() {
+    try {
+        const resp = await API.adminEvolutionHealth();
+        if (!resp || !resp.ok) return;
+        const items = (resp.data && resp.data.instances) || [];
+        for (const item of items) {
+            const slot = document.querySelector(`[data-health-slot="${item.id}"]`);
+            if (!slot) continue;
+            const connEl = slot.querySelector('[data-slot="conn"]');
+            const whEl = slot.querySelector('[data-slot="webhook"]');
+            if (connEl) connEl.innerHTML = _connStateBadge(item.connection_state);
+            if (whEl) {
+                if (item.last_webhook_at) {
+                    const rel = _relativeTime(item.last_webhook_at);
+                    const col = _webhookFreshnessColor(item.last_webhook_at);
+                    const ev = item.last_webhook_event ? ` · ${esc(item.last_webhook_event)}` : '';
+                    whEl.innerHTML = `<span style="color:${col}">${icon('clock',12)} ${rel}${ev}</span>`;
+                } else {
+                    whEl.innerHTML = `<span style="color:var(--gray-400)">${icon('clock',12)} sin webhooks</span>`;
+                }
+            }
+        }
+    } catch (e) {
+        // silencioso: el polling sigue corriendo
+    }
 }
 
 async function saveBotAuthorized(e) {
