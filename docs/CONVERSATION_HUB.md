@@ -370,7 +370,7 @@ Endpoints clave para humo-testear el inbox:
 | `6d33f6e` | Inbox Fase 5.7 auto-asignacion round-robin + least-loaded   |
 | `056bf69` | Alembic 0001 mkt_push_subscription + mkt_system_setting     |
 | `4892185` | Tests integracion auto-assign hook en handle_whatsapp_message |
-| _(next)_  | Alembic 0002 operator_last_read_at + fix doc Fase 1         |
+| `5b3240f` | Alembic 0002 operator_last_read_at + fix doc Fase 1         |
 
 ---
 
