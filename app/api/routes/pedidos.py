@@ -413,14 +413,39 @@ async def mark_complete(
     from app.services.notifications import notify_pedido_completed
     await notify_pedido_completed(db, pedido)
 
-    # Cerrar la sesión del hub de conversaciones si existe
+    # Cerrar la sesión del hub de conversaciones si existe. Capturamos el
+    # prev_state para emitir session.state_changed por WS (5.11).
+    closed_info: tuple[int, str | None] | None = None
     try:
+        from app.models.conversation import ConversationSession as _CSess
+        _q = await db.execute(
+            select(_CSess)
+            .where(_CSess.pedido_id == pedido.id)
+            .order_by(_CSess.id.desc())
+            .limit(1)
+        )
+        _sess = _q.scalar_one_or_none()
+        if _sess is not None:
+            closed_info = (_sess.id, _sess.state)
         from app.services.conversation_hub import close_session_for_pedido
         await close_session_for_pedido(db, pedido.id)
     except Exception as e:
         print(f"[pedido] close_session_for_pedido error: {e}")
 
     await db.commit()
+
+    if closed_info is not None and closed_info[1] != "closed":
+        try:
+            from app.services.inbox_ws import publish_session_state_changed as _ws_state_changed
+            await _ws_state_changed(
+                session_id=closed_info[0],
+                prev_state=closed_info[1],
+                state="closed",
+                pedido_id=pedido.id,
+                exclude_user_id=user.id,
+            )
+        except Exception:
+            pass
 
     return {"ok": True, "data": _pedido_to_dict(pedido)}
 
@@ -441,9 +466,36 @@ async def deliver_quote(
     if pedido.assigned_to != user.id and pedido.created_by != user.id:
         raise HTTPException(403, "Solo el operador asignado puede entregar la cotización")
 
+    # Capturamos prev_state de la session para emitir session.state_changed.
+    from app.models.conversation import ConversationSession as _CSess
+    _q = await db.execute(
+        select(_CSess)
+        .where(_CSess.pedido_id == pedido.id)
+        .order_by(_CSess.id.desc())
+        .limit(1)
+    )
+    _sess = _q.scalar_one_or_none()
+    _prev_state = _sess.state if _sess else None
+
     from app.services.conversation_hub import deliver_quote_to_client
     result = await deliver_quote_to_client(db, pedido, operator=user)
     await db.commit()
+
+    if _sess is not None and result.get("ok") and _prev_state != "quote_sent":
+        try:
+            await db.refresh(_sess)
+            if _sess.state == "quote_sent":
+                from app.services.inbox_ws import publish_session_state_changed as _ws_state_changed
+                await _ws_state_changed(
+                    session_id=_sess.id,
+                    prev_state=_prev_state,
+                    state="quote_sent",
+                    pedido_id=pedido.id,
+                    mode=result.get("mode"),
+                    exclude_user_id=user.id,
+                )
+        except Exception:
+            pass
 
     return {"ok": result["ok"], "mode": result["mode"], "url": result["url"]}
 

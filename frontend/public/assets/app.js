@@ -8378,6 +8378,11 @@ const _inbox = {
     notifLastSeenIds: null,   // Set<number> de session ids con unread en ultimo poll
     notifEnabled: (typeof localStorage !== 'undefined' && localStorage.getItem('inboxNotifEnabled') === '1'),
     notifInit: false,         // primer poll: solo baseline, no notificar
+    // 5.11: WebSocket live updates
+    ws: null,
+    wsStatus: 'off',          // 'off' | 'connecting' | 'open'
+    wsBackoffMs: 1000,        // exponencial hasta 30s
+    wsReconnectTimer: null,
 };
 
 function _inboxNotifSupported() {
@@ -8630,6 +8635,96 @@ function _inboxWindowBadge(w) {
 
 function _inboxStopPolling() {
     if (_inbox.pollTimer) { clearInterval(_inbox.pollTimer); _inbox.pollTimer = null; }
+    _inboxWsDisconnect();
+}
+
+// ── 5.11 WebSocket live updates ──────────────────────────────
+function _inboxWsUrl() {
+    const proto = (location.protocol === 'https:') ? 'wss:' : 'ws:';
+    const tok = encodeURIComponent(state.token || '');
+    return `${proto}//${location.host}/api/v1/inbox/ws?token=${tok}`;
+}
+
+function _inboxStartPollingInterval() {
+    if (_inbox.pollTimer) { clearInterval(_inbox.pollTimer); _inbox.pollTimer = null; }
+    const interval = (_inbox.wsStatus === 'open') ? 60000 : 10000;
+    _inbox.pollTimer = setInterval(() => {
+        if (state.currentPage !== 'inbox') { _inboxStopPolling(); return; }
+        loadInboxSessions({ silent: true });
+        if (_inbox.selectedId) loadInboxSession(_inbox.selectedId, { silent: true });
+    }, interval);
+}
+
+function _inboxWsConnect() {
+    if (!state.token) return;
+    if (_inbox.ws || _inbox.wsStatus === 'connecting') return;
+    if (typeof WebSocket === 'undefined') return;
+    try {
+        _inbox.wsStatus = 'connecting';
+        const sock = new WebSocket(_inboxWsUrl());
+        _inbox.ws = sock;
+        sock.addEventListener('open', () => {
+            _inbox.wsStatus = 'open';
+            _inbox.wsBackoffMs = 1000;
+            _inboxStartPollingInterval();
+        });
+        sock.addEventListener('message', (ev) => {
+            let payload;
+            try { payload = JSON.parse(ev.data); } catch (_) { return; }
+            if (!payload) return;
+            if (payload.type === 'inbox_event') {
+                _inboxHandleWsEvent(payload);
+            }
+            // Los 'hello'/'ping' se ignoran (el browser ya mantiene la conexion).
+        });
+        sock.addEventListener('close', () => {
+            _inbox.ws = null;
+            _inbox.wsStatus = 'off';
+            _inboxStartPollingInterval();
+            if (state.currentPage === 'inbox') _inboxWsScheduleReconnect();
+        });
+        sock.addEventListener('error', () => {
+            try { sock.close(); } catch (_) {}
+        });
+    } catch (_) {
+        _inbox.wsStatus = 'off';
+        _inbox.ws = null;
+        _inboxWsScheduleReconnect();
+    }
+}
+
+function _inboxWsScheduleReconnect() {
+    if (_inbox.wsReconnectTimer) return;
+    const delay = Math.min(_inbox.wsBackoffMs || 1000, 30000);
+    _inbox.wsReconnectTimer = setTimeout(() => {
+        _inbox.wsReconnectTimer = null;
+        _inbox.wsBackoffMs = Math.min((_inbox.wsBackoffMs || 1000) * 2, 30000);
+        if (state.currentPage === 'inbox') _inboxWsConnect();
+    }, delay);
+}
+
+function _inboxWsDisconnect() {
+    if (_inbox.wsReconnectTimer) { clearTimeout(_inbox.wsReconnectTimer); _inbox.wsReconnectTimer = null; }
+    if (_inbox.ws) { try { _inbox.ws.close(); } catch (_) {} _inbox.ws = null; }
+    _inbox.wsStatus = 'off';
+    _inbox.wsBackoffMs = 1000;
+}
+
+function _inboxHandleWsEvent(payload) {
+    const ev = payload.event;
+    const d = payload.data || {};
+    const sid = d.session_id;
+    // 4 familias consolidadas -> 1 handler uniforme.
+    // Cualquier cambio dispara refresh de lista + detalle si es la activa.
+    if (ev === 'message.created'
+        || ev === 'session.operator_changed'
+        || ev === 'session.state_changed'
+        || ev === 'session.marked_read') {
+        if (sid && _inbox.selectedId === sid) {
+            loadInboxSession(sid, { silent: true });
+        }
+        loadInboxSessions({ silent: true });
+    }
 }
 
 async function renderInbox() {
@@ -8757,11 +8852,9 @@ async function renderInbox() {
     _inbox.notifLastSeenIds = null;
     _inboxUpdateNotifButton();
     await loadInboxSessions();
-    _inbox.pollTimer = setInterval(() => {
-        if (state.currentPage !== 'inbox') { _inboxStopPolling(); return; }
-        loadInboxSessions({ silent: true });
-        if (_inbox.selectedId) loadInboxSession(_inbox.selectedId, { silent: true });
-    }, 10000);
+    // 5.11: intentar WS; el polling se ajusta al estado (10s offline, 60s con WS).
+    _inboxWsConnect();
+    _inboxStartPollingInterval();
 }
 
 async function loadInboxSessions({ silent = false } = {}) {

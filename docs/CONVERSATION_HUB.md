@@ -1,7 +1,7 @@
 # Conversation Hub — Estado del proyecto
 
 Documento de continuidad para el hub de conversaciones cliente <-> operador.
-Ultima actualizacion: **2026-04-22** (Fase 5.10 corregida: no release-to-pool + sla_hours compartido).
+Ultima actualizacion: **2026-04-23** (Fase 5.11: WebSocket live updates del Inbox).
 
 ---
 
@@ -539,6 +539,114 @@ UPDATE alembic_version SET version_num='0004' WHERE alembic_version.version_num 
 asignado nunca vuelve on-duty y no hay nadie mas on-duty en el pool,
 la sesion queda indefinidamente con ese operador. Tradeoff aceptado
 para evitar sesiones huerfanas en el pool sin dueno.
+
+### 5.11 WebSocket live updates del inbox — **DONE**
+Push en tiempo real de los cambios del inbox hacia las pestanas staff
+abiertas, sin reemplazar el polling (coexisten con cadencia degradada).
+
+**Decision de diseno**: 4 familias de eventos consolidadas con
+discriminadores en lugar de 10 eventos especificos (mas simple de
+extender y un handler uniforme en el cliente).
+
+| Evento | Discriminador |
+|---|---|
+| `message.created` | `kind ∈ {inbound, outbound, note, system}` |
+| `session.operator_changed` | `reason ∈ {claim, release, assign, auto_assign, auto_handoff}` |
+| `session.state_changed` | `prev_state, state` |
+| `session.marked_read` | — |
+
+Envelope estandar: `{type:"inbox_event", event, data, ts (ISO8601)}`.
+Los publishers emiten **post-commit** y NUNCA lanzan
+(`publish_event` atrapa internamente).
+
+**Backend**
+- Broadcaster in-memory (`app/services/inbox_ws.py`):
+  - `_subs: {user_id: set[WebSocket]}` + `_user_roles` bajo
+    `asyncio.Lock`.
+  - API publica: `register_subscriber`, `unregister_subscriber`,
+    `broadcast_to_user`, `publish_event` y los 3 wrappers
+    semanticos `publish_message_created`,
+    `publish_session_operator_changed`,
+    `publish_session_state_changed`.
+  - Default `target_roles = STAFF_ROLES` (field_agent, manager,
+    admin, superadmin). `exclude_user_id` suprime eco al emisor.
+  - Limpieza automatica de sockets muertos al fallar `send_json`.
+  - **Limitacion conocida**: WORKERS=1. Multi-worker requerira
+    Redis pub/sub detras de la misma API `publish_event` sin
+    tocar callers.
+- Endpoint `GET /api/v1/inbox/ws?token=<jwt>`
+  (`app/api/routes/inbox_ws.py`):
+  - JWT en query param (WS no soporta headers custom en browser).
+  - Cierre `1008` si token invalido / user inactivo / no staff.
+  - `hello` frame con `{user_id, role}` al conectar.
+  - `heartbeat` server -> cliente cada 30s; receive loop drena
+    mensajes del cliente sin procesarlos.
+  - Cleanup en `finally` garantiza `unregister_subscriber`.
+
+**Callsites ya cableados (publishers)**
+- `POST /inbox/sessions/{id}/mark-read` -> `session.marked_read`
+  (`exclude_user_id = caller`).
+- `POST /inbox/sessions/{id}/send` -> `message.created` kind=outbound
+  y `session.state_changed` si la sesion paso a `operator_engaged`
+  (`exclude_user_id = caller`).
+- `POST /inbox/sessions/{id}/note` -> `message.created` kind=note
+  (`exclude_user_id = caller`).
+- `POST /inbox/sessions/{id}/claim|release|assign` ->
+  `session.operator_changed` con `reason` y `by_user_id=caller`
+  (`exclude_user_id = caller`).
+- `messaging.handle_whatsapp_message` (post-commit): emite
+  `session.state_changed` si `waiting_first_contact -> active`,
+  luego `message.created` kind=inbound y
+  `session.operator_changed` reason=auto_assign si la 5.7
+  asigno operador en el mismo flujo (incluye `strategy`).
+- `messaging.handle_operator_topic_message` (post-commit): emite
+  `message.created` kind=outbound y `session.state_changed`
+  (`active -> operator_engaged` cuando aplica). El comando
+  `/cerrar` emite `session.state_changed` state=closed.
+- `tasks/inbox_sla_handoff.run` (post-commit): por cada sesion
+  reassignada emite `session.operator_changed` reason=auto_handoff
+  con `strategy` de autoassign.
+- `POST /pedidos/{id}/complete` (post-commit): si cerro la sesion,
+  `session.state_changed` state=closed con `pedido_id`
+  (`exclude_user_id = caller`).
+- `POST /pedidos/{id}/deliver` (post-commit): si paso a `quote_sent`,
+  `session.state_changed` state=quote_sent con `mode` y `pedido_id`
+  (`exclude_user_id = caller`).
+
+**Frontend (`frontend/public/assets/app.js`)**
+- Nuevo estado en `_inbox`: `ws`, `wsStatus` (`off|connecting|open`),
+  `wsBackoffMs`, `wsReconnectTimer`.
+- `_inboxWsConnect()` arma `wss://.../api/v1/inbox/ws?token=...`
+  (upgrade auto a wss en https), `open` resetea backoff a 1s y
+  recalibra polling.
+- Handler unico `_inboxHandleWsEvent` para las 4 familias: cualquier
+  evento dispara `loadInboxSessions({silent:true})` y, si la session
+  afectada es la seleccionada, `loadInboxSession(sid,{silent:true})`.
+- Reconnect exponencial (1s -> 30s max) al `close`, gated por
+  `state.currentPage === 'inbox'` (deja de reconectar al navegar).
+- Polling coexiste con cadencia degradada:
+  - WS open -> `setInterval` cada **60s** (backup).
+  - WS off/fallback -> cada **10s** (comportamiento previo).
+- `_inboxStopPolling` ahora tambien desconecta WS (evita fugas al
+  salir de `renderInbox`).
+
+**Tests**
+- `tests/test_inbox_ws_service.py` (22 tests):
+  - `TestRegisterUnregister`, `TestBroadcast`, `TestPublishEvent`,
+    `TestConcurrency` (13 previos).
+  - Nuevo `TestSemanticHelpers` (9 tests): envelope de cada wrapper,
+    truncado de preview a 140 chars, rechazo de kind/reason
+    invalidos, no-op cuando `prev_state == state`.
+- `tests/test_inbox_ws_endpoint.py` (10 tests):
+  - `TestAuthentication`: missing/invalid/expired token, non-staff,
+    inactive.
+  - `TestConnectAndEvents`: greeting hello, recepcion de evento,
+    exclude_emitter, multi-tab, clean disconnect.
+- **Suite total**: 305 tests passing (296 de 5.10 + 9 de semantic
+  helpers 5.11).
+
+**Sin migraciones Alembic**: el estado de subscripciones vive
+in-memory. No requiere DDL.
 
 ---
 

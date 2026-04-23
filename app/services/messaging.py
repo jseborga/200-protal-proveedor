@@ -680,11 +680,13 @@ async def handle_whatsapp_message(db, msg: dict):
     if session is not None:
         try:
             # First inbound? advance state from waiting_first_contact → active
+            prev_state = session.state
+            prev_operator_id = session.operator_id
             if session.state == "waiting_first_contact":
                 session.state = "active"
 
             # Log the inbound message
-            await record_message(
+            inbound_msg = await record_message(
                 db, session,
                 direction="inbound", channel="whatsapp",
                 sender_type="client", sender_ref=phone,
@@ -708,10 +710,17 @@ async def handle_whatsapp_message(db, msg: dict):
             )
 
             # 5.7: Auto-asignacion si la sesion aun no tiene operador
+            auto_assign_strategy: str | None = None
             if not session.operator_id:
                 try:
-                    from app.services.inbox_autoassign import auto_assign_if_needed
-                    await auto_assign_if_needed(db, session)
+                    from app.services.inbox_autoassign import auto_assign_if_needed, get_config as _aa_get_config
+                    picked = await auto_assign_if_needed(db, session)
+                    if picked is not None:
+                        try:
+                            _cfg = await _aa_get_config(db)
+                            auto_assign_strategy = _cfg.get("strategy")
+                        except Exception:  # noqa: BLE001
+                            pass
                 except Exception as e:  # noqa: BLE001
                     print(f"[autoassign] error: {e}")
 
@@ -745,6 +754,39 @@ async def handle_whatsapp_message(db, msg: dict):
                         sender_type="bot", body=reply,
                     )
             await db.commit()
+
+            # 5.11: WS live updates (emitir post-commit; errores no rompen el flujo)
+            try:
+                from app.services.inbox_ws import (
+                    publish_message_created as _ws_msg_created,
+                    publish_session_operator_changed as _ws_op_changed,
+                    publish_session_state_changed as _ws_state_changed,
+                )
+                if prev_state != session.state:
+                    await _ws_state_changed(
+                        session_id=session.id,
+                        prev_state=prev_state,
+                        state=session.state,
+                    )
+                await _ws_msg_created(
+                    session_id=session.id,
+                    message_id=getattr(inbound_msg, "id", None),
+                    kind="inbound",
+                    preview=text or media_note,
+                )
+                if (
+                    prev_operator_id is None
+                    and session.operator_id is not None
+                ):
+                    await _ws_op_changed(
+                        session_id=session.id,
+                        prev_operator_id=None,
+                        operator_id=session.operator_id,
+                        reason="auto_assign",
+                        strategy=auto_assign_strategy,
+                    )
+            except Exception as e:  # noqa: BLE001
+                print(f"[inbox_ws] publish error: {e}")
         except Exception as e:
             print(f"[WA] hub processing error: {e}")
             import traceback; traceback.print_exc()
@@ -823,8 +865,19 @@ async def _try_handle_operator_topic_reply(
             pedido = await db.get(Pedido, session.pedido_id)
             if pedido and pedido.state != "completed":
                 await complete_pedido(db, pedido)
+            prev_state_close = session.state
             await close_session_for_pedido(db, session.pedido_id)
             await db.commit()
+            try:
+                from app.services.inbox_ws import publish_session_state_changed as _ws_state_changed
+                await _ws_state_changed(
+                    session_id=session.id,
+                    prev_state=prev_state_close,
+                    state="closed",
+                    pedido_id=session.pedido_id,
+                )
+            except Exception as e:  # noqa: BLE001
+                print(f"[inbox_ws] publish close error: {e}")
             await send_telegram(
                 chat_id,
                 f"✅ Pedido <b>#{session.pedido_id}</b> cerrado por @{username or operator.full_name}.",
@@ -854,6 +907,7 @@ async def _try_handle_operator_topic_reply(
         )
         return True
 
+    prev_state_relay = session.state
     try:
         if text and not (has_photo or has_document):
             # Plain text → relay to client WA
@@ -936,6 +990,26 @@ async def _try_handle_operator_topic_reply(
                 )
 
         await db.commit()
+        # 5.11: WS live updates (post-commit)
+        try:
+            from app.services.inbox_ws import (
+                publish_message_created as _ws_msg_created,
+                publish_session_state_changed as _ws_state_changed,
+            )
+            if prev_state_relay != session.state:
+                await _ws_state_changed(
+                    session_id=session.id,
+                    prev_state=prev_state_relay,
+                    state=session.state,
+                )
+            await _ws_msg_created(
+                session_id=session.id,
+                message_id=None,
+                kind="outbound",
+                preview=text,
+            )
+        except Exception as e:  # noqa: BLE001
+            print(f"[inbox_ws] publish TG relay error: {e}")
     except Exception as e:
         print(f"[TG] operator relay error: {e}")
         import traceback; traceback.print_exc()

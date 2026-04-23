@@ -17,6 +17,12 @@ from app.core.database import get_db
 from app.models.conversation import ConversationSession, Message
 from app.models.pedido import Pedido
 from app.models.user import User
+from app.services.inbox_ws import (
+    publish_event as _ws_publish,
+    publish_message_created as _ws_publish_message_created,
+    publish_session_operator_changed as _ws_publish_operator_changed,
+    publish_session_state_changed as _ws_publish_state_changed,
+)
 
 router = APIRouter()
 
@@ -330,6 +336,18 @@ async def mark_session_read(
         raise HTTPException(404, "Sesion no encontrada")
     session.operator_last_read_at = datetime.now(timezone.utc)
     await db.commit()
+    try:
+        await _ws_publish(
+            "session.marked_read",
+            {
+                "session_id": session.id,
+                "operator_id": user.id,
+                "read_at": session.operator_last_read_at.isoformat(),
+            },
+            exclude_user_id=user.id,
+        )
+    except Exception:
+        pass
     return {"ok": True, "read_at": session.operator_last_read_at.isoformat()}
 
 
@@ -367,6 +385,16 @@ async def add_internal_note(
     db.add(msg)
     await db.commit()
     await db.refresh(msg)
+    try:
+        await _ws_publish_message_created(
+            session_id=session_id,
+            message_id=msg.id,
+            kind="note",
+            preview=payload.text,
+            exclude_user_id=user.id,
+        )
+    except Exception:
+        pass
     return {"ok": True, "data": _message_to_dict(msg)}
 
 
@@ -402,6 +430,7 @@ async def send_from_inbox(
     if not is_wa_window_open(session):
         return {"ok": False, "mode": "window_closed", "detail": "Ventana WA de 24h cerrada"}
 
+    prev_state = session.state
     sent = await mirror_operator_to_client(
         db, session, payload.text, operator_ref=str(user.id),
     )
@@ -423,6 +452,23 @@ async def send_from_inbox(
             print(f"[inbox] mirror to TG failed: {e}")
 
     await db.commit()
+    try:
+        await _ws_publish_message_created(
+            session_id=session_id,
+            message_id=None,
+            kind="outbound",
+            preview=payload.text,
+            exclude_user_id=user.id,
+        )
+        if prev_state != session.state:
+            await _ws_publish_state_changed(
+                session_id=session_id,
+                prev_state=prev_state,
+                state=session.state,
+                exclude_user_id=user.id,
+            )
+    except Exception:
+        pass
     return {"ok": True, "mode": "whatsapp"}
 
 
@@ -464,9 +510,21 @@ async def claim_session(
                 **(await _operator_summary(db, session)),
             }
 
+    prev_operator_id = session.operator_id
     session.operator_id = user.id
     await db.commit()
     await db.refresh(session)
+    try:
+        await _ws_publish_operator_changed(
+            session_id=session_id,
+            prev_operator_id=prev_operator_id,
+            operator_id=user.id,
+            reason="claim",
+            by_user_id=user.id,
+            exclude_user_id=user.id,
+        )
+    except Exception:
+        pass
     return {"ok": True, **(await _operator_summary(db, session))}
 
 
@@ -484,9 +542,21 @@ async def release_session(
         return {"ok": True, **(await _operator_summary(db, session))}
     if session.operator_id != user.id and user.role not in MANAGER_ROLES:
         raise HTTPException(403, "Solo el operador asignado o un manager puede liberar la sesion")
+    prev_operator_id = session.operator_id
     session.operator_id = None
     await db.commit()
     await db.refresh(session)
+    try:
+        await _ws_publish_operator_changed(
+            session_id=session_id,
+            prev_operator_id=prev_operator_id,
+            operator_id=None,
+            reason="release",
+            by_user_id=user.id,
+            exclude_user_id=user.id,
+        )
+    except Exception:
+        pass
     return {"ok": True, **(await _operator_summary(db, session))}
 
 
@@ -506,6 +576,7 @@ async def assign_session(
     if session is None:
         raise HTTPException(404, "Sesion no encontrada")
 
+    prev_operator_id = session.operator_id
     if payload.operator_id is not None:
         target = await db.get(User, payload.operator_id)
         if target is None or target.role not in STAFF_ROLES or not target.is_active:
@@ -516,6 +587,17 @@ async def assign_session(
 
     await db.commit()
     await db.refresh(session)
+    try:
+        await _ws_publish_operator_changed(
+            session_id=session_id,
+            prev_operator_id=prev_operator_id,
+            operator_id=session.operator_id,
+            reason="assign",
+            by_user_id=user.id,
+            exclude_user_id=user.id,
+        )
+    except Exception:
+        pass
     return {"ok": True, **(await _operator_summary(db, session))}
 
 
