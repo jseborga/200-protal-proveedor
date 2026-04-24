@@ -22,6 +22,7 @@ from .ai_agent import AIAgent
 from .banned_ip import BannedIP
 from .conversation import ConversationSession, Message
 from .operator_schedule import OperatorSchedule
+from .session_tag import Tag, SessionTag, TAG_COLOR_SLUGS
 
 __all__ = [
     "Base", "Plan", "Company", "Subscription",
@@ -35,4 +36,5 @@ __all__ = [
     "PushSubscription", "SystemSetting", "AIAgent", "BannedIP",
     "ConversationSession", "Message",
     "OperatorSchedule",
+    "Tag", "SessionTag", "TAG_COLOR_SLUGS",
 ]

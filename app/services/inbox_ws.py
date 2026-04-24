@@ -143,13 +143,14 @@ async def publish_event(
         return 0
 
 
-# ── Wrappers semanticos (Fase 5.11) ─────────────────────────────
+# ── Wrappers semanticos (Fase 5.11 + 5.12) ──────────────────────
 #
-# 4 familias consolidadas:
+# 5 familias consolidadas:
 #   1. message.created        (kind: inbound|outbound|note|system)
 #   2. session.operator_changed (reason: claim|release|assign|auto_assign|auto_handoff)
 #   3. session.state_changed   (prev_state, state)
 #   4. session.marked_read     (mantiene shape previo)
+#   5. session.tags_changed    (kind: added|removed) — Fase 5.12
 #
 # NUNCA lanzan. Internamente delegan en publish_event que ya atrapa todo.
 
@@ -158,6 +159,7 @@ MESSAGE_KINDS = frozenset({"inbound", "outbound", "note", "system"})
 OPERATOR_CHANGE_REASONS = frozenset(
     {"claim", "release", "assign", "auto_assign", "auto_handoff"}
 )
+TAGS_CHANGE_KINDS = frozenset({"added", "removed"})
 
 
 async def publish_message_created(
@@ -233,6 +235,38 @@ async def publish_session_state_changed(
         data["mode"] = mode
     return await publish_event(
         "session.state_changed", data, exclude_user_id=exclude_user_id
+    )
+
+
+async def publish_session_tags_changed(
+    session_id: int,
+    tag: dict,
+    kind: str,
+    *,
+    by_user_id: int | None = None,
+    exclude_user_id: int | None = None,
+) -> int:
+    """Publica session.tags_changed. Emite solo si kind es valido.
+
+    `tag` debe ser un dict ya serializado `{id, name, color}`.
+    """
+    if kind not in TAGS_CHANGE_KINDS:
+        return 0
+    if not isinstance(tag, dict) or "id" not in tag:
+        return 0
+    data: dict = {
+        "session_id": int(session_id),
+        "tag": {
+            "id": int(tag["id"]),
+            "name": tag.get("name"),
+            "color": tag.get("color"),
+        },
+        "kind": kind,
+    }
+    if by_user_id is not None:
+        data["by_user_id"] = int(by_user_id)
+    return await publish_event(
+        "session.tags_changed", data, exclude_user_id=exclude_user_id
     )
 
 

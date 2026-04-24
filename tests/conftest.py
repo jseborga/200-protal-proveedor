@@ -31,6 +31,7 @@ from app.models import company as _company_mod  # noqa: F401
 from app.models.pedido import Pedido
 from app.models.user import User
 from app.models.conversation import ConversationSession, Message
+from app.models.session_tag import Tag, SessionTag
 
 
 @pytest_asyncio.fixture
@@ -50,6 +51,8 @@ async def engine():
         await conn.run_sync(lambda sync_conn: Pedido.__table__.create(sync_conn, checkfirst=True))
         await conn.run_sync(lambda sync_conn: ConversationSession.__table__.create(sync_conn, checkfirst=True))
         await conn.run_sync(lambda sync_conn: Message.__table__.create(sync_conn, checkfirst=True))
+        await conn.run_sync(lambda sync_conn: Tag.__table__.create(sync_conn, checkfirst=True))
+        await conn.run_sync(lambda sync_conn: SessionTag.__table__.create(sync_conn, checkfirst=True))
     yield eng
     await eng.dispose()
 

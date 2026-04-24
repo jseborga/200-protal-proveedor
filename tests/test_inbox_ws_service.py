@@ -272,6 +272,77 @@ class TestSemanticHelpers:
         assert ws.sent == []
 
 
+class TestPublishTagsChanged:
+    """Fase 5.12: 5a familia session.tags_changed."""
+
+    async def test_publish_tags_added_envelope(self):
+        ws = FakeWebSocket()
+        await inbox_ws.register_subscriber(7, ws, role="manager")
+        n = await inbox_ws.publish_session_tags_changed(
+            session_id=42,
+            tag={"id": 3, "name": "vip", "color": "red"},
+            kind="added",
+            by_user_id=7,
+        )
+        assert n == 1
+        p = ws.sent[0]
+        assert p["event"] == "session.tags_changed"
+        assert p["data"] == {
+            "session_id": 42,
+            "tag": {"id": 3, "name": "vip", "color": "red"},
+            "kind": "added",
+            "by_user_id": 7,
+        }
+
+    async def test_publish_tags_removed_envelope(self):
+        ws = FakeWebSocket()
+        await inbox_ws.register_subscriber(7, ws, role="admin")
+        await inbox_ws.publish_session_tags_changed(
+            session_id=1,
+            tag={"id": 5, "name": "mayorista", "color": "blue"},
+            kind="removed",
+        )
+        assert ws.sent[0]["data"]["kind"] == "removed"
+        assert "by_user_id" not in ws.sent[0]["data"]
+
+    async def test_publish_tags_rejects_invalid_kind(self):
+        ws = FakeWebSocket()
+        await inbox_ws.register_subscriber(7, ws, role="manager")
+        n = await inbox_ws.publish_session_tags_changed(
+            session_id=1,
+            tag={"id": 1, "name": "x", "color": "slate"},
+            kind="bogus",
+        )
+        assert n == 0
+        assert ws.sent == []
+
+    async def test_publish_tags_rejects_invalid_tag_shape(self):
+        ws = FakeWebSocket()
+        await inbox_ws.register_subscriber(7, ws, role="manager")
+        n = await inbox_ws.publish_session_tags_changed(
+            session_id=1,
+            tag={"name": "no-id"},  # falta id
+            kind="added",
+        )
+        assert n == 0
+        assert ws.sent == []
+
+    async def test_publish_tags_excludes_emitter(self):
+        emitter = FakeWebSocket()
+        other = FakeWebSocket()
+        await inbox_ws.register_subscriber(1, emitter, role="manager")
+        await inbox_ws.register_subscriber(2, other, role="field_agent")
+        await inbox_ws.publish_session_tags_changed(
+            session_id=10,
+            tag={"id": 1, "name": "x", "color": "slate"},
+            kind="added",
+            by_user_id=1,
+            exclude_user_id=1,
+        )
+        assert emitter.sent == []
+        assert len(other.sent) == 1
+
+
 class TestConcurrency:
     async def test_concurrent_register_unregister_no_race(self):
         async def add_remove(uid: int):

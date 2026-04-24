@@ -64,6 +64,9 @@ const API = {
     async put(path, body) {
         return (await this._fetch(path, { method: 'PUT', body: JSON.stringify(body) })).json();
     },
+    async patch(path, body) {
+        return (await this._fetch(path, { method: 'PATCH', body: JSON.stringify(body) })).json();
+    },
     async del(path) { return (await this._fetch(path, { method: 'DELETE' })).json(); },
     async upload(path, formData) {
         const headers = {};
@@ -190,6 +193,13 @@ const API = {
     operatorScheduleSave: (userId, windows) => API.put(`/admin/operator-schedule/${userId}`, { windows }),
     inboxSlaHandoffGet: () => API.get(`/admin/inbox-sla-handoff`),
     inboxSlaHandoffSave: (data) => API.put(`/admin/inbox-sla-handoff`, data),
+    // 5.12 — Tags
+    inboxTags: () => API.get(`/inbox/tags`),
+    inboxTagCreate: (data) => API.post(`/inbox/tags`, data),
+    inboxTagUpdate: (id, data) => API.patch(`/inbox/tags/${id}`, data),
+    inboxTagDelete: (id) => API.del(`/inbox/tags/${id}`),
+    inboxSessionTagAdd: (sid, body) => API.post(`/inbox/sessions/${sid}/tags`, body),
+    inboxSessionTagRemove: (sid, tagId) => API.del(`/inbox/sessions/${sid}/tags/${tagId}`),
 
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
@@ -8383,7 +8393,245 @@ const _inbox = {
     wsStatus: 'off',          // 'off' | 'connecting' | 'open'
     wsBackoffMs: 1000,        // exponencial hasta 30s
     wsReconnectTimer: null,
+    // 5.12: Tags / etiquetas manuales
+    tagCatalog: [],           // [{id, name, color, usage_count}]
+    tagCatalogLoaded: false,
+    tagFilter: [],            // array de tag ids seleccionados
+    tagPopoverSessionId: null,
 };
+
+// Paleta fija de 8 colores (debe coincidir con TAG_COLOR_SLUGS del backend).
+const _INBOX_TAG_PALETTE = [
+    { slug: 'slate',  bg: '#e2e8f0', fg: '#334155' },
+    { slug: 'blue',   bg: '#dbeafe', fg: '#1e40af' },
+    { slug: 'green',  bg: '#dcfce7', fg: '#166534' },
+    { slug: 'yellow', bg: '#fef9c3', fg: '#854d0e' },
+    { slug: 'red',    bg: '#fee2e2', fg: '#991b1b' },
+    { slug: 'purple', bg: '#ede9fe', fg: '#5b21b6' },
+    { slug: 'pink',   bg: '#fce7f3', fg: '#9d174d' },
+    { slug: 'orange', bg: '#ffedd5', fg: '#9a3412' },
+];
+
+function _inboxTagColor(slug) {
+    return _INBOX_TAG_PALETTE.find(c => c.slug === slug) || _INBOX_TAG_PALETTE[0];
+}
+
+function _inboxTagBadge(tag, opts = {}) {
+    const { bg, fg } = _inboxTagColor(tag.color);
+    const name = esc(tag.name || '');
+    const removable = !!opts.removable;
+    const sid = opts.sessionId;
+    const x = removable
+        ? `<span class="inbox-tag-x" onclick="event.stopPropagation();unassignInboxTag(${sid},${tag.id})" title="Quitar">&times;</span>`
+        : '';
+    return `<span class="inbox-tag" style="background:${bg};color:${fg}">${name}${x}</span>`;
+}
+
+async function _inboxLoadTagCatalog({ force = false } = {}) {
+    if (_inbox.tagCatalogLoaded && !force) return _inbox.tagCatalog;
+    try {
+        const resp = await API.inboxTags();
+        if (resp && resp.ok) {
+            _inbox.tagCatalog = resp.data || [];
+            _inbox.tagCatalogLoaded = true;
+        }
+    } catch (_) { /* silent */ }
+    return _inbox.tagCatalog;
+}
+
+function _inboxRenderItemTags(tags) {
+    if (!tags || !tags.length) return '';
+    const visible = tags.slice(0, 3);
+    const overflow = tags.length - visible.length;
+    let html = visible.map(t => _inboxTagBadge(t)).join('');
+    if (overflow > 0) {
+        html += `<span class="inbox-tag" style="background:#f3f4f6;color:#374151">+${overflow}</span>`;
+    }
+    return html;
+}
+
+function _inboxRenderTagFilterBar() {
+    if (!_inbox.tagCatalog.length) return '';
+    const chips = _inbox.tagCatalog.map(t => {
+        const active = _inbox.tagFilter.includes(t.id);
+        const { bg, fg } = _inboxTagColor(t.color);
+        const style = active
+            ? `background:${fg};color:#fff;border:1px solid ${fg}`
+            : `background:${bg};color:${fg};border:1px solid transparent`;
+        const count = t.usage_count != null ? ` <small>(${t.usage_count})</small>` : '';
+        return `<span class="inbox-tag" style="${style};cursor:pointer" onclick="toggleInboxTagFilter(${t.id})">${esc(t.name)}${count}</span>`;
+    }).join('');
+    const clear = _inbox.tagFilter.length
+        ? `<button class="btn btn-secondary btn-sm" style="padding:2px 6px;font-size:11px" onclick="clearInboxTagFilter()">Limpiar</button>`
+        : '';
+    return `<div class="inbox-tag-filter-bar">${chips}${clear}</div>`;
+}
+
+function toggleInboxTagFilter(tagId) {
+    const idx = _inbox.tagFilter.indexOf(tagId);
+    if (idx >= 0) _inbox.tagFilter.splice(idx, 1);
+    else _inbox.tagFilter.push(tagId);
+    _inboxUpdateTagFilterBar();
+    loadInboxSessions();
+}
+
+function clearInboxTagFilter() {
+    _inbox.tagFilter = [];
+    _inboxUpdateTagFilterBar();
+    loadInboxSessions();
+}
+
+function _inboxUpdateTagFilterBar() {
+    const host = document.getElementById('inbox-tag-filter-host');
+    if (host) host.innerHTML = _inboxRenderTagFilterBar();
+}
+
+function _inboxRenderDetailTags(s) {
+    const manager = isManager();
+    const tags = s.tags || [];
+    const chips = tags.map(t => _inboxTagBadge(t, { removable: manager, sessionId: s.id })).join('');
+    const addBtn = manager
+        ? `<button class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px" onclick="openInboxTagPopover(${s.id}, event)">+ Tag</button>`
+        : '';
+    if (!chips && !addBtn) return '';
+    return `<div class="inbox-tags-line">${chips}${addBtn}</div>`;
+}
+
+function openInboxTagPopover(sessionId, ev) {
+    if (ev && ev.stopPropagation) ev.stopPropagation();
+    closeInboxTagPopover();
+    _inbox.tagPopoverSessionId = sessionId;
+    const existing = ((_inbox.sessions.find(s => s.id === sessionId) || {}).tags) || [];
+    const existingIds = new Set(existing.map(t => t.id));
+    const pop = document.createElement('div');
+    pop.className = 'inbox-tag-popover';
+    pop.id = 'inbox-tag-popover';
+    pop.onclick = (e) => e.stopPropagation();
+    pop.innerHTML = `
+        <div style="font-weight:600;font-size:12px;margin-bottom:6px">Asignar etiqueta</div>
+        <input id="inbox-tag-input" type="text" class="form-input" placeholder="Buscar o crear..." style="width:100%;margin-bottom:6px" oninput="_inboxTagPopoverFilter()">
+        <div id="inbox-tag-suggestions" style="max-height:180px;overflow-y:auto;margin-bottom:6px"></div>
+        <div id="inbox-tag-create-section" style="display:none;border-top:1px solid var(--gray-200);padding-top:6px">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px">Crear nueva:</div>
+            <div class="inbox-tag-popover-row" id="inbox-tag-color-row"></div>
+            <button class="btn btn-primary btn-sm" onclick="_inboxTagPopoverCreate()" style="width:100%">Crear y asignar</button>
+        </div>
+    `;
+    // Posicion: ancla debajo del boton clickeado
+    const anchor = ev && ev.currentTarget ? ev.currentTarget : null;
+    if (anchor) {
+        const rect = anchor.getBoundingClientRect();
+        pop.style.top = `${rect.bottom + window.scrollY + 4}px`;
+        pop.style.left = `${rect.left + window.scrollX}px`;
+    } else {
+        pop.style.top = '120px';
+        pop.style.left = '120px';
+    }
+    document.body.appendChild(pop);
+    // Color swatches
+    _inbox._tagPopoverColor = 'slate';
+    const colorHost = document.getElementById('inbox-tag-color-row');
+    colorHost.innerHTML = _INBOX_TAG_PALETTE.map(c => `
+        <span class="inbox-tag-color-swatch ${c.slug === 'slate' ? 'selected' : ''}"
+              data-slug="${c.slug}" style="background:${c.bg}"
+              onclick="_inboxTagPopoverSelectColor('${c.slug}')"></span>
+    `).join('');
+    _inboxTagPopoverFilter();
+    setTimeout(() => {
+        const inp = document.getElementById('inbox-tag-input');
+        if (inp) inp.focus();
+    }, 10);
+    setTimeout(() => document.addEventListener('click', _inboxTagPopoverOutsideClick, { once: true }), 10);
+    // Asegurar catalogo cargado (defensivo si el operador entro por deep-link)
+    _inboxLoadTagCatalog().then(() => _inboxTagPopoverFilter());
+    _inbox._tagPopoverExistingIds = existingIds;
+}
+
+function _inboxTagPopoverOutsideClick(e) {
+    const pop = document.getElementById('inbox-tag-popover');
+    if (pop && !pop.contains(e.target)) closeInboxTagPopover();
+    else setTimeout(() => document.addEventListener('click', _inboxTagPopoverOutsideClick, { once: true }), 10);
+}
+
+function closeInboxTagPopover() {
+    const pop = document.getElementById('inbox-tag-popover');
+    if (pop) pop.remove();
+    _inbox.tagPopoverSessionId = null;
+}
+
+function _inboxTagPopoverSelectColor(slug) {
+    _inbox._tagPopoverColor = slug;
+    document.querySelectorAll('.inbox-tag-color-swatch').forEach(el => {
+        el.classList.toggle('selected', el.getAttribute('data-slug') === slug);
+    });
+}
+
+function _inboxTagPopoverFilter() {
+    const inp = document.getElementById('inbox-tag-input');
+    const q = (inp ? inp.value : '').trim().toLowerCase();
+    const existingIds = _inbox._tagPopoverExistingIds || new Set();
+    const matches = _inbox.tagCatalog.filter(t => !existingIds.has(t.id) && (!q || t.name.toLowerCase().includes(q)));
+    const exact = q && _inbox.tagCatalog.some(t => t.name.toLowerCase() === q);
+    const host = document.getElementById('inbox-tag-suggestions');
+    if (host) {
+        if (matches.length) {
+            host.innerHTML = matches.slice(0, 20).map(t => `
+                <div class="inbox-tag-suggestion" onclick="_inboxTagPopoverAssign(${t.id})">
+                    ${_inboxTagBadge(t)}
+                </div>
+            `).join('');
+        } else {
+            host.innerHTML = `<div style="padding:4px 8px;color:#6b7280;font-size:12px">${q ? 'Sin coincidencias' : 'Escribe para buscar o crear'}</div>`;
+        }
+    }
+    const createSection = document.getElementById('inbox-tag-create-section');
+    if (createSection) {
+        createSection.style.display = (q && !exact) ? 'block' : 'none';
+    }
+}
+
+async function _inboxTagPopoverAssign(tagId) {
+    const sid = _inbox.tagPopoverSessionId;
+    if (!sid) return;
+    const resp = await API.inboxSessionTagAdd(sid, { tag_id: tagId });
+    if (resp && resp.ok) {
+        closeInboxTagPopover();
+        loadInboxSession(sid, { silent: true });
+        loadInboxSessions({ silent: true });
+        _inboxLoadTagCatalog({ force: true }).then(() => _inboxUpdateTagFilterBar());
+    } else {
+        toast((resp && resp.error) || 'Error asignando etiqueta', 'error');
+    }
+}
+
+async function _inboxTagPopoverCreate() {
+    const sid = _inbox.tagPopoverSessionId;
+    if (!sid) return;
+    const inp = document.getElementById('inbox-tag-input');
+    const name = inp ? inp.value.trim() : '';
+    if (!name) return;
+    const color = _inbox._tagPopoverColor || 'slate';
+    const resp = await API.inboxSessionTagAdd(sid, { name, color });
+    if (resp && resp.ok) {
+        closeInboxTagPopover();
+        loadInboxSession(sid, { silent: true });
+        loadInboxSessions({ silent: true });
+        _inboxLoadTagCatalog({ force: true }).then(() => _inboxUpdateTagFilterBar());
+    } else {
+        toast((resp && resp.error) || 'Error creando etiqueta', 'error');
+    }
+}
+
+async function unassignInboxTag(sessionId, tagId) {
+    const resp = await API.inboxSessionTagRemove(sessionId, tagId);
+    if (resp && resp.ok) {
+        loadInboxSession(sessionId, { silent: true });
+        loadInboxSessions({ silent: true });
+        _inboxLoadTagCatalog({ force: true }).then(() => _inboxUpdateTagFilterBar());
+    } else {
+        toast((resp && resp.error) || 'Error quitando etiqueta', 'error');
+    }
+}
 
 function _inboxNotifSupported() {
     return typeof window !== 'undefined' && 'Notification' in window;
@@ -8714,12 +8962,17 @@ function _inboxHandleWsEvent(payload) {
     const ev = payload.event;
     const d = payload.data || {};
     const sid = d.session_id;
-    // 4 familias consolidadas -> 1 handler uniforme.
+    // 5 familias consolidadas -> 1 handler uniforme.
     // Cualquier cambio dispara refresh de lista + detalle si es la activa.
     if (ev === 'message.created'
         || ev === 'session.operator_changed'
         || ev === 'session.state_changed'
-        || ev === 'session.marked_read') {
+        || ev === 'session.marked_read'
+        || ev === 'session.tags_changed') {
+        if (ev === 'session.tags_changed') {
+            // Refrescar catalogo (usage_count puede haber cambiado)
+            _inboxLoadTagCatalog({ force: true });
+        }
         if (sid && _inbox.selectedId === sid) {
             loadInboxSession(sid, { silent: true });
         }
@@ -8769,6 +9022,18 @@ async function renderInbox() {
             .inbox-toolbar-row2{display:flex;gap:6px;align-items:center;width:100%;margin-top:6px;font-size:12px;color:#6b7280}
             .inbox-toolbar-row2 label{display:flex;gap:4px;align-items:center;cursor:pointer}
             .inbox-toolbar-row2 .count{margin-left:auto}
+            .inbox-tag{display:inline-flex;align-items:center;gap:4px;padding:1px 7px;border-radius:10px;font-size:10.5px;font-weight:600;line-height:1.6;text-transform:capitalize;white-space:nowrap}
+            .inbox-tag-x{cursor:pointer;opacity:.7;font-weight:700;font-size:12px;line-height:1}
+            .inbox-tag-x:hover{opacity:1}
+            .inbox-tag-filter-bar{display:flex;gap:4px;flex-wrap:wrap;padding:6px 12px;border-bottom:1px solid var(--gray-200);background:#fff}
+            .inbox-tag-filter-bar:empty{display:none}
+            .inbox-tag-popover{position:absolute;background:#fff;border:1px solid var(--gray-300);border-radius:8px;box-shadow:0 6px 24px rgba(0,0,0,.12);padding:10px;z-index:1000;min-width:260px}
+            .inbox-tag-popover-row{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+            .inbox-tag-color-swatch{width:22px;height:22px;border-radius:50%;cursor:pointer;border:2px solid transparent}
+            .inbox-tag-color-swatch.selected{border-color:#111}
+            .inbox-tag-suggestion{padding:4px 8px;cursor:pointer;border-radius:6px;font-size:13px}
+            .inbox-tag-suggestion:hover{background:#f3f4f6}
+            .inbox-tags-line{display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:6px}
             @media (max-width:720px){
                 .inbox-layout{grid-template-columns:1fr;height:auto}
                 .inbox-list{max-height:360px}
@@ -8812,6 +9077,7 @@ async function renderInbox() {
                         <span class="count" id="inbox-list-count"></span>
                     </div>
                 </div>
+                <div id="inbox-tag-filter-host"></div>
                 <div class="inbox-items" id="inbox-items"><div class="inbox-empty">Cargando...</div></div>
             </aside>
             <main class="inbox-pane" id="inbox-pane">
@@ -8851,6 +9117,8 @@ async function renderInbox() {
     _inbox.notifInit = false;
     _inbox.notifLastSeenIds = null;
     _inboxUpdateNotifButton();
+    // 5.12: cargar catalogo de tags en paralelo
+    _inboxLoadTagCatalog({ force: true }).then(() => _inboxUpdateTagFilterBar());
     await loadInboxSessions();
     // 5.11: intentar WS; el polling se ajusta al estado (10s offline, 60s con WS).
     _inboxWsConnect();
@@ -8866,6 +9134,7 @@ async function loadInboxSessions({ silent = false } = {}) {
     if (_inbox.search) params.set('search', _inbox.search);
     if (_inbox.unreadOnly) params.set('unread_only', 'true');
     if (_inbox.assignedFilter) params.set('assigned', _inbox.assignedFilter);
+    if (_inbox.tagFilter.length) params.set('tags', _inbox.tagFilter.join(','));
     const qs = params.toString() ? `?${params.toString()}` : '';
     const resp = await API.inboxSessions(qs);
     if (!resp.ok) {
@@ -8903,6 +9172,7 @@ async function loadInboxSessions({ silent = false } = {}) {
                     ${s.pedido_ref ? `<span class="inbox-badge" style="background:#f3f4f6;color:#374151">${esc(s.pedido_ref)}</span>` : ''}
                     ${_inboxOperatorBadge(s)}
                     ${_inboxWindowBadge(s.wa_window)}
+                    ${_inboxRenderItemTags(s.tags)}
                 </div>
             </div>
         `;
@@ -8974,6 +9244,7 @@ async function loadInboxSession(id, { silent = false } = {}) {
                     ${s.pedido_id ? `<button class="btn btn-sm btn-secondary" onclick="openPedidoDetail(${s.pedido_id})">Abrir pedido</button>` : ''}
                 </div>
             </div>
+            ${_inboxRenderDetailTags(s)}
         </div>
         <div class="inbox-timeline" id="inbox-timeline">${msgsHtml || '<div class="inbox-empty" style="margin:auto">Sin mensajes todavia</div>'}</div>
         ${composerReason ? `<div class="hint">${esc(composerReason)}</div>` : ''}

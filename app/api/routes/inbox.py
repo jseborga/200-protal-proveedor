@@ -16,12 +16,14 @@ from app.api.deps import require_staff, require_manager, STAFF_ROLES, MANAGER_RO
 from app.core.database import get_db
 from app.models.conversation import ConversationSession, Message
 from app.models.pedido import Pedido
+from app.models.session_tag import Tag, SessionTag, TAG_COLOR_SLUGS
 from app.models.user import User
 from app.services.inbox_ws import (
     publish_event as _ws_publish,
     publish_message_created as _ws_publish_message_created,
     publish_session_operator_changed as _ws_publish_operator_changed,
     publish_session_state_changed as _ws_publish_state_changed,
+    publish_session_tags_changed as _ws_publish_tags_changed,
 )
 
 router = APIRouter()
@@ -70,7 +72,18 @@ def _is_unread(session: ConversationSession) -> bool:
     return last_client > last_op
 
 
-def _session_summary(session: ConversationSession, last_msg: Message | None, pedido: Pedido | None, client_name: str | None, operator: User | None = None) -> dict:
+def _tag_to_dict(t: Tag) -> dict:
+    return {"id": t.id, "name": t.name, "color": t.color}
+
+
+def _session_summary(
+    session: ConversationSession,
+    last_msg: Message | None,
+    pedido: Pedido | None,
+    client_name: str | None,
+    operator: User | None = None,
+    tags: list[Tag] | None = None,
+) -> dict:
     preview = None
     if last_msg:
         body = (last_msg.body or "").strip()
@@ -104,6 +117,7 @@ def _session_summary(session: ConversationSession, last_msg: Message | None, ped
         "last_operator_msg_at": session.last_operator_msg_at.isoformat() if session.last_operator_msg_at else None,
         "unread": _is_unread(session),
         "wa_window": _wa_window_status(session),
+        "tags": [_tag_to_dict(t) for t in (tags or [])],
     }
 
 
@@ -128,6 +142,7 @@ async def list_sessions(
     search: str | None = Query(None, description="Busqueda en ref del pedido, telefono o nombre del cliente"),
     unread_only: bool = Query(False, description="Solo sesiones con mensaje del cliente sin responder"),
     assigned: str | None = Query(None, description="'mine' | 'unassigned' | '<user_id>'"),
+    tags: str | None = Query(None, description="CSV de tag_ids; filtra sesiones que tienen TODAS las tags"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -179,6 +194,25 @@ async def list_sessions(
                     q = q.where(ConversationSession.operator_id == uid)
                 except ValueError:
                     pass
+        if tags:
+            tag_ids = []
+            for raw in tags.split(","):
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    tag_ids.append(int(raw))
+                except ValueError:
+                    continue
+            if tag_ids:
+                # Sesiones que tienen TODAS las tags indicadas
+                sub = (
+                    select(SessionTag.session_id)
+                    .where(SessionTag.tag_id.in_(tag_ids))
+                    .group_by(SessionTag.session_id)
+                    .having(func.count(func.distinct(SessionTag.tag_id)) == len(tag_ids))
+                )
+                q = q.where(ConversationSession.id.in_(sub))
         return q
 
     stmt = apply_filters(select(ConversationSession))
@@ -240,6 +274,19 @@ async def list_sessions(
     for m in (await db.execute(last_msgs_stmt)).scalars().all():
         last_msgs_by_sid[m.session_id] = m
 
+    # Tags per session — single query agrupada
+    tags_by_sid: dict[int, list[Tag]] = {}
+    session_ids = [s.id for s in sessions]
+    if session_ids:
+        tags_stmt = (
+            select(SessionTag.session_id, Tag)
+            .join(Tag, Tag.id == SessionTag.tag_id)
+            .where(SessionTag.session_id.in_(session_ids))
+            .order_by(Tag.name)
+        )
+        for sid, tag in (await db.execute(tags_stmt)).all():
+            tags_by_sid.setdefault(sid, []).append(tag)
+
     data = []
     for s in sessions:
         pedido = pedidos_by_id.get(s.pedido_id)
@@ -250,7 +297,10 @@ async def list_sessions(
         elif pedido and pedido.creator:
             client_name = pedido.creator.full_name
         operator = users_by_id.get(s.operator_id) if s.operator_id else None
-        data.append(_session_summary(s, last_msgs_by_sid.get(s.id), pedido, client_name, operator))
+        data.append(_session_summary(
+            s, last_msgs_by_sid.get(s.id), pedido, client_name, operator,
+            tags=tags_by_sid.get(s.id, []),
+        ))
 
     # Total count (for UI pagination) respetando filtros aplicados
     count_stmt = apply_filters(select(func.count(func.distinct(ConversationSession.id))))
@@ -308,12 +358,21 @@ async def get_session(
     ).order_by(Message.id.asc())
     messages = (await db.execute(msgs_stmt)).scalars().all()
 
+    tags_stmt = (
+        select(Tag)
+        .join(SessionTag, SessionTag.tag_id == Tag.id)
+        .where(SessionTag.session_id == session_id)
+        .order_by(Tag.name)
+    )
+    session_tags = (await db.execute(tags_stmt)).scalars().all()
+
     summary = _session_summary(
         session,
         messages[-1] if messages else None,
         pedido,
         client_name,
         operator_user,
+        tags=session_tags,
     )
     summary["messages"] = [_message_to_dict(m) for m in messages]
     return {"ok": True, "data": summary}
@@ -619,6 +678,252 @@ async def list_operators(
             for u in users
         ],
     }
+
+
+# ── Tags (5.12 tipificacion de clientes) ───────────────────────
+class TagIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    color: str = Field("slate", min_length=1, max_length=20)
+
+
+class TagUpdateIn(BaseModel):
+    name: str | None = Field(None, min_length=1, max_length=60)
+    color: str | None = Field(None, min_length=1, max_length=20)
+
+
+class SessionTagAssignIn(BaseModel):
+    tag_id: int | None = Field(None, description="ID de tag existente")
+    name: str | None = Field(None, min_length=1, max_length=60, description="Nombre a crear/reutilizar")
+    color: str | None = Field(None, min_length=1, max_length=20, description="Color si se crea tag nuevo")
+
+
+def _normalize_tag_name(raw: str) -> str:
+    """Normaliza nombre: strip + lowercase. Colapsa espacios internos."""
+    return " ".join(raw.strip().lower().split())
+
+
+def _validate_color(color: str) -> str:
+    if color not in TAG_COLOR_SLUGS:
+        raise HTTPException(
+            400,
+            f"Color invalido; usa uno de: {', '.join(TAG_COLOR_SLUGS)}",
+        )
+    return color
+
+
+async def _get_or_create_tag(
+    db: AsyncSession, name: str, color: str, created_by: int,
+) -> tuple[Tag, bool]:
+    """Devuelve (tag, created). Busca por nombre normalizado."""
+    normalized = _normalize_tag_name(name)
+    existing = (await db.execute(
+        select(Tag).where(Tag.name == normalized)
+    )).scalar_one_or_none()
+    if existing:
+        return existing, False
+    tag = Tag(name=normalized, color=color, created_by=created_by)
+    db.add(tag)
+    await db.flush()
+    return tag, True
+
+
+@router.get("/tags")
+async def list_tags(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_staff),
+):
+    """Lista catalogo global de tags con su usage_count."""
+    usage_subq = (
+        select(
+            SessionTag.tag_id.label("tid"),
+            func.count(SessionTag.id).label("n"),
+        )
+        .group_by(SessionTag.tag_id)
+        .subquery()
+    )
+    stmt = (
+        select(Tag, usage_subq.c.n)
+        .outerjoin(usage_subq, usage_subq.c.tid == Tag.id)
+        .order_by(func.coalesce(usage_subq.c.n, 0).desc(), Tag.name.asc())
+    )
+    rows = (await db.execute(stmt)).all()
+    return {
+        "ok": True,
+        "data": [
+            {
+                "id": t.id,
+                "name": t.name,
+                "color": t.color,
+                "usage_count": int(n) if n is not None else 0,
+            }
+            for t, n in rows
+        ],
+    }
+
+
+@router.post("/tags")
+async def create_tag(
+    payload: TagIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Crea (o reutiliza) un tag. Si ya existe por nombre, devuelve el existente."""
+    _validate_color(payload.color)
+    tag, created = await _get_or_create_tag(
+        db, payload.name, payload.color, created_by=user.id,
+    )
+    await db.commit()
+    await db.refresh(tag)
+    return {
+        "ok": True,
+        "created": created,
+        "data": _tag_to_dict(tag),
+    }
+
+
+@router.patch("/tags/{tag_id}")
+async def update_tag(
+    tag_id: int,
+    payload: TagUpdateIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Renombra/recolorea un tag global."""
+    tag = await db.get(Tag, tag_id)
+    if tag is None:
+        raise HTTPException(404, "Tag no encontrada")
+    if payload.name is not None:
+        new_name = _normalize_tag_name(payload.name)
+        if new_name != tag.name:
+            clash = (await db.execute(
+                select(Tag).where(Tag.name == new_name, Tag.id != tag_id)
+            )).scalar_one_or_none()
+            if clash is not None:
+                raise HTTPException(400, "Ya existe otra tag con ese nombre")
+            tag.name = new_name
+    if payload.color is not None:
+        _validate_color(payload.color)
+        tag.color = payload.color
+    await db.commit()
+    await db.refresh(tag)
+    return {"ok": True, "data": _tag_to_dict(tag)}
+
+
+@router.delete("/tags/{tag_id}")
+async def delete_tag(
+    tag_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Elimina tag global. Cascade borra asignaciones."""
+    tag = await db.get(Tag, tag_id)
+    if tag is None:
+        raise HTTPException(404, "Tag no encontrada")
+    await db.delete(tag)
+    await db.commit()
+    return {"ok": True}
+
+
+@router.post("/sessions/{session_id}/tags")
+async def assign_session_tag(
+    session_id: int,
+    payload: SessionTagAssignIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Asigna un tag a la sesion.
+
+    Acepta `{tag_id}` o `{name, color}` (crea si no existe).
+    Dedupe silencioso si ya estaba asignado.
+    """
+    session = await db.get(ConversationSession, session_id)
+    if session is None:
+        raise HTTPException(404, "Sesion no encontrada")
+
+    tag: Tag | None = None
+    if payload.tag_id is not None:
+        tag = await db.get(Tag, payload.tag_id)
+        if tag is None:
+            raise HTTPException(404, "Tag no encontrada")
+    elif payload.name:
+        color = payload.color or "slate"
+        _validate_color(color)
+        tag, _ = await _get_or_create_tag(
+            db, payload.name, color, created_by=user.id,
+        )
+    else:
+        raise HTTPException(400, "Debe indicar tag_id o name")
+
+    # Dedupe: si ya existe la asociacion, no re-emitir evento.
+    existing = (await db.execute(
+        select(SessionTag).where(
+            SessionTag.session_id == session_id,
+            SessionTag.tag_id == tag.id,
+        )
+    )).scalar_one_or_none()
+
+    if existing is None:
+        link = SessionTag(
+            session_id=session_id, tag_id=tag.id, added_by=user.id,
+        )
+        db.add(link)
+        await db.commit()
+        await db.refresh(tag)
+        try:
+            await _ws_publish_tags_changed(
+                session_id=session_id,
+                tag=_tag_to_dict(tag),
+                kind="added",
+                by_user_id=user.id,
+                exclude_user_id=user.id,
+            )
+        except Exception:
+            pass
+        return {"ok": True, "already": False, "data": _tag_to_dict(tag)}
+
+    # Ya estaba. Commit por si se creo tag nuevo en get_or_create.
+    await db.commit()
+    await db.refresh(tag)
+    return {"ok": True, "already": True, "data": _tag_to_dict(tag)}
+
+
+@router.delete("/sessions/{session_id}/tags/{tag_id}")
+async def remove_session_tag(
+    session_id: int,
+    tag_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_manager),
+):
+    """Desasigna tag de sesion."""
+    session = await db.get(ConversationSession, session_id)
+    if session is None:
+        raise HTTPException(404, "Sesion no encontrada")
+
+    link = (await db.execute(
+        select(SessionTag).where(
+            SessionTag.session_id == session_id,
+            SessionTag.tag_id == tag_id,
+        )
+    )).scalar_one_or_none()
+
+    if link is None:
+        return {"ok": True, "removed": False}
+
+    tag = await db.get(Tag, tag_id)
+    await db.delete(link)
+    await db.commit()
+    if tag is not None:
+        try:
+            await _ws_publish_tags_changed(
+                session_id=session_id,
+                tag=_tag_to_dict(tag),
+                kind="removed",
+                by_user_id=user.id,
+                exclude_user_id=user.id,
+            )
+        except Exception:
+            pass
+    return {"ok": True, "removed": True}
 
 
 # ── Templates (5.4 respuestas rapidas) ─────────────────────────
