@@ -1,7 +1,7 @@
 # Conversation Hub — Estado del proyecto
 
 Documento de continuidad para el hub de conversaciones cliente <-> operador.
-Ultima actualizacion: **2026-04-23** (Fase 5.11: WebSocket live updates del Inbox).
+Ultima actualizacion: **2026-04-24** (Fase 5.12: tags/etiquetas manuales de sesion).
 
 ---
 
@@ -648,6 +648,131 @@ Los publishers emiten **post-commit** y NUNCA lanzan
 **Sin migraciones Alembic**: el estado de subscripciones vive
 in-memory. No requiere DDL.
 
+### 5.12 Tipificacion de clientes (tags manuales) — **DONE**
+Etiquetado manual de sesiones para clasificar conversaciones (ej.
+`vip`, `lead_frio`, `mayorista`), con filtrado en el inbox y contexto
+visible para todos los operadores.
+
+**Decisiones de diseno**
+- **Catalogo + junction**: `mkt_tag` (catalogo global reutilizable) +
+  `mkt_session_tag` (junction sesion <-> tag). Evita duplicacion de
+  nombres y permite futuro reporting.
+- **Ambito**: por sesion (`mkt_conversation_session`), no por
+  cliente. El frontend puede sugerir tags usados previamente para
+  el mismo telefono.
+- **Permisos**: mutaciones solo `MANAGER_ROLES` (manager, admin,
+  superadmin). Field agents ven tags pero no los modifican.
+- **Colores**: paleta fija de 8 slugs
+  (`slate|blue|green|yellow|red|purple|pink|orange`) configurables
+  al crear un tag. Un slug invalido se rechaza con 400.
+- **Normalizacion de nombre**: backend aplica `strip().lower()` y
+  colapsa whitespace interno antes de buscar/insertar. `POST /tags`
+  es idempotente: si existe devuelve el tag sin modificar.
+
+**Backend (modelos + migracion)**
+- `app/models/session_tag.py`: `Tag(id, name unique 60, color 20
+  default "slate", created_by FK SET NULL, timestamps)` y
+  `SessionTag(id, session_id FK cascade, tag_id FK cascade,
+  added_by FK SET NULL, added_at)` con
+  `UniqueConstraint(session_id, tag_id)` e indice compuesto
+  `ix_session_tag_session_tag`.
+- `migrations/versions/0005_session_tags.py`: crea ambas tablas
+  en orden, idempotente (inspector check online, virgen offline).
+
+**Endpoints REST (`app/api/routes/inbox.py`)**
+- `GET  /api/v1/inbox/tags` (staff): `{ok, data: [{id, name, color,
+  usage_count}]}` ordenado por `usage_count DESC, name ASC` via
+  LEFT JOIN con subquery de count.
+- `POST /api/v1/inbox/tags` (manager): `{name, color}`. Devuelve
+  `{created: bool}` (200 si ya existia).
+- `PATCH /api/v1/inbox/tags/{tag_id}` (manager): rename y/o recolor.
+  Valida colision por nombre y color contra paleta fija.
+- `DELETE /api/v1/inbox/tags/{tag_id}` (manager): cascade elimina
+  todas las asignaciones.
+- `POST /api/v1/inbox/sessions/{sid}/tags` (manager): acepta
+  `{tag_id}` (por id) o `{name, color}` (crea si no existe y asigna,
+  atomico). Dedupe silencioso con `{already: bool}`. Publica WS
+  `session.tags_changed` kind=added.
+- `DELETE /api/v1/inbox/sessions/{sid}/tags/{tag_id}` (manager):
+  desasigna. Idempotente (204 si no existia). Publica WS kind=removed.
+
+**Cambios en serializacion / filtro**
+- `_session_summary(session, ..., tags=None)` incluye
+  `"tags": [{id, name, color}]`.
+- `list_sessions` precarga tags en un solo roundtrip
+  (`select(SessionTag.session_id, Tag).join(Tag, ...)`) agrupando
+  por sesion antes del serialize.
+- `get_session` hace la misma query pero para una sola sesion.
+- Nuevo query param `?tags=1,4` en `GET /inbox/sessions`: filtra por
+  sesiones que tienen **todas** las tags indicadas (interseccion) via
+  subquery `HAVING COUNT(DISTINCT tag_id) = N`.
+
+**WebSocket — 5a familia**
+- Nuevo wrapper `publish_session_tags_changed(session_id, tag, kind,
+  *, by_user_id, exclude_user_id)` en `app/services/inbox_ws.py` con
+  `TAGS_CHANGE_KINDS = {"added","removed"}`.
+- Payload: `{session_id, tag: {id, name, color}, kind, by_user_id?}`.
+- Publicado post-commit desde los dos endpoints de asignacion,
+  siempre con `exclude_user_id = caller` para no echo.
+
+| Evento | Discriminador |
+|---|---|
+| `message.created` | `kind ∈ {inbound, outbound, note, system}` |
+| `session.operator_changed` | `reason ∈ {claim, release, assign, auto_assign, auto_handoff}` |
+| `session.state_changed` | `prev_state, state` |
+| `session.marked_read` | — |
+| `session.tags_changed` | `kind ∈ {added, removed}` |
+
+**Frontend (`frontend/public/assets/app.js`)**
+- Nuevo estado: `_inbox.tagCatalog`, `tagCatalogLoaded`, `tagFilter`
+  (ids activos), `tagPopoverSessionId`. Constante global
+  `_INBOX_TAG_PALETTE` (8 colores) espejo del backend.
+- Helpers: `_inboxTagColor(slug)`, `_inboxTagBadge(tag, {removable,
+  sessionId})`, `_inboxLoadTagCatalog({force})`,
+  `_inboxRenderItemTags(tags)` (limita a 3 + overflow +N),
+  `_inboxRenderTagFilterBar()` (chips clickeables con usage_count).
+- Listado: tags visibles en `inbox-item-meta`; chip bar encima del
+  listado con toggle multi-seleccion; parametro `?tags=` agregado en
+  `loadInboxSessions`.
+- Detalle: linea de tags debajo del header con `+ Tag` (solo
+  manager+) que abre popover flotante:
+  - Input con autocomplete case-insensitive sobre `tagCatalog`.
+  - Si hay match parcial: lista de sugerencias con click-to-assign.
+  - Si no hay match exacto: selector de paleta + boton "Crear y
+    asignar".
+  - Cada tag en el detalle tiene una `x` clickeable (manager+) que
+    llama `DELETE /sessions/{id}/tags/{tag_id}`.
+- Handler WS: `session.tags_changed` dispara
+  `_inboxLoadTagCatalog({force:true})` (usage_count fresco) +
+  refresh silencioso de lista y detalle.
+- API helpers: `inboxTags`, `inboxTagCreate`, `inboxTagUpdate`,
+  `inboxTagDelete`, `inboxSessionTagAdd`, `inboxSessionTagRemove`.
+  Se agrego `API.patch(path, body)` (no existia).
+
+**Tests**
+- `tests/test_inbox_tags.py` (26 tests):
+  - `TestTagCRUD`: create + dedupe case-insensitive, color invalido,
+    require_manager, update rename/colision, delete cascade, list
+    con `usage_count`.
+  - `TestSessionTagAssign`: por id, por nombre (crea), dedupe
+    silencioso, unassign, 404 si session inexistente,
+    require_manager.
+  - `TestSessionSerialization`: lista y detalle incluyen `tags`.
+  - `TestListFilter`: filtro `?tags=` con 1, 2 (interseccion),
+    interseccion vacia, ids invalidos, sin filtro.
+- `tests/test_inbox_ws_service.py`: nueva clase
+  `TestPublishTagsChanged` (5 tests) — envelope added/removed,
+  rechazo de kind invalido, rechazo de shape invalido,
+  `exclude_user_id` respeta emisor.
+- **Suite total**: 336 tests passing (305 de 5.11 + 26 de tags + 5
+  de WS helper).
+
+**Alembic**
+- Revision `0005` head actual. `Base.metadata.create_all` en
+  `_init_db` crea las tablas tambien en entornos frescos (la
+  migracion es redundante para BD virgen, incremental en BD
+  existente).
+
 ---
 
 ## 6. Como levantar localmente
@@ -687,6 +812,7 @@ Endpoints clave para humo-testear el inbox:
 | `707a34d` | Inbox Fase 5.10 auto-handoff por timeout SLA breach + Alembic 0004 |
 | `1ca7452` | Inbox Fase 5.10 correccion: no release al pool + sla_hours compartido |
 | `79ecb00` | Inbox Fase 5.11 WebSocket live updates del Inbox            |
+| `75db464` | Inbox Fase 5.12 tags/etiquetas manuales de sesion (mkt_tag + mkt_session_tag + Alembic 0005) |
 
 ---
 
