@@ -16,6 +16,14 @@ INSECURE_SECRETS = {
     "test",
 }
 
+# Placeholders que estuvieron versionados en docker-compose.yml. Son publicos,
+# pero no bloquean el arranque para no tumbar un deploy ya en marcha: se avisa
+# con nivel CRITICAL en cada arranque hasta que se roten.
+PUBLIC_PLACEHOLDER_SECRETS = {
+    "cambiar-en-easypanel-settings",
+    "cambiar-en-easypanel",
+}
+
 
 class Settings(BaseSettings):
     # App
@@ -132,6 +140,21 @@ class Settings(BaseSettings):
                 "Genera valores unicos (p.ej. `python -c \"import secrets;"
                 "print(secrets.token_urlsafe(48))\"`) antes de desplegar."
             )
+        # Estos valores estuvieron versionados en docker-compose.yml, asi que
+        # son publicos. No bloquean el arranque para no tumbar un despliegue en
+        # curso, pero hay que rotarlos: quien los conozca puede firmar un JWT
+        # de admin.
+        for name, value in (
+            ("JWT_SECRET_KEY", self.jwt_secret_key),
+            ("APP_SECRET_KEY", self.app_secret_key),
+        ):
+            if value.strip().lower() in PUBLIC_PLACEHOLDER_SECRETS:
+                logger.critical(
+                    "%s usa un valor placeholder que estuvo publicado en el repo. "
+                    "ROTALO YA: cualquiera con acceso al repo puede firmar tokens de admin.",
+                    name,
+                )
+
         if len(self.jwt_secret_key) < 32:
             logger.warning(
                 "JWT_SECRET_KEY tiene menos de 32 caracteres; usa al menos 48 bytes de entropia."
