@@ -545,6 +545,10 @@ async def recompute(
 @router.post("/projects/{project_id}/refresh-prices")
 async def refresh_prices(
     project_id: int,
+    include_manual: bool = Query(
+        False,
+        description="Tambien pisar los precios escritos a mano (negociados)",
+    ),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -552,18 +556,48 @@ async def refresh_prices(
 
     Es explicito a proposito: un presupuesto no debe moverse solo. Si el
     proyecto tiene region, se prefiere el precio regional.
+
+    Los precios escritos a mano se RESPETAN por defecto: suelen ser precios
+    negociados con un proveedor y pisarlos en silencio destruye trabajo del
+    usuario. Se pueden forzar con include_manual=true.
     """
     from app.models.insumo import InsumoRegionalPrice
 
     project = await _get_project(db, project_id, user, for_edit=True)
 
-    lines = (await db.execute(
+    query = (
         select(ApuLine)
         .join(ApuItem, ApuLine.item_id == ApuItem.id)
         .where(ApuItem.project_id == project.id, ApuLine.insumo_id.is_not(None))
-    )).scalars().all()
+    )
+    if not include_manual:
+        query = query.where(ApuLine.price_source != "manual")
+
+    async def _count_manual() -> int:
+        """Cuantos recursos se dejaron intactos por tener precio negociado."""
+        if include_manual:
+            return 0
+        return (await db.execute(
+            select(func.count(ApuLine.id))
+            .join(ApuItem, ApuLine.item_id == ApuItem.id)
+            .where(
+                ApuItem.project_id == project.id,
+                ApuLine.insumo_id.is_not(None),
+                ApuLine.price_source == "manual",
+            )
+        )).scalar() or 0
+
+    lines = (await db.execute(query)).scalars().all()
     if not lines:
-        return {"ok": True, "data": {"updated": 0, "unchanged": 0, "not_found": 0}}
+        # Puede no haber nada que refrescar y aun asi haber precios manuales
+        # conservados: hay que informarlo para que la UI lo explique.
+        return {
+            "ok": True,
+            "data": {
+                "updated": 0, "unchanged": 0, "not_found": 0,
+                "kept_manual": await _count_manual(),
+            },
+        }
 
     insumo_ids = {l.insumo_id for l in lines}
     insumos = {
@@ -607,6 +641,8 @@ async def refresh_prices(
         line.price_updated_at = now
         updated += 1
 
+    kept_manual = await _count_manual()
+
     await db.commit()
     await db.refresh(project)
     result = await recompute_project(db, project)
@@ -614,6 +650,7 @@ async def refresh_prices(
         "ok": True,
         "data": {
             "updated": updated, "unchanged": unchanged, "not_found": not_found,
+            "kept_manual": kept_manual,
             "total_budget": result["total_budget"],
         },
     }

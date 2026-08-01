@@ -1469,3 +1469,339 @@ textarea.form-input { resize: vertical; min-height: 80px; }
     .legal-page { padding: 20px 16px; }
     .legal-section h2 { font-size: 16px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   APU — Presupuestos de obra y analisis de precios unitarios
+   ═══════════════════════════════════════════════════════════════ */
+.apu-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.apu-header-actions { display: flex; gap: 8px; }
+.apu-back { margin-bottom: 14px; }
+.apu-hint { display: block; font-size: 12px; color: var(--gray-500); margin-top: 4px; line-height: 1.4; }
+.apu-form-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.apu-form-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+.apu-dot { width: 3px; height: 3px; border-radius: 50%; background: var(--gray-300); display: inline-block; margin: 0 8px; vertical-align: middle; }
+
+/* ── KPIs de la lista ─────────────────────────────────────── */
+.apu-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+.apu-kpi {
+    background: white; border-radius: var(--radius); box-shadow: var(--shadow);
+    padding: 14px 16px; display: flex; flex-direction: column; gap: 2px;
+    border-left: 3px solid var(--gray-200);
+}
+.apu-kpi-val { font-size: 22px; font-weight: 700; color: var(--gray-800); letter-spacing: -0.4px; }
+.apu-kpi-lbl { font-size: 11px; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
+.apu-kpi-hero { border-left-color: var(--primary); background: linear-gradient(180deg, #f8fafc 0%, #ffffff 60%); }
+.apu-kpi-hero .apu-kpi-val { color: var(--primary); }
+
+/* ── Tarjetas de proyecto ─────────────────────────────────── */
+.apu-proj-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 16px; }
+.apu-proj-card {
+    background: white; border-radius: 10px; box-shadow: var(--shadow);
+    padding: 16px 18px; cursor: pointer; border: 1px solid var(--gray-100);
+    transition: box-shadow .2s, transform .12s, border-color .2s;
+    display: flex; flex-direction: column; gap: 8px;
+}
+.apu-proj-card:hover { box-shadow: var(--shadow-lg); transform: translateY(-2px); border-color: var(--primary-light); }
+.apu-proj-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.apu-proj-code {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.6px; color: var(--gray-500);
+    background: var(--gray-100); padding: 2px 8px; border-radius: 5px;
+}
+.apu-proj-name { font-size: 16px; font-weight: 700; color: var(--gray-800); line-height: 1.3; }
+.apu-proj-meta { font-size: 12.5px; color: var(--gray-500); display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.apu-proj-meta .icon { vertical-align: -2px; color: var(--gray-400); }
+.apu-proj-foot {
+    margin-top: auto; padding-top: 12px; border-top: 1px dashed var(--gray-200);
+    display: flex; justify-content: space-between; align-items: flex-end; gap: 8px;
+}
+.apu-proj-total { display: flex; flex-direction: column; }
+.apu-proj-total-lbl { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--gray-400); font-weight: 600; }
+.apu-proj-total-val { font-size: 19px; font-weight: 700; color: var(--primary); letter-spacing: -0.4px; }
+.apu-proj-side { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 11.5px; color: var(--gray-400); }
+
+/* ── Empty state del modulo ───────────────────────────────── */
+.apu-empty {
+    background: white; border-radius: 12px; box-shadow: var(--shadow);
+    padding: 48px 24px; text-align: center; border: 1px dashed var(--gray-200);
+}
+.apu-empty-ico { color: var(--gray-300); display: flex; justify-content: center; margin-bottom: 12px; }
+.apu-empty h3 { font-size: 18px; color: var(--gray-800); margin-bottom: 6px; }
+.apu-empty p { font-size: 14px; color: var(--gray-500); max-width: 460px; margin: 0 auto 18px; line-height: 1.5; }
+
+/* ── Hero del proyecto ────────────────────────────────────── */
+.apu-proj-hero {
+    background: white; border-radius: 12px; box-shadow: var(--shadow);
+    padding: 20px 22px; margin-bottom: 18px;
+    display: flex; justify-content: space-between; align-items: stretch; gap: 20px; flex-wrap: wrap;
+    border-top: 3px solid var(--primary);
+}
+.apu-proj-hero-main { flex: 1; min-width: 260px; }
+.apu-proj-hero-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.apu-proj-hero-title { font-size: 23px; font-weight: 700; color: var(--gray-800); line-height: 1.25; letter-spacing: -0.5px; }
+.apu-proj-hero-meta { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 8px; font-size: 13px; color: var(--gray-500); }
+.apu-proj-hero-meta .icon { vertical-align: -2px; color: var(--gray-400); margin-right: 2px; }
+.apu-proj-hero-actions { display: flex; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
+.apu-proj-hero-total {
+    display: flex; flex-direction: column; justify-content: center; align-items: flex-end;
+    padding: 12px 18px; border-radius: 10px; min-width: 220px;
+    background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%); color: white;
+}
+.apu-proj-hero-total-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; opacity: .82; font-weight: 600; }
+.apu-proj-hero-total-val { font-size: 30px; font-weight: 800; letter-spacing: -1px; line-height: 1.2; }
+.apu-proj-hero-total-cur { font-size: 11px; opacity: .8; letter-spacing: 1px; }
+
+/* ── Arbol Rubro > Partida ────────────────────────────────── */
+.apu-tree { display: flex; flex-direction: column; gap: 12px; }
+.apu-rubro { background: white; border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+.apu-rubro-head {
+    display: flex; align-items: center; gap: 10px; padding: 12px 16px; cursor: pointer;
+    background: var(--gray-50); border-bottom: 1px solid var(--gray-200); user-select: none;
+}
+.apu-rubro-head:hover { background: var(--gray-100); }
+.apu-rubro-chev { display: inline-flex; color: var(--gray-400); transition: transform .2s; }
+.apu-rubro.closed .apu-rubro-chev { transform: rotate(-90deg); }
+.apu-rubro.closed .apu-rubro-body { display: none; }
+.apu-rubro.closed .apu-rubro-head { border-bottom-color: transparent; }
+.apu-rubro-idx {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 11px; font-weight: 700; color: white; background: var(--primary);
+    padding: 3px 8px; border-radius: 5px; min-width: 30px; text-align: center;
+}
+.apu-rubro-name { font-size: 15px; font-weight: 700; color: var(--gray-800); flex: 1; }
+.apu-rubro-count { font-size: 11.5px; color: var(--gray-400); white-space: nowrap; }
+.apu-rubro-total { font-size: 15px; font-weight: 700; color: var(--gray-800); white-space: nowrap; }
+.apu-rubro-empty { padding: 18px; text-align: center; color: var(--gray-400); font-size: 13px; }
+
+.apu-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.apu-table thead th { background: white; border-bottom: 1px solid var(--gray-200); font-size: 10.5px; }
+.apu-table .apu-th-num { text-align: right; }
+.apu-table tbody td { padding: 9px 12px; border-bottom: 1px solid var(--gray-100); vertical-align: middle; }
+.apu-item-row { cursor: pointer; }
+.apu-cell-code {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 12px; color: var(--gray-500); white-space: nowrap;
+}
+.apu-cell-name { color: var(--gray-800); font-weight: 500; }
+.apu-cell-go { color: var(--gray-300); margin-left: 6px; vertical-align: -2px; opacity: 0; transition: opacity .15s; }
+.apu-item-row:hover .apu-cell-go { opacity: 1; }
+.apu-item-row:hover .apu-cell-name { color: var(--primary); }
+.apu-cell-uom { color: var(--gray-500); font-size: 12.5px; }
+.apu-cell-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--gray-600); }
+.apu-cell-strong { font-weight: 700; color: var(--gray-800); }
+.apu-cell-act { text-align: center; }
+
+.apu-grand-total {
+    margin-top: 18px; padding: 16px 22px; border-radius: 10px;
+    background: var(--gray-800); color: white;
+    display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+.apu-grand-total-lbl { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; opacity: .85; font-weight: 600; }
+.apu-grand-total-val { font-size: 26px; font-weight: 800; letter-spacing: -0.8px; }
+
+/* ── Editor de APU ────────────────────────────────────────── */
+.apu-item-hero {
+    background: white; border-radius: 12px; box-shadow: var(--shadow);
+    padding: 20px 22px; margin-bottom: 12px;
+    display: flex; justify-content: space-between; align-items: stretch; gap: 20px; flex-wrap: wrap;
+    border-top: 3px solid var(--accent);
+}
+.apu-item-hero-main { flex: 1; min-width: 240px; }
+.apu-item-hero-top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.apu-item-hero-title { font-size: 21px; font-weight: 700; color: var(--gray-800); line-height: 1.3; letter-spacing: -0.4px; }
+.apu-item-hero-meta { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; font-size: 13px; color: var(--gray-500); }
+.apu-item-hero-meta strong { color: var(--gray-800); }
+.apu-item-hero-price {
+    display: flex; flex-direction: column; justify-content: center; align-items: flex-end;
+    padding: 12px 18px; border-radius: 10px; min-width: 200px;
+    background: linear-gradient(135deg, #b45309 0%, var(--accent) 100%); color: white;
+}
+.apu-item-hero-price-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.8px; opacity: .9; font-weight: 600; }
+.apu-item-hero-price-val { font-size: 32px; font-weight: 800; letter-spacing: -1px; line-height: 1.15; }
+.apu-item-hero-price-cur { font-size: 11.5px; opacity: .92; }
+
+.apu-cost-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.apu-cost-chip {
+    background: white; border-radius: 8px; box-shadow: var(--shadow); padding: 10px 14px;
+    display: flex; flex-direction: column; gap: 1px; border-left: 3px solid var(--gray-300);
+}
+.apu-cost-chip span { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: var(--gray-500); font-weight: 600; }
+.apu-cost-chip strong { font-size: 17px; color: var(--gray-800); font-variant-numeric: tabular-nums; }
+.apu-cost-chip.mat { border-left-color: #2563eb; }
+.apu-cost-chip.mo { border-left-color: #d97706; }
+.apu-cost-chip.eq { border-left-color: #0d9488; }
+.apu-cost-chip.total { border-left-color: var(--gray-800); background: var(--gray-50); }
+
+.apu-editor { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(300px, 1fr); gap: 16px; align-items: start; }
+.apu-editor-left { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.apu-editor-right { position: sticky; top: 76px; }
+
+.apu-block { background: white; border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+.apu-block-head {
+    display: flex; align-items: center; gap: 10px; padding: 11px 16px; cursor: pointer;
+    user-select: none; border-left: 4px solid var(--gray-300); background: var(--gray-50);
+}
+.apu-block-head:hover { background: var(--gray-100); }
+.apu-block-mat .apu-block-head { border-left-color: #2563eb; }
+.apu-block-mo .apu-block-head { border-left-color: #d97706; }
+.apu-block-eq .apu-block-head { border-left-color: #0d9488; }
+.apu-block-mat .apu-block-ico { color: #2563eb; }
+.apu-block-mo .apu-block-ico { color: #d97706; }
+.apu-block-eq .apu-block-ico { color: #0d9488; }
+.apu-block-chev { display: inline-flex; color: var(--gray-400); transition: transform .2s; }
+.apu-block.closed .apu-block-chev { transform: rotate(-90deg); }
+.apu-block.closed .apu-block-body { display: none; }
+.apu-block-ico { display: inline-flex; }
+.apu-block-title { font-size: 14.5px; font-weight: 700; color: var(--gray-800); flex: 1; }
+.apu-block-count {
+    font-size: 11px; font-weight: 700; color: var(--gray-500);
+    background: white; border: 1px solid var(--gray-200); border-radius: 10px; padding: 1px 8px;
+}
+.apu-block-sub { font-size: 14.5px; font-weight: 700; color: var(--gray-800); font-variant-numeric: tabular-nums; }
+.apu-block-body { padding: 6px 12px 12px; }
+.apu-block-empty { padding: 16px; text-align: center; color: var(--gray-400); font-size: 13px; }
+.apu-block-foot {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+    padding-top: 10px; margin-top: 6px; border-top: 1px dashed var(--gray-200);
+}
+.apu-block-foot-total { font-size: 13px; color: var(--gray-500); }
+.apu-block-foot-total strong { color: var(--gray-800); font-variant-numeric: tabular-nums; }
+
+.apu-line {
+    display: grid; grid-template-columns: minmax(0, 1fr) 62px 92px 100px 96px 32px;
+    gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--gray-100);
+}
+.apu-line:last-of-type { border-bottom: none; }
+.apu-line-head {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--gray-400); font-weight: 700; border-bottom: 1px solid var(--gray-200); padding-bottom: 6px;
+}
+.apu-line-head .apu-line-inp, .apu-line-head .apu-line-sub { text-align: right; }
+.apu-line-desc { min-width: 0; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.apu-line-name { font-size: 13.5px; color: var(--gray-800); overflow-wrap: anywhere; }
+.apu-line-uom { font-size: 12.5px; color: var(--gray-500); }
+.apu-line-sub { text-align: right; font-size: 13.5px; font-weight: 700; color: var(--gray-800); font-variant-numeric: tabular-nums; }
+.apu-line-del {
+    background: none; border: none; color: var(--gray-300); cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center; padding: 4px; border-radius: 5px;
+}
+.apu-line-del:hover { color: var(--danger, #dc2626); background: #fee2e2; }
+.apu-src {
+    font-size: 10px; text-transform: uppercase; letter-spacing: .4px; font-weight: 700;
+    color: var(--gray-500); background: var(--gray-100); border-radius: 8px; padding: 1px 6px; white-space: nowrap;
+}
+.apu-src-mkt { color: #065f46; background: #d1fae5; }
+.apu-src-mkt .icon { vertical-align: -1px; }
+
+.apu-inp {
+    width: 100%; padding: 5px 8px; text-align: right;
+    border: 1px solid var(--gray-200); border-radius: 6px;
+    font-size: 13px; color: var(--gray-800); background: white;
+    font-variant-numeric: tabular-nums; transition: border-color .15s, box-shadow .15s;
+}
+.apu-inp:focus { outline: none; border-color: var(--primary-light); box-shadow: 0 0 0 3px rgba(59,130,246,0.12); }
+.apu-inp:hover { border-color: var(--gray-300); }
+.apu-inp-text { text-align: left; }
+
+/* ── Planilla de resultado ────────────────────────────────── */
+.apu-summary { background: white; border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+.apu-summary-head {
+    display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+    background: var(--gray-800); color: white; font-size: 14px; font-weight: 700;
+}
+.apu-table-sum tbody td { padding: 8px 12px; font-size: 13px; }
+.apu-sum-code {
+    font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 11px; color: var(--gray-400);
+}
+.apu-sum-formula { display: block; font-size: 11px; color: var(--gray-400); margin-top: 1px; }
+.apu-sum-total td { background: var(--gray-50); font-weight: 700; color: var(--gray-800); border-top: 1px solid var(--gray-300); }
+.apu-final {
+    padding: 16px; text-align: right; color: white;
+    background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%);
+    display: flex; flex-direction: column; gap: 1px;
+}
+.apu-final-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .9px; opacity: .85; font-weight: 600; }
+.apu-final-val { font-size: 27px; font-weight: 800; letter-spacing: -0.8px; }
+.apu-final-uom { font-size: 11.5px; opacity: .85; }
+
+/* ── Computos metricos ────────────────────────────────────── */
+.apu-comp { background: white; border-radius: 10px; box-shadow: var(--shadow); overflow: hidden; }
+.apu-comp-head {
+    display: flex; align-items: center; gap: 8px; padding: 11px 16px;
+    background: var(--gray-50); border-bottom: 1px solid var(--gray-200);
+    font-size: 14.5px; font-weight: 700; color: var(--gray-800);
+}
+.apu-comp-head .icon { color: var(--gray-400); }
+.apu-comp-hint { margin-left: auto; font-size: 11.5px; font-weight: 500; color: var(--gray-400); }
+.apu-table-comp tbody td { padding: 5px 8px; }
+.apu-table-comp tbody tr:hover { background: transparent; }
+.apu-comp-new td { background: var(--gray-50); border-top: 1px solid var(--gray-200); }
+.apu-table-comp tfoot td {
+    padding: 10px 12px; background: var(--gray-50); border-top: 2px solid var(--gray-200);
+    font-size: 13px; font-weight: 700; color: var(--gray-800);
+}
+.apu-comp-total-lbl { text-align: right; text-transform: uppercase; font-size: 11px; letter-spacing: .6px; color: var(--gray-500); }
+.apu-comp-total-val { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+/* ── Buscador de catalogo (modal agregar recurso) ─────────── */
+.apu-search-wrap { position: relative; }
+.apu-sug {
+    position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40;
+    background: white; border: 1px solid var(--gray-200); border-radius: 10px;
+    box-shadow: var(--shadow-lg); max-height: 260px; overflow-y: auto;
+}
+.apu-sug-item {
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    padding: 9px 12px; cursor: pointer; border-bottom: 1px solid var(--gray-100);
+}
+.apu-sug-item:last-child { border-bottom: none; }
+.apu-sug-item:hover { background: var(--gray-50); }
+.apu-sug-name { font-size: 13.5px; font-weight: 500; color: var(--gray-800); }
+.apu-sug-meta { font-size: 11.5px; color: var(--gray-500); margin-top: 1px; }
+.apu-sug-price { font-size: 13.5px; font-weight: 700; color: var(--primary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.apu-sug-empty { padding: 12px; text-align: center; font-size: 13px; color: var(--gray-400); }
+.apu-pick {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+    padding: 8px 12px; border-radius: 8px; background: #d1fae5; color: #065f46; font-size: 13px;
+}
+.apu-pick strong { font-weight: 700; }
+.apu-pick-x { margin-left: auto; background: none; border: none; color: #065f46; font-size: 18px; cursor: pointer; line-height: 1; }
+
+.apu-refresh-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.apu-refresh-cell {
+    background: var(--gray-50); border-radius: 8px; padding: 14px 10px; text-align: center;
+    display: flex; flex-direction: column; gap: 2px;
+}
+.apu-refresh-num { font-size: 24px; font-weight: 700; color: var(--gray-800); }
+.apu-refresh-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: var(--gray-500); font-weight: 600; }
+
+@media (max-width: 980px) {
+    .apu-editor { grid-template-columns: 1fr; }
+    .apu-editor-right { position: static; }
+}
+
+@media (max-width: 700px) {
+    .apu-form-2, .apu-form-3 { grid-template-columns: 1fr; }
+    .apu-proj-hero, .apu-item-hero { flex-direction: column; padding: 16px; }
+    .apu-proj-hero-total, .apu-item-hero-price { align-items: flex-start; width: 100%; min-width: 0; }
+    .apu-proj-hero-title { font-size: 20px; }
+    .apu-item-hero-title { font-size: 18px; }
+    .apu-proj-hero-total-val { font-size: 26px; }
+    .apu-item-hero-price-val { font-size: 28px; }
+    .apu-grand-total-val { font-size: 22px; }
+    .apu-line {
+        grid-template-columns: minmax(0, 1fr) 78px 86px 30px;
+        grid-template-areas: "desc uom qty del" "sub sub price price";
+        row-gap: 4px; padding: 10px 4px;
+    }
+    .apu-line-desc { grid-area: desc; }
+    .apu-line-uom { grid-area: uom; text-align: right; }
+    .apu-line-qty { grid-area: qty; }
+    .apu-line-price { grid-area: price; }
+    .apu-line-sub { grid-area: sub; text-align: left; }
+    .apu-line-del { grid-area: del; }
+    .apu-line-head { display: none; }
+    .apu-rubro-count { display: none; }
+    .apu-refresh-grid { grid-template-columns: 1fr; }
+}

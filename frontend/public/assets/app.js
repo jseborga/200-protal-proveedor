@@ -201,6 +201,21 @@ const API = {
     inboxSessionTagAdd: (sid, body) => API.post(`/inbox/sessions/${sid}/tags`, body),
     inboxSessionTagRemove: (sid, tagId) => API.del(`/inbox/sessions/${sid}/tags/${tagId}`),
 
+    // APU — proyectos, presupuestos y analisis de precios unitarios
+    apuProjects: (params = '') => API.get(`/apu/projects${params}`),
+    apuProject: (id) => API.get(`/apu/projects/${id}`),
+    apuCreateProject: (data) => API.post('/apu/projects', data),
+    apuRecomputeProject: (id) => API.post(`/apu/projects/${id}/recompute`, {}),
+    apuRefreshProjectPrices: (id, includeManual = false) =>
+        API.post(`/apu/projects/${id}/refresh-prices?include_manual=${includeManual ? 'true' : 'false'}`, {}),
+    apuItem: (id) => API.get(`/apu/items/${id}`),
+    apuAddLine: (itemId, data) => API.post(`/apu/items/${itemId}/lines`, data),
+    apuUpdateLine: (id, data) => API.put(`/apu/lines/${id}`, data),
+    apuDeleteLine: (id) => API.del(`/apu/lines/${id}`),
+    apuAddComputo: (itemId, data) => API.post(`/apu/items/${itemId}/computos`, data),
+    apuUpdateComputo: (id, data) => API.put(`/apu/computos/${id}`, data),
+    apuDeleteComputo: (id) => API.del(`/apu/computos/${id}`),
+
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
 
@@ -382,6 +397,11 @@ const ICONS = {
     server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
     lock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>',
     info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>',
+    calculator: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="10" x2="8.01" y2="10"/><line x1="12" y1="10" x2="12.01" y2="10"/><line x1="16" y1="10" x2="16.01" y2="10"/><line x1="8" y1="14" x2="8.01" y2="14"/><line x1="12" y1="14" x2="12.01" y2="14"/><line x1="16" y1="14" x2="16" y2="18"/><line x1="8" y1="18" x2="12" y2="18"/></svg>',
+    'refresh-cw': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23,4 23,10 17,10"/><polyline points="1,20 1,14 7,14"/><path d="M3.51 9a9 9 0 0114.85-3.36L23 10"/><path d="M1 14l4.64 4.36A9 9 0 0020.49 15"/></svg>',
+    'chevron-right': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg>',
+    ruler: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="8" width="20" height="8" rx="1"/><line x1="6" y1="8" x2="6" y2="12"/><line x1="10" y1="8" x2="10" y2="12"/><line x1="14" y1="8" x2="14" y2="12"/><line x1="18" y1="8" x2="18" y2="12"/></svg>',
+    hammer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 6l3-3 5 5-3 3"/><path d="M16.5 8.5L9 16l-1 4-4 1 1-4 7.5-7.5"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -427,8 +447,9 @@ function renderApp() {
     };
 
     const authPages = {
-        pedidos:    { title: 'Cotizaciones', icon: 'clipboard',  render: renderPedidos },
-        company:    { title: 'Mi Empresa',   icon: 'building',   render: renderCompany },
+        pedidos:      { title: 'Cotizaciones', icon: 'clipboard',  render: renderPedidos },
+        presupuestos: { title: 'Presupuestos', icon: 'calculator', render: renderPresupuestos },
+        company:      { title: 'Mi Empresa',   icon: 'building',   render: renderCompany },
     };
 
     const staffPages = isStaff() ? {
@@ -568,6 +589,7 @@ function openMobileMenu() {
     const menuPages = [];
     if (state.user) {
         menuPages.push({ key: 'pedidos', label: 'Cotizaciones', ico: 'clipboard' });
+        menuPages.push({ key: 'presupuestos', label: 'Presupuestos', ico: 'calculator' });
         menuPages.push({ key: 'company', label: 'Mi Empresa', ico: 'building' });
     }
     if (isStaff()) {
@@ -10709,6 +10731,975 @@ function renderLegal() {
         </div>
     `;
 }
+
+// ═══════════════════════════════════════════════════════════════
+// ── APU — Presupuestos de obra y analisis de precios unitarios ─
+// ═══════════════════════════════════════════════════════════════
+
+// Bloques de composicion de una partida.
+// `apiType` es el valor que entiende el backend (mat/mo/eq, los mismos que
+// usa Odoo). `cls` es solo para CSS y `aliases` cubre variantes al leer.
+// No unificar apiType con cls: separa el contrato de la presentacion.
+const APU_BLOCKS = [
+    { key: 'material',  apiType: 'mat', cls: 'mat', label: 'Materiales',    ico: 'package',  aliases: ['material', 'materials', 'materiales', 'mat', 'm'] },
+    { key: 'labor',     apiType: 'mo',  cls: 'mo',  label: 'Mano de obra',  ico: 'users',    aliases: ['labor', 'labour', 'mano_obra', 'mano-obra', 'manodeobra', 'mo', 'l'] },
+    { key: 'equipment', apiType: 'eq',  cls: 'eq',  label: 'Equipo y herramientas', ico: 'hammer', aliases: ['equipment', 'equipo', 'equipos', 'eq', 'tool', 'tools', 'herramienta', 'e'] },
+];
+
+/** Tipo de recurso que espera la API a partir de la clave de bloque. */
+function _apuApiType(blockKey) {
+    const blk = APU_BLOCKS.find(b => b.key === blockKey || b.apiType === blockKey);
+    return blk ? blk.apiType : 'mat';
+}
+
+const APU_PROJECT_STATES = {
+    draft:       { label: 'Borrador',   cls: 'badge-gray' },
+    active:      { label: 'En curso',   cls: 'badge-primary' },
+    in_progress: { label: 'En curso',   cls: 'badge-primary' },
+    review:      { label: 'En revision', cls: 'badge-warning' },
+    approved:    { label: 'Aprobado',   cls: 'badge-success' },
+    closed:      { label: 'Cerrado',    cls: 'badge-success' },
+    archived:    { label: 'Archivado',  cls: 'badge-gray' },
+    cancelled:   { label: 'Cancelado',  cls: 'badge-danger' },
+};
+
+// Estado local del modulo (no se persiste; el servidor es la fuente de verdad)
+const _apu = {
+    view: 'list',          // 'list' | 'project' | 'item'
+    projectId: null,
+    project: null,
+    itemId: null,
+    item: null,
+    limitReason: null,     // motivo devuelto por el backend en un 402
+    closedRubros: {},      // { rubroId: true } => colapsado
+    closedBlocks: {},      // { blockKey: true } => colapsado
+    pick: null,            // insumo elegido del catalogo al agregar recurso
+};
+
+// ── Helpers de formato ────────────────────────────────────────
+function _apuNum(v, dec = 2) {
+    const n = Number(v);
+    if (!isFinite(n)) return (0).toFixed(dec);
+    return n.toLocaleString('es-BO', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+}
+
+function _apuCurSymbol(cur) {
+    const c = String(cur || 'BOB').toUpperCase();
+    if (c === 'BOB') return 'Bs';
+    if (c === 'USD') return '$us';
+    return c;
+}
+
+function _apuMoney(v, cur, dec = 2) {
+    return `${_apuCurSymbol(cur)} ${_apuNum(v, dec)}`;
+}
+
+function _apuBlockOf(type) {
+    const t = String(type || '').toLowerCase().trim();
+    return APU_BLOCKS.find(b => b.aliases.includes(t)) || APU_BLOCKS[0];
+}
+
+function _apuProjectState(st) {
+    return APU_PROJECT_STATES[String(st || '').toLowerCase()] || { label: String(st || 'Borrador'), cls: 'badge-gray' };
+}
+
+function _apuDate(iso) {
+    if (!iso) return '';
+    try { return new Date(iso).toLocaleDateString('es-BO'); } catch { return ''; }
+}
+
+// El backend puede responder detail como string o como lista (422 de FastAPI)
+function _apuDetail(data, fallback) {
+    if (data && typeof data.detail === 'string') return data.detail;
+    if (data && typeof data.error === 'string') return data.error;
+    return fallback;
+}
+
+// ── Entrada de la pagina ──────────────────────────────────────
+async function renderPresupuestos() {
+    const p = state.currentParams || {};
+    if (p.itemId) { openApuItem(p.itemId); return; }
+    if (p.projectId) { openApuProject(p.projectId); return; }
+    renderApuProjects();
+}
+
+// ── Pantalla 1: lista de proyectos ────────────────────────────
+function _apuNewProjectButton() {
+    if (_apu.limitReason) {
+        return `<button class="btn btn-locked" title="${esc(_apu.limitReason)}" onclick="showApuPlanLimit()">
+                    ${icon('lock', 16)} Limite del plan alcanzado
+                </button>`;
+    }
+    return `<button class="btn btn-primary" onclick="showApuNewProjectModal()">
+                ${icon('plus', 16)} Nuevo proyecto
+            </button>`;
+}
+
+async function renderApuProjects() {
+    _apu.view = 'list';
+    _apu.projectId = null; _apu.project = null;
+    _apu.itemId = null; _apu.item = null;
+    const page = document.getElementById('page-content');
+    if (!page) return;
+    page.innerHTML = `
+        <div class="page-header apu-header">
+            <div>
+                <h1 class="page-title">Presupuestos de obra</h1>
+                <p class="page-subtitle">Analisis de precios unitarios, computos metricos y presupuestos por proyecto</p>
+            </div>
+            <div class="apu-header-actions" id="apu-new-btn">${_apuNewProjectButton()}</div>
+        </div>
+        <div id="apu-projects"><div class="empty-state"><p>Cargando proyectos...</p></div></div>
+    `;
+    loadApuProjects();
+}
+
+async function loadApuProjects() {
+    const box = document.getElementById('apu-projects');
+    if (!box) return;
+    try {
+        const resp = await API.apuProjects();
+        if (!resp.ok) {
+            box.innerHTML = `<div class="empty-state"><p>${esc(_apuDetail(resp, 'No se pudieron cargar los proyectos'))}</p></div>`;
+            return;
+        }
+        const list = resp.data || [];
+        if (!list.length) {
+            box.innerHTML = `
+                <div class="apu-empty">
+                    <div class="apu-empty-ico">${icon('calculator', 40)}</div>
+                    <h3>Todavia no tienes proyectos</h3>
+                    <p>Crea un proyecto para armar su presupuesto por rubros y partidas, con analisis de precios unitarios y computos metricos.</p>
+                    ${_apuNewProjectButton()}
+                </div>
+            `;
+            return;
+        }
+        const cur = list[0].currency || 'BOB';
+        const totalAll = list.reduce((a, p) => a + Number(p.total_budget || 0), 0);
+        const items = list.reduce((a, p) => a + Number(p.item_count || 0), 0);
+        box.innerHTML = `
+            <div class="apu-kpis">
+                <div class="apu-kpi">
+                    <span class="apu-kpi-val">${esc(String(resp.total != null ? resp.total : list.length))}</span>
+                    <span class="apu-kpi-lbl">Proyectos</span>
+                </div>
+                <div class="apu-kpi">
+                    <span class="apu-kpi-val">${esc(String(items))}</span>
+                    <span class="apu-kpi-lbl">Partidas</span>
+                </div>
+                <div class="apu-kpi apu-kpi-hero">
+                    <span class="apu-kpi-val">${esc(_apuMoney(totalAll, cur))}</span>
+                    <span class="apu-kpi-lbl">Monto acumulado</span>
+                </div>
+            </div>
+            <div class="apu-proj-grid">${list.map(renderApuProjectCard).join('')}</div>
+        `;
+    } catch {
+        box.innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>';
+    }
+}
+
+function renderApuProjectCard(p) {
+    const st = _apuProjectState(p.state);
+    return `
+        <div class="apu-proj-card" onclick="openApuProject(${Number(p.id)})">
+            <div class="apu-proj-top">
+                <span class="apu-proj-code">${esc(p.code || '—')}</span>
+                <span class="badge ${st.cls}">${esc(st.label)}</span>
+            </div>
+            <div class="apu-proj-name">${esc(p.name)}</div>
+            <div class="apu-proj-meta">
+                ${p.client_name ? `${icon('building', 13)} ${esc(p.client_name)}` : ''}
+                ${p.region ? `<span class="apu-dot"></span>${icon('map-pin', 13)} ${esc(p.region)}` : ''}
+            </div>
+            <div class="apu-proj-foot">
+                <div class="apu-proj-total">
+                    <span class="apu-proj-total-lbl">Presupuesto</span>
+                    <span class="apu-proj-total-val">${esc(_apuMoney(p.total_budget, p.currency))}</span>
+                </div>
+                <div class="apu-proj-side">
+                    <span>${esc(String(p.item_count || 0))} partidas</span>
+                    <span>${esc(_apuDate(p.created_at))}</span>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function showApuPlanLimit(reason) {
+    const msg = reason || _apu.limitReason || 'Tu plan actual no permite crear mas proyectos.';
+    showModal('Limite del plan alcanzado', `
+        <p style="font-size:14px;color:var(--gray-700);line-height:1.5">${esc(msg)}</p>
+        <p style="font-size:13px;color:var(--gray-500);margin-top:10px">
+            Puedes liberar espacio archivando un proyecto existente o ampliar tu plan para crear mas presupuestos.
+        </p>
+        <div style="text-align:right;margin-top:16px">
+            <button class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Entendido</button>
+            <button class="btn btn-primary" onclick="closeModal();navigate('company')">Ver planes</button>
+        </div>
+    `);
+}
+
+function showApuNewProjectModal() {
+    const depts = DEPARTMENTS.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+    showModal('Nuevo proyecto', `
+        <form onsubmit="handleApuCreateProject(event)">
+            <div class="form-group">
+                <label class="form-label">Nombre del proyecto *</label>
+                <input class="form-input" name="name" required maxlength="160" placeholder="Ej. Vivienda unifamiliar Los Alamos">
+            </div>
+            <div class="apu-form-2">
+                <div class="form-group">
+                    <label class="form-label">Codigo</label>
+                    <input class="form-input" name="code" maxlength="40" placeholder="PRY-001">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Cliente</label>
+                    <input class="form-input" name="client_name" maxlength="160" placeholder="Nombre del cliente">
+                </div>
+            </div>
+            <div class="apu-form-2">
+                <div class="form-group">
+                    <label class="form-label">Ubicacion</label>
+                    <input class="form-input" name="location" maxlength="160" placeholder="Zona, calle, referencia">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Region / Departamento</label>
+                    <select class="form-select" name="region">
+                        <option value="">Sin especificar</option>
+                        ${depts}
+                    </select>
+                </div>
+            </div>
+            <div class="apu-form-2">
+                <div class="form-group">
+                    <label class="form-label">Moneda</label>
+                    <select class="form-select" name="currency">
+                        <option value="BOB">BOB — Bolivianos</option>
+                        <option value="USD">USD — Dolares</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Plantilla de recargos</label>
+                    <select class="form-select" name="template_id">
+                        <option value="">Plantilla por defecto</option>
+                    </select>
+                    <span class="apu-hint">Cargas sociales, gastos generales, utilidad e impuestos</span>
+                </div>
+            </div>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Crear proyecto</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleApuCreateProject(e) {
+    e.preventDefault();
+    const f = e.target;
+    const payload = {
+        name: f.name.value.trim(),
+        code: f.code.value.trim() || null,
+        client_name: f.client_name.value.trim() || null,
+        location: f.location.value.trim() || null,
+        region: f.region.value || null,
+        currency: f.currency.value || 'BOB',
+        template_id: f.template_id.value ? parseInt(f.template_id.value, 10) : null,
+    };
+    try {
+        // _fetch (no .post) para poder leer el status: 402 = limite de plan
+        const resp = await API._fetch('/apu/projects', { method: 'POST', body: JSON.stringify(payload) });
+        let data = {};
+        try { data = await resp.json(); } catch {}
+        if (resp.status === 402) {
+            _apu.limitReason = _apuDetail(data, 'Tu plan actual no permite crear mas proyectos.');
+            closeModal();
+            renderApuProjects();
+            showApuPlanLimit(_apu.limitReason);
+            return;
+        }
+        if (!resp.ok || data.ok === false) {
+            toast(_apuDetail(data, 'No se pudo crear el proyecto'), 'error');
+            return;
+        }
+        _apu.limitReason = null;
+        closeModal();
+        toast('Proyecto creado', 'success');
+        if (data.data && data.data.id) openApuProject(data.data.id);
+        else renderApuProjects();
+    } catch {
+        toast('Error de conexion', 'error');
+    }
+}
+
+// ── Pantalla 2: detalle del proyecto (presupuesto) ────────────
+async function openApuProject(projectId) {
+    const page = document.getElementById('page-content');
+    if (!page) return;
+    _apu.view = 'project';
+    _apu.projectId = projectId;
+    _apu.itemId = null; _apu.item = null;
+    page.innerHTML = '<div class="empty-state"><p>Cargando presupuesto...</p></div>';
+    try {
+        const resp = await API.apuProject(projectId);
+        if (!resp.ok) {
+            page.innerHTML = `<div class="empty-state"><p>${esc(_apuDetail(resp, 'No se pudo cargar el proyecto'))}</p></div>`;
+            return;
+        }
+        _apu.project = resp.data;
+        renderApuProjectDetail(resp.data);
+    } catch {
+        page.innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>';
+    }
+}
+
+function renderApuProjectDetail(p) {
+    const page = document.getElementById('page-content');
+    if (!page) return;
+    const cur = p.currency || 'BOB';
+    const st = _apuProjectState(p.state);
+    const rubros = p.rubros || [];
+    const unassigned = p.unassigned_items || [];
+
+    const rubroBlocks = rubros.map((r, idx) => renderApuRubro(r, idx, cur)).join('');
+    const looseBlock = unassigned.length
+        ? renderApuRubro({ id: 0, name: 'Partidas sin rubro', code: '', total: unassigned.reduce((a, i) => a + Number(i.total_price || 0), 0), items: unassigned }, rubros.length, cur)
+        : '';
+
+    const itemCount = rubros.reduce((a, r) => a + (r.items || []).length, 0) + unassigned.length;
+
+    page.innerHTML = `
+        <div class="apu-back">
+            <button class="btn btn-secondary btn-sm" onclick="renderApuProjects()">&larr; Proyectos</button>
+        </div>
+
+        <div class="apu-proj-hero">
+            <div class="apu-proj-hero-main">
+                <div class="apu-proj-hero-top">
+                    ${p.code ? `<span class="apu-proj-code">${esc(p.code)}</span>` : ''}
+                    <span class="badge ${st.cls}">${esc(st.label)}</span>
+                </div>
+                <h1 class="apu-proj-hero-title">${esc(p.name)}</h1>
+                <div class="apu-proj-hero-meta">
+                    ${p.client_name ? `<span>${icon('building', 14)} ${esc(p.client_name)}</span>` : ''}
+                    ${p.location ? `<span>${icon('map-pin', 14)} ${esc(p.location)}</span>` : ''}
+                    ${p.region ? `<span>${icon('globe', 14)} ${esc(p.region)}</span>` : ''}
+                    <span>${icon('layers', 14)} ${esc(String(itemCount))} partidas</span>
+                    ${p.created_at ? `<span>${icon('clock', 14)} ${esc(_apuDate(p.created_at))}</span>` : ''}
+                </div>
+                <div class="apu-proj-hero-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="apuRecompute(${Number(p.id)})">
+                        ${icon('refresh-cw', 15)} Recalcular
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="apuRefreshPrices(${Number(p.id)})">
+                        ${icon('trending-up', 15)} Actualizar precios de mercado
+                    </button>
+                </div>
+            </div>
+            <div class="apu-proj-hero-total">
+                <span class="apu-proj-hero-total-lbl">Total del presupuesto</span>
+                <span class="apu-proj-hero-total-val">${esc(_apuMoney(p.total_budget, cur))}</span>
+                <span class="apu-proj-hero-total-cur">${esc(String(cur).toUpperCase())}</span>
+            </div>
+        </div>
+
+        <div class="apu-tree">
+            ${rubroBlocks || ''}
+            ${looseBlock}
+            ${(!rubroBlocks && !looseBlock) ? `
+                <div class="apu-empty">
+                    <div class="apu-empty-ico">${icon('layers', 40)}</div>
+                    <h3>El presupuesto esta vacio</h3>
+                    <p>Este proyecto todavia no tiene rubros ni partidas cargadas.</p>
+                </div>` : ''}
+        </div>
+
+        ${(rubroBlocks || looseBlock) ? `
+        <div class="apu-grand-total">
+            <span class="apu-grand-total-lbl">Total general del presupuesto</span>
+            <span class="apu-grand-total-val">${esc(_apuMoney(p.total_budget, cur))}</span>
+        </div>` : ''}
+    `;
+}
+
+function renderApuRubro(r, idx, cur) {
+    const rid = Number(r.id) || 0;
+    const closed = !!_apu.closedRubros[rid];
+    const items = r.items || [];
+    const rows = items.map(it => `
+        <tr class="apu-item-row" onclick="openApuItem(${Number(it.id)})">
+            <td class="apu-cell-code">${esc(it.code || '')}</td>
+            <td class="apu-cell-name">
+                ${esc(it.name)}
+                <span class="apu-cell-go">${icon('chevron-right', 14)}</span>
+            </td>
+            <td class="apu-cell-uom">${esc(it.uom || '')}</td>
+            <td class="apu-cell-num">${esc(_apuNum(it.quantity, 2))}</td>
+            <td class="apu-cell-num">${esc(_apuNum(it.unit_price, 2))}</td>
+            <td class="apu-cell-num apu-cell-strong">${esc(_apuNum(it.total_price, 2))}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <section class="apu-rubro${closed ? ' closed' : ''}" id="apu-rubro-${rid}">
+            <header class="apu-rubro-head" onclick="toggleApuRubro(${rid})">
+                <span class="apu-rubro-chev">${icon('chevron-down', 16)}</span>
+                <span class="apu-rubro-idx">${esc(String(r.code || (idx + 1)))}</span>
+                <span class="apu-rubro-name">${esc(r.name)}</span>
+                <span class="apu-rubro-count">${esc(String(items.length))} partidas</span>
+                <span class="apu-rubro-total">${esc(_apuMoney(r.total, cur))}</span>
+            </header>
+            <div class="apu-rubro-body">
+                ${items.length ? `
+                <div class="table-wrap">
+                    <table class="apu-table">
+                        <thead>
+                            <tr>
+                                <th style="width:110px">Codigo</th>
+                                <th>Descripcion</th>
+                                <th style="width:70px">Unidad</th>
+                                <th style="width:110px" class="apu-th-num">Cantidad</th>
+                                <th style="width:130px" class="apu-th-num">P. unitario</th>
+                                <th style="width:140px" class="apu-th-num">Total</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </div>` : '<div class="apu-rubro-empty">Sin partidas en este rubro</div>'}
+            </div>
+        </section>
+    `;
+}
+
+function toggleApuRubro(rubroId) {
+    const rid = Number(rubroId) || 0;
+    _apu.closedRubros[rid] = !_apu.closedRubros[rid];
+    const el = document.getElementById('apu-rubro-' + rid);
+    if (el) el.classList.toggle('closed', !!_apu.closedRubros[rid]);
+}
+
+async function apuRecompute(projectId) {
+    toast('Recalculando presupuesto...', 'info');
+    try {
+        const resp = await API.apuRecomputeProject(projectId);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo recalcular'), 'error'); return; }
+        const d = resp.data || {};
+        const cycles = (d.cycles || []).length;
+        toast(`Recalculado: ${d.items_computed || 0} partidas${cycles ? ` — ${cycles} referencias circulares detectadas` : ''}`,
+              cycles ? 'error' : 'success');
+        openApuProject(projectId);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function apuRefreshPrices(projectId, includeManual = false) {
+    const aviso = includeManual
+        ? 'Esto tambien reemplazara los precios que cargaste a mano. Continuar?'
+        : 'Actualizar los precios de los insumos con los ultimos precios de mercado?';
+    if (!confirm(aviso)) return;
+    toast('Consultando precios de mercado...', 'info');
+    try {
+        const resp = await API.apuRefreshProjectPrices(projectId, includeManual);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudieron actualizar los precios'), 'error'); return; }
+        const d = resp.data || {};
+        showModal('Precios de mercado actualizados', `
+            <div class="apu-refresh-grid">
+                <div class="apu-refresh-cell"><span class="apu-refresh-num">${esc(String(d.updated || 0))}</span><span class="apu-refresh-lbl">Actualizados</span></div>
+                <div class="apu-refresh-cell"><span class="apu-refresh-num">${esc(String(d.unchanged || 0))}</span><span class="apu-refresh-lbl">Sin cambios</span></div>
+                <div class="apu-refresh-cell"><span class="apu-refresh-num">${esc(String(d.not_found || 0))}</span><span class="apu-refresh-lbl">Sin precio</span></div>
+                <div class="apu-refresh-cell"><span class="apu-refresh-num">${esc(String(d.kept_manual || 0))}</span><span class="apu-refresh-lbl">Negociados (intactos)</span></div>
+            </div>
+            <p class="apu-hint" style="margin-top:12px">Los totales del presupuesto ya fueron recalculados con los nuevos precios.</p>
+            ${(d.kept_manual || 0) > 0 ? `<p class="apu-hint">Se respetaron ${esc(String(d.kept_manual))} precio(s) que cargaste a mano. Si querés alinearlos también al mercado, usá "Forzar todos".</p>
+            <div style="text-align:left;margin-top:8px"><button class="btn btn-secondary btn-sm" onclick="apuRefreshPrices(${Number(projectId)}, true)">Forzar todos</button></div>` : ''}
+            <div style="text-align:right;margin-top:16px">
+                <button class="btn btn-primary" onclick="closeModal()">Cerrar</button>
+            </div>
+        `);
+        openApuProject(projectId);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Pantalla 3: editor de APU (composicion de la partida) ─────
+async function openApuItem(itemId, keepScroll) {
+    const page = document.getElementById('page-content');
+    if (!page) return;
+    const scrollY = keepScroll ? window.scrollY : 0;
+    _apu.view = 'item';
+    _apu.itemId = itemId;
+    if (!keepScroll) page.innerHTML = '<div class="empty-state"><p>Cargando analisis de precios...</p></div>';
+    try {
+        const resp = await API.apuItem(itemId);
+        if (!resp.ok) {
+            page.innerHTML = `<div class="empty-state"><p>${esc(_apuDetail(resp, 'No se pudo cargar la partida'))}</p></div>`;
+            return;
+        }
+        _apu.item = resp.data;
+        renderApuItemEditor(resp.data);
+        if (keepScroll) window.scrollTo(0, scrollY);
+    } catch {
+        page.innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>';
+    }
+}
+
+function renderApuItemEditor(it) {
+    const page = document.getElementById('page-content');
+    if (!page) return;
+    const cur = (_apu.project && _apu.project.currency) || it.currency || 'BOB';
+    const lines = it.lines || [];
+
+    const grouped = {};
+    APU_BLOCKS.forEach(b => { grouped[b.key] = []; });
+    lines.forEach(l => { grouped[_apuBlockOf(l.type).key].push(l); });
+
+    const fallbackCost = { material: it.mat_cost, labor: it.mo_cost, equipment: it.eq_cost };
+    const blocksHtml = APU_BLOCKS.map(b => renderApuBlock(b, grouped[b.key], cur, fallbackCost[b.key])).join('');
+
+    const directCost = it.direct_cost != null
+        ? it.direct_cost
+        : (Number(it.mat_cost || 0) + Number(it.mo_cost || 0) + Number(it.eq_cost || 0));
+
+    const backBtn = _apu.projectId
+        ? `<button class="btn btn-secondary btn-sm" onclick="openApuProject(${Number(_apu.projectId)})">&larr; Volver al presupuesto</button>`
+        : `<button class="btn btn-secondary btn-sm" onclick="renderApuProjects()">&larr; Proyectos</button>`;
+
+    page.innerHTML = `
+        <div class="apu-back">${backBtn}</div>
+
+        <div class="apu-item-hero">
+            <div class="apu-item-hero-main">
+                <div class="apu-item-hero-top">
+                    ${it.code ? `<span class="apu-proj-code">${esc(it.code)}</span>` : ''}
+                    <span class="badge badge-primary">Analisis de precio unitario</span>
+                </div>
+                <h1 class="apu-item-hero-title">${esc(it.name)}</h1>
+                <div class="apu-item-hero-meta">
+                    <span>Unidad: <strong>${esc(it.uom || '—')}</strong></span>
+                    <span>Cantidad: <strong>${esc(_apuNum(it.quantity, 2))}</strong></span>
+                    <span>Total partida: <strong>${esc(_apuMoney(it.total_price, cur))}</strong></span>
+                </div>
+            </div>
+            <div class="apu-item-hero-price">
+                <span class="apu-item-hero-price-lbl">Precio unitario</span>
+                <span class="apu-item-hero-price-val">${esc(_apuNum(it.unit_price, 2))}</span>
+                <span class="apu-item-hero-price-cur">${esc(_apuCurSymbol(cur))} / ${esc(it.uom || 'und')}</span>
+            </div>
+        </div>
+
+        <div class="apu-cost-strip">
+            <div class="apu-cost-chip mat"><span>Materiales</span><strong>${esc(_apuNum(it.mat_cost, 2))}</strong></div>
+            <div class="apu-cost-chip mo"><span>Mano de obra</span><strong>${esc(_apuNum(it.mo_cost, 2))}</strong></div>
+            <div class="apu-cost-chip eq"><span>Equipo</span><strong>${esc(_apuNum(it.eq_cost, 2))}</strong></div>
+            <div class="apu-cost-chip total"><span>Costo directo</span><strong>${esc(_apuNum(directCost, 2))}</strong></div>
+        </div>
+
+        <div class="apu-editor">
+            <div class="apu-editor-left">
+                ${blocksHtml}
+                ${renderApuComputos(it)}
+            </div>
+            <div class="apu-editor-right">
+                ${renderApuSummary(it, cur)}
+            </div>
+        </div>
+    `;
+}
+
+function renderApuBlock(b, lines, cur, fallbackCost) {
+    const closed = !!_apu.closedBlocks[b.key];
+    const subtotal = lines.length
+        ? lines.reduce((a, l) => a + Number(l.price_subtotal != null ? l.price_subtotal : (Number(l.quantity || 0) * Number(l.price_unit || 0))), 0)
+        : Number(fallbackCost || 0);
+
+    const rows = lines.map(l => {
+        const lid = Number(l.id);
+        const sub = l.price_subtotal != null ? l.price_subtotal : (Number(l.quantity || 0) * Number(l.price_unit || 0));
+        const src = l.insumo_id
+            ? `<span class="apu-src apu-src-mkt" title="Vinculado al catalogo de mercado">${icon('tag', 11)} ${esc(l.price_source || 'mercado')}</span>`
+            : `<span class="apu-src">${esc(l.price_source || 'manual')}</span>`;
+        return `
+            <div class="apu-line" id="apu-line-${lid}">
+                <div class="apu-line-desc">
+                    <span class="apu-line-name">${esc(l.name)}</span>
+                    ${src}
+                </div>
+                <div class="apu-line-uom">${esc(l.uom || '')}</div>
+                <div class="apu-line-inp apu-line-qty">
+                    <input class="apu-inp" type="number" step="0.001" min="0"
+                           value="${esc(Number(l.quantity || 0).toFixed(3))}"
+                           aria-label="Rendimiento"
+                           onchange="apuLineEdit(${lid}, 'quantity', this.value)">
+                </div>
+                <div class="apu-line-inp apu-line-price">
+                    <input class="apu-inp" type="number" step="0.01" min="0"
+                           value="${esc(Number(l.price_unit || 0).toFixed(2))}"
+                           aria-label="Precio unitario"
+                           onchange="apuLineEdit(${lid}, 'price_unit', this.value)">
+                </div>
+                <div class="apu-line-sub">${esc(_apuNum(sub, 2))}</div>
+                <button class="apu-line-del" title="Quitar recurso" onclick="apuDeleteLine(${lid})">${icon('trash', 14)}</button>
+            </div>
+        `;
+    }).join('');
+
+    return `
+        <section class="apu-block apu-block-${b.cls}${closed ? ' closed' : ''}" id="apu-block-${esc(b.key)}">
+            <header class="apu-block-head" onclick="toggleApuBlock('${escJs(b.key)}')">
+                <span class="apu-block-chev">${icon('chevron-down', 16)}</span>
+                <span class="apu-block-ico">${icon(b.ico, 16)}</span>
+                <span class="apu-block-title">${esc(b.label)}</span>
+                <span class="apu-block-count">${esc(String(lines.length))}</span>
+                <span class="apu-block-sub">${esc(_apuNum(subtotal, 2))}</span>
+            </header>
+            <div class="apu-block-body">
+                <div class="apu-line apu-line-head">
+                    <div class="apu-line-desc">Descripcion</div>
+                    <div class="apu-line-uom">Unidad</div>
+                    <div class="apu-line-inp apu-line-qty">Rendim.</div>
+                    <div class="apu-line-inp apu-line-price">P. unit.</div>
+                    <div class="apu-line-sub">Subtotal</div>
+                    <div class="apu-line-del-h"></div>
+                </div>
+                ${rows || '<div class="apu-block-empty">Sin recursos cargados en este bloque</div>'}
+                <div class="apu-block-foot">
+                    <button class="btn btn-sm btn-secondary" onclick="showApuAddLineModal('${escJs(b.key)}')">
+                        ${icon('plus', 14)} Agregar recurso
+                    </button>
+                    <span class="apu-block-foot-total">Subtotal ${esc(b.label.toLowerCase())}: <strong>${esc(_apuMoney(subtotal, cur))}</strong></span>
+                </div>
+            </div>
+        </section>
+    `;
+}
+
+function toggleApuBlock(key) {
+    _apu.closedBlocks[key] = !_apu.closedBlocks[key];
+    const el = document.getElementById('apu-block-' + key);
+    if (el) el.classList.toggle('closed', !!_apu.closedBlocks[key]);
+}
+
+function renderApuSummary(it, cur) {
+    const rows = (it.summary || []).map(s => `
+        <tr class="${s.is_total ? 'apu-sum-total' : ''}">
+            <td class="apu-sum-code">${esc(s.code || '')}</td>
+            <td>
+                ${esc(s.name)}
+                ${s.value_formula ? `<span class="apu-sum-formula">${esc(s.value_formula)}</span>` : ''}
+            </td>
+            <td class="apu-cell-num apu-cell-strong">${esc(_apuNum(s.amount, 2))}</td>
+        </tr>
+    `).join('');
+
+    return `
+        <section class="apu-summary">
+            <header class="apu-summary-head">
+                ${icon('file-text', 16)}
+                <span>Planilla de resultado</span>
+            </header>
+            ${rows ? `
+            <div class="table-wrap">
+                <table class="apu-table apu-table-sum">
+                    <thead>
+                        <tr>
+                            <th style="width:48px">#</th>
+                            <th>Concepto</th>
+                            <th style="width:120px" class="apu-th-num">Monto</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            </div>` : '<div class="apu-block-empty">La plantilla de recargos no devolvio filas</div>'}
+            <div class="apu-final">
+                <span class="apu-final-lbl">Precio unitario final</span>
+                <span class="apu-final-val">${esc(_apuMoney(it.unit_price, cur))}</span>
+                <span class="apu-final-uom">por ${esc(it.uom || 'unidad')}</span>
+            </div>
+        </section>
+    `;
+}
+
+// ── Computos metricos ─────────────────────────────────────────
+function renderApuComputos(it) {
+    const comps = it.computos || [];
+    const total = comps.reduce((a, c) => a + Number(c.subtotal != null ? c.subtotal : 0), 0);
+
+    const rows = comps.map(c => {
+        const cid = Number(c.id);
+        return `
+            <tr id="apu-comp-${cid}">
+                <td>
+                    <input class="apu-inp apu-inp-text" type="text" value="${esc(c.name || '')}"
+                           aria-label="Descripcion"
+                           onchange="apuComputoEdit(${cid}, 'name', this.value)">
+                </td>
+                <td><input class="apu-inp" type="number" step="1" min="0" value="${esc(Number(c.pieces || 0).toFixed(0))}"
+                           aria-label="Piezas" onchange="apuComputoEdit(${cid}, 'pieces', this.value)"></td>
+                <td><input class="apu-inp" type="number" step="0.001" min="0" value="${esc(Number(c.length || 0).toFixed(3))}"
+                           aria-label="Largo" onchange="apuComputoEdit(${cid}, 'length', this.value)"></td>
+                <td><input class="apu-inp" type="number" step="0.001" min="0" value="${esc(Number(c.width || 0).toFixed(3))}"
+                           aria-label="Ancho" onchange="apuComputoEdit(${cid}, 'width', this.value)"></td>
+                <td><input class="apu-inp" type="number" step="0.001" min="0" value="${esc(Number(c.height || 0).toFixed(3))}"
+                           aria-label="Alto" onchange="apuComputoEdit(${cid}, 'height', this.value)"></td>
+                <td class="apu-cell-num apu-cell-strong">${esc(_apuNum(c.subtotal, 3))}</td>
+                <td class="apu-cell-act">
+                    <button class="apu-line-del" title="Eliminar fila" onclick="apuDeleteComputo(${cid})">${icon('trash', 14)}</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+
+    return `
+        <section class="apu-comp">
+            <header class="apu-comp-head">
+                ${icon('ruler', 16)}
+                <span>Computos metricos</span>
+                <span class="apu-comp-hint">El total alimenta la cantidad de la partida</span>
+            </header>
+            <div class="table-wrap">
+                <table class="apu-table apu-table-comp">
+                    <thead>
+                        <tr>
+                            <th>Elemento</th>
+                            <th style="width:80px" class="apu-th-num">Piezas</th>
+                            <th style="width:100px" class="apu-th-num">Largo</th>
+                            <th style="width:100px" class="apu-th-num">Ancho</th>
+                            <th style="width:100px" class="apu-th-num">Alto</th>
+                            <th style="width:110px" class="apu-th-num">Subtotal</th>
+                            <th style="width:44px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows || '<tr><td colspan="7" class="apu-block-empty">Sin filas de computo</td></tr>'}
+                        <tr class="apu-comp-new">
+                            <td><input class="apu-inp apu-inp-text" id="apu-comp-name" type="text" placeholder="Ej. Muro eje A" maxlength="120"></td>
+                            <td><input class="apu-inp" id="apu-comp-pieces" type="number" step="1" min="0" placeholder="1"></td>
+                            <td><input class="apu-inp" id="apu-comp-length" type="number" step="0.001" min="0" placeholder="0.000"></td>
+                            <td><input class="apu-inp" id="apu-comp-width" type="number" step="0.001" min="0" placeholder="0.000"></td>
+                            <td><input class="apu-inp" id="apu-comp-height" type="number" step="0.001" min="0" placeholder="0.000"></td>
+                            <td colspan="2">
+                                <button class="btn btn-sm btn-primary" onclick="apuAddComputoRow()">${icon('plus', 14)} Agregar</button>
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="5" class="apu-comp-total-lbl">Total computado</td>
+                            <td class="apu-cell-num apu-comp-total-val">${esc(_apuNum(total, 3))}</td>
+                            <td></td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </section>
+    `;
+}
+
+async function apuAddComputoRow() {
+    if (!_apu.itemId) return;
+    const g = (id) => document.getElementById(id);
+    const name = (g('apu-comp-name')?.value || '').trim();
+    const payload = {
+        name: name || 'Elemento',
+        pieces: parseFloat(g('apu-comp-pieces')?.value) || 0,
+        length: parseFloat(g('apu-comp-length')?.value) || 0,
+        width: parseFloat(g('apu-comp-width')?.value) || 0,
+        height: parseFloat(g('apu-comp-height')?.value) || 0,
+    };
+    if (!payload.pieces && !payload.length) {
+        toast('Indica al menos piezas y una dimension', 'error');
+        return;
+    }
+    try {
+        const resp = await API.apuAddComputo(_apu.itemId, payload);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo agregar la fila'), 'error'); return; }
+        toast('Fila de computo agregada', 'success');
+        openApuItem(_apu.itemId, true);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function apuComputoEdit(computoId, field, value) {
+    const payload = {};
+    payload[field] = field === 'name' ? String(value).trim() : (parseFloat(value) || 0);
+    try {
+        const resp = await API.apuUpdateComputo(computoId, payload);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo actualizar'), 'error'); return; }
+        openApuItem(_apu.itemId, true);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function apuDeleteComputo(computoId) {
+    if (!confirm('Eliminar esta fila de computo?')) return;
+    try {
+        const resp = await API.apuDeleteComputo(computoId);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo eliminar'), 'error'); return; }
+        toast('Fila eliminada', 'success');
+        openApuItem(_apu.itemId, true);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Lineas de composicion: alta, edicion, baja ────────────────
+async function apuLineEdit(lineId, field, value) {
+    const payload = {};
+    payload[field] = parseFloat(value) || 0;
+    try {
+        const resp = await API.apuUpdateLine(lineId, payload);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo actualizar la linea'), 'error'); return; }
+        openApuItem(_apu.itemId, true);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function apuDeleteLine(lineId) {
+    if (!confirm('Quitar este recurso del analisis?')) return;
+    try {
+        const resp = await API.apuDeleteLine(lineId);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo eliminar'), 'error'); return; }
+        toast('Recurso eliminado', 'success');
+        openApuItem(_apu.itemId, true);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+function showApuAddLineModal(blockKey) {
+    const b = APU_BLOCKS.find(x => x.key === blockKey) || APU_BLOCKS[0];
+    _apu.pick = null;
+    const uoms = UOM_LIST.length
+        ? UOM_LIST.map(u => `<option value="${esc(u.key)}">${esc(u.key)} - ${esc(u.label)}</option>`).join('')
+        : '';
+    showModal('Agregar recurso — ' + b.label, `
+        <form onsubmit="handleApuAddLine(event, '${escJs(b.key)}')">
+            <div class="form-group">
+                <label class="form-label">Buscar en el catalogo de mercado</label>
+                <div class="apu-search-wrap">
+                    <input class="form-input" id="apu-cat-q" autocomplete="off"
+                           placeholder="Ej. cemento portland, albanil, mezcladora..."
+                           oninput="debounceApuCatalogSearch()">
+                    <div id="apu-cat-results" class="apu-sug" style="display:none"></div>
+                </div>
+                <span class="apu-hint">Elige un insumo para traer su unidad y precio actual, o carga el recurso a mano abajo.</span>
+            </div>
+            <div id="apu-pick-banner"></div>
+            <div class="form-group">
+                <label class="form-label">Descripcion *</label>
+                <input class="form-input" name="name" id="apu-line-name" required maxlength="200" placeholder="Descripcion del recurso">
+            </div>
+            <div class="apu-form-3">
+                <div class="form-group">
+                    <label class="form-label">Unidad *</label>
+                    <input class="form-input" name="uom" id="apu-line-uom" required maxlength="20" list="apu-uom-list" placeholder="m3, kg, hr...">
+                    <datalist id="apu-uom-list">${uoms}</datalist>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Rendimiento *</label>
+                    <input class="form-input" name="quantity" id="apu-line-qty" type="number" step="0.001" min="0" required value="1.000">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Precio unitario *</label>
+                    <input class="form-input" name="price_unit" id="apu-line-price" type="number" step="0.01" min="0" required value="0.00">
+                </div>
+            </div>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Agregar al analisis</button>
+            </div>
+        </form>
+    `);
+}
+
+let _apuCatalogTimer = null;
+function debounceApuCatalogSearch() {
+    clearTimeout(_apuCatalogTimer);
+    _apuCatalogTimer = setTimeout(apuCatalogSearch, 250);
+}
+
+async function apuCatalogSearch() {
+    const input = document.getElementById('apu-cat-q');
+    const box = document.getElementById('apu-cat-results');
+    if (!input || !box) return;
+    const q = input.value.trim();
+    if (q.length < 2) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    try {
+        // smart-search: embeddings + fallback trigram (misma fuente que el buscador publico)
+        const resp = await API.smartSearch(q, null, 8);
+        const base = (resp && resp.ok) ? [...(resp.data || []), ...(resp.suggestions || [])] : [];
+        const seen = new Set();
+        const items = base.filter(p => p.id && !seen.has(p.id) && (seen.add(p.id), true)).slice(0, 8);
+        if (!items.length) {
+            box.innerHTML = '<div class="apu-sug-empty">Sin resultados en el catalogo</div>';
+            box.style.display = '';
+            return;
+        }
+        box.innerHTML = items.map(p => `
+            <div class="apu-sug-item" onclick="apuPickCatalogItem(${Number(p.id)}, '${escJs(p.name)}', '${escJs(p.uom || '')}', ${Number(p.ref_price) || 0})">
+                <div>
+                    <div class="apu-sug-name">${esc(p.name)}</div>
+                    <div class="apu-sug-meta">${p.category ? esc(p.category) : ''}${p.uom ? ' &middot; ' + esc(p.uom) : ''}</div>
+                </div>
+                <span class="apu-sug-price">${p.ref_price ? esc(_apuNum(p.ref_price, 2)) : '—'}</span>
+            </div>
+        `).join('');
+        box.style.display = '';
+    } catch {
+        box.style.display = 'none';
+    }
+}
+
+function apuPickCatalogItem(insumoId, name, uom, price) {
+    _apu.pick = { id: insumoId, name, uom, price };
+    const box = document.getElementById('apu-cat-results');
+    if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+    const q = document.getElementById('apu-cat-q');
+    if (q) q.value = '';
+    const nameEl = document.getElementById('apu-line-name');
+    const uomEl = document.getElementById('apu-line-uom');
+    const priceEl = document.getElementById('apu-line-price');
+    if (nameEl) nameEl.value = name;
+    if (uomEl && uom) uomEl.value = uom;
+    if (priceEl) priceEl.value = (Number(price) || 0).toFixed(2);
+    const banner = document.getElementById('apu-pick-banner');
+    if (banner) {
+        banner.innerHTML = `
+            <div class="apu-pick">
+                ${icon('tag', 14)}
+                <span>Vinculado al catalogo: <strong>${esc(name)}</strong></span>
+                <button type="button" class="apu-pick-x" onclick="apuClearCatalogPick()" title="Desvincular">&times;</button>
+            </div>
+        `;
+    }
+}
+
+function apuClearCatalogPick() {
+    _apu.pick = null;
+    const banner = document.getElementById('apu-pick-banner');
+    if (banner) banner.innerHTML = '';
+}
+
+async function handleApuAddLine(e, blockKey) {
+    e.preventDefault();
+    if (!_apu.itemId) return;
+    const f = e.target;
+    const payload = {
+        type: _apuApiType(blockKey),
+        insumo_id: _apu.pick ? _apu.pick.id : null,
+        name: f.name.value.trim(),
+        uom: f.uom.value.trim(),
+        quantity: parseFloat(f.quantity.value) || 0,
+        price_unit: parseFloat(f.price_unit.value) || 0,
+    };
+    try {
+        const resp = await API.apuAddLine(_apu.itemId, payload);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo agregar el recurso'), 'error'); return; }
+        _apu.pick = null;
+        closeModal();
+        toast('Recurso agregado', 'success');
+        openApuItem(_apu.itemId, true);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// Cerrar sugerencias del catalogo al hacer clic fuera
+document.addEventListener('click', (e) => {
+    const box = document.getElementById('apu-cat-results');
+    if (box && !e.target.closest('.apu-search-wrap')) box.style.display = 'none';
+});
 
 // ── Init ───────────────────────────────────────────────────────
 async function init() {
