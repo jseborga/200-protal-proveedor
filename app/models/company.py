@@ -75,6 +75,14 @@ class Company(TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     extra_data: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
+    # Aporte al catalogo publico a cambio de usar el portal. Cuando esta
+    # activo, los precios que la empresa corrige a mano generan sugerencias
+    # (siempre agregadas y curadas: nunca se publica el precio individual
+    # atribuible a una empresa). Es explicito y revocable.
+    contributes_prices: Mapped[bool] = mapped_column(
+        Boolean, default=True, nullable=False,
+    )
+
     # Relationships
     subscription: Mapped["Subscription | None"] = relationship(
         "Subscription", back_populates="company", uselist=False,

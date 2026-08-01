@@ -131,6 +131,11 @@ async def _init_db():
             await conn.execute(text(
                 f"ALTER TABLE mkt_plan ADD COLUMN IF NOT EXISTS {col} {coltype}"
             ))
+        # Aporte de precios al catalogo publico (opt-in por empresa)
+        await conn.execute(text(
+            "ALTER TABLE mkt_company ADD COLUMN IF NOT EXISTS "
+            "contributes_prices BOOLEAN NOT NULL DEFAULT TRUE"
+        ))
         # Suscripcion: control de tiempos y bonos de descuento
         for col, coltype in [
             ("max_projects", "INTEGER NOT NULL DEFAULT 1"),
@@ -434,7 +439,7 @@ app.add_middleware(
 )
 
 # ── API Routes ──────────────────────────────────────────────────
-from app.api.routes import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos, companies, subscriptions, notifications, inbox, apu, inbox_ws  # noqa: E402
+from app.api.routes import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos, companies, subscriptions, notifications, inbox, apu, company_insumos, inbox_ws  # noqa: E402
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(suppliers.router, prefix="/api/v1/suppliers", tags=["Suppliers"])
@@ -451,6 +456,11 @@ app.include_router(subscriptions.router, prefix="/api/v1/subscriptions", tags=["
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(inbox.router, prefix="/api/v1/inbox", tags=["Inbox"])
 app.include_router(apu.router, prefix="/api/v1/apu", tags=["APU y Presupuestos"])
+app.include_router(
+    company_insumos.router,
+    prefix="/api/v1/company-insumos",
+    tags=["Biblioteca de empresa y curacion"],
+)
 app.include_router(inbox_ws.router, prefix="/api/v1/inbox", tags=["InboxWS"])
 
 

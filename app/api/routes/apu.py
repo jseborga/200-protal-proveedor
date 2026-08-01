@@ -846,12 +846,37 @@ async def update_line(
 ):
     line = await _get_line(db, line_id, user)
     data = body.model_dump(exclude_unset=True)
+
+    precio_nuevo = data.get("price_unit")
+    cambio_precio = "price_unit" in data and precio_nuevo != line.price_unit
     if "price_unit" in data:
         line.price_source = "manual"
         line.price_updated_at = datetime.now(timezone.utc)
     for field, value in data.items():
         setattr(line, field, value)
     line.price_subtotal = compute_line_subtotal(line.quantity, line.price_unit)
+
+    # Corregir a mano el precio de un insumo del catalogo es el dato mas
+    # valioso del portal: significa que alguien consiguio una cotizacion real.
+    # Se emite una sugerencia que pasa por la compuerta de curacion; nunca se
+    # escribe directo sobre el catalogo publico.
+    if cambio_precio and line.insumo_id and precio_nuevo and precio_nuevo > 0:
+        from app.services import price_suggestions
+
+        item = await db.get(ApuItem, line.item_id)
+        project = await db.get(ApuProject, item.project_id) if item else None
+        await price_suggestions.suggest_price_update(
+            db,
+            insumo_id=line.insumo_id,
+            suggested_price=float(precio_nuevo),
+            company_id=project.company_id if project else None,
+            user_id=user.id,
+            source="budget",
+            source_ref=f"apu_line:{line.id}",
+            region=project.region if project else None,
+            currency=project.currency if project else "BOB",
+        )
+
     await db.commit()
     return {"ok": True, "data": _line_dict(line)}
 

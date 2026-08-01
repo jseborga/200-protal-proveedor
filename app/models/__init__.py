@@ -23,6 +23,7 @@ from .banned_ip import BannedIP
 from .conversation import ConversationSession, Message
 from .operator_schedule import OperatorSchedule
 from .session_tag import Tag, SessionTag, TAG_COLOR_SLUGS
+from .company_insumo import CompanyInsumo, PriceSuggestion
 from .apu import (
     ApuTemplate, ApuTemplateLine, ApuProject, ApuRubro, ApuItem, ApuLine,
     ApuComputo, ApuItemSummary,
@@ -43,4 +44,5 @@ __all__ = [
     "Tag", "SessionTag", "TAG_COLOR_SLUGS",
     "ApuTemplate", "ApuTemplateLine", "ApuProject", "ApuRubro", "ApuItem",
     "ApuLine", "ApuComputo", "ApuItemSummary",
+    "CompanyInsumo", "PriceSuggestion",
 ]
