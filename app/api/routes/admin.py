@@ -2234,6 +2234,11 @@ async def list_webhook_logs(
     def _preview(payload):
         if not isinstance(payload, dict):
             return None
+        # Redactar tambien en lectura: los rows guardados antes de este cambio
+        # pueden contener la apikey de Evolution en claro.
+        from app.services.webhook_monitor import redact_payload
+
+        payload = redact_payload(payload)
         # Solo keys de primer nivel + un extracto corto
         return {k: (str(v)[:80] if not isinstance(v, (dict, list)) else type(v).__name__)
                 for k, v in list(payload.items())[:10]}
@@ -2276,6 +2281,9 @@ async def get_webhook_log(
     row = await db.get(WebhookLog, log_id)
     if not row:
         raise HTTPException(status_code=404, detail="WebhookLog no encontrado")
+    # Redactar en lectura: cubre los rows persistidos antes de esta correccion.
+    from app.services.webhook_monitor import redact_payload
+
     return {
         "ok": True,
         "data": {
@@ -2286,7 +2294,7 @@ async def get_webhook_log(
             "status": row.status,
             "error": row.error,
             "received_at": row.received_at.isoformat() if row.received_at else None,
-            "payload": row.payload,
+            "payload": redact_payload(row.payload),
         },
     }
 

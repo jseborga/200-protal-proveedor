@@ -26,6 +26,41 @@ WEBHOOK_LOG_RETENTION = 1000
 RETENTION_PRUNE_EVERY = 50
 
 
+# Claves cuyo valor nunca debe persistirse: Evolution v2 manda la `apikey` de
+# la instancia como campo de primer nivel del webhook, y esa misma clave es la
+# credencial que valida el webhook. Guardarla en claro la deja en la UI de
+# admin y en los backups de la BD.
+SENSITIVE_KEYS = {
+    "apikey",
+    "api_key",
+    "authorization",
+    "token",
+    "secret",
+    "server_url",
+    "access_token",
+    "password",
+}
+REDACTED = "***redacted***"
+
+
+def redact_payload(value: Any, _depth: int = 0) -> Any:
+    """Copia el payload sustituyendo por *** los valores sensibles."""
+    if _depth > 6:
+        return value
+    if isinstance(value, dict):
+        return {
+            k: (
+                REDACTED
+                if isinstance(k, str) and k.strip().lower() in SENSITIVE_KEYS
+                else redact_payload(v, _depth + 1)
+            )
+            for k, v in value.items()
+        }
+    if isinstance(value, list):
+        return [redact_payload(v, _depth + 1) for v in value]
+    return value
+
+
 def _extract_instance_name(payload: dict, source: str) -> str | None:
     """Intenta identificar la instancia desde el payload Evolution/Telegram."""
     if not isinstance(payload, dict):
@@ -60,7 +95,11 @@ async def record_webhook(
             event_type=ev,
             instance_name=inst,
             status=status,
-            payload=payload if isinstance(payload, dict) else {"raw": str(payload)[:500]},
+            payload=(
+                redact_payload(payload)
+                if isinstance(payload, dict)
+                else {"raw": str(payload)[:500]}
+            ),
             error=error,
         )
         db.add(row)

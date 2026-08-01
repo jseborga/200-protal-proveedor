@@ -4,9 +4,10 @@ A: lista sesiones activas + timeline (read-only).
 B: permite enviar respuestas desde la web reutilizando mirror_operator_to_client.
 """
 
+import os
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,6 +15,7 @@ from sqlalchemy.orm import selectinload
 
 from app.api.deps import require_staff, require_manager, STAFF_ROLES, MANAGER_ROLES
 from app.core.database import get_db
+from app.core.rate_limit import limiter
 from app.models.conversation import ConversationSession, Message
 from app.models.pedido import Pedido
 from app.models.session_tag import Tag, SessionTag, TAG_COLOR_SLUGS
@@ -27,6 +29,10 @@ from app.services.inbox_ws import (
 )
 
 router = APIRouter()
+
+# Limites para endpoints con coste externo (Evolution / servicio push).
+INBOX_SEND_LIMIT = os.getenv("RATELIMIT_INBOX_SEND", "60/minute")
+INBOX_PUSH_LIMIT = os.getenv("RATELIMIT_INBOX_PUSH", "10/minute")
 
 
 WA_WINDOW_HOURS = 24
@@ -393,6 +399,12 @@ async def mark_session_read(
     session = await db.get(ConversationSession, session_id)
     if session is None:
         raise HTTPException(404, "Sesion no encontrada")
+    # Solo el operador asignado (o un manager) puede marcar leido: este
+    # timestamp es el que usa el auto-handoff para decidir si hubo incumplimiento
+    # de SLA, asi que marcar sesiones ajenas desactiva la deteccion.
+    if session.operator_id and session.operator_id != user.id:
+        if user.role not in MANAGER_ROLES:
+            raise HTTPException(403, "La sesion esta asignada a otro operador")
     session.operator_last_read_at = datetime.now(timezone.utc)
     await db.commit()
     try:
@@ -463,7 +475,9 @@ class InboxSendIn(BaseModel):
 
 
 @router.post("/sessions/{session_id}/send")
+@limiter.limit(INBOX_SEND_LIMIT)
 async def send_from_inbox(
+    request: Request,
     session_id: int,
     payload: InboxSendIn,
     db: AsyncSession = Depends(get_db),
@@ -500,11 +514,15 @@ async def send_from_inbox(
     # Mirror al topic de TG para que el equipo vea lo que envio desde web
     if session.tg_group_id and session.tg_topic_id:
         try:
+            from html import escape as _esc
             from app.services.messaging import send_telegram
             name = user.full_name or user.email or f"user#{user.id}"
+            # send_telegram usa parse_mode=HTML: sin escapar, un nombre o un
+            # texto con <a href> se renderiza como markup en el topic.
             await send_telegram(
                 session.tg_group_id,
-                f"<i>💻 Web · {name}</i>\n{payload.text}",
+                f"<i>💻 Web · {_esc(name, quote=False)}</i>\n"
+                f"{_esc(payload.text or '', quote=False)}",
                 message_thread_id=session.tg_topic_id,
             )
         except Exception as e:
@@ -1284,6 +1302,48 @@ class PushKeys(BaseModel):
     auth: str = Field(..., min_length=1, max_length=255)
 
 
+# El servidor hace POST a este endpoint desde su propia red, asi que aceptar
+# una URL arbitraria seria un SSRF con disparo controlado por el atacante
+# (se dispara con cada mensaje entrante del cliente).
+#
+# No se usa una lista blanca de hosts porque cada navegador usa su propio
+# servicio (FCM, Mozilla, WNS, APNs) y sus dominios cambian: bloquearia push
+# legitimo. Se exige HTTPS y se rechazan destinos internos, que es el objetivo
+# real de un SSRF.
+_INTERNAL_HOST_SUFFIXES = (".local", ".internal", ".localdomain", ".lan")
+
+
+def _validate_push_endpoint(endpoint: str) -> None:
+    import ipaddress
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(endpoint)
+    except ValueError:
+        raise HTTPException(400, "Endpoint push invalido")
+
+    if parsed.scheme != "https" or not parsed.hostname:
+        raise HTTPException(400, "El endpoint push debe ser https")
+
+    host = parsed.hostname.lower().rstrip(".")
+
+    # Literales IP: solo publicas.
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        addr = None
+    if addr is not None:
+        if addr.is_private or addr.is_loopback or addr.is_link_local or addr.is_reserved:
+            raise HTTPException(400, "Endpoint push no permitido")
+        return
+
+    if host == "localhost" or host.endswith(_INTERNAL_HOST_SUFFIXES):
+        raise HTTPException(400, "Endpoint push no permitido")
+    # Un host sin punto solo resuelve dentro de la red interna.
+    if "." not in host:
+        raise HTTPException(400, "Endpoint push no permitido")
+
+
 class PushSubscribeIn(BaseModel):
     endpoint: str = Field(..., min_length=1, max_length=2000)
     keys: PushKeys
@@ -1315,18 +1375,36 @@ async def subscribe_push(
     """Registra (o actualiza) una suscripcion Web Push del usuario actual."""
     from app.models.push_subscription import PushSubscription
 
+    _validate_push_endpoint(payload.endpoint)
+
+    # Buscar solo entre las suscripciones PROPIAS. Antes se buscaba por
+    # endpoint a secas y se reasignaba `user_id`, asi que quien conociera el
+    # endpoint de otro operador se quedaba con sus notificaciones (que llevan
+    # telefono del cliente y extracto del mensaje).
     existing = (await db.execute(
-        select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint)
+        select(PushSubscription).where(
+            PushSubscription.endpoint == payload.endpoint,
+            PushSubscription.user_id == user.id,
+        )
     )).scalar_one_or_none()
 
     if existing:
-        existing.user_id = user.id
         existing.p256dh = payload.keys.p256dh
         existing.auth = payload.keys.auth
         if payload.user_agent is not None:
             existing.user_agent = payload.user_agent[:500]
         await db.commit()
         return {"ok": True, "id": existing.id, "updated": True}
+
+    # El endpoint es unico en BD: si pertenece a otro usuario, ese navegador ya
+    # no es suyo (sesion cerrada, equipo compartido). Se elimina el registro
+    # obsoleto en vez de reasignarlo.
+    stale = (await db.execute(
+        select(PushSubscription).where(PushSubscription.endpoint == payload.endpoint)
+    )).scalar_one_or_none()
+    if stale is not None:
+        await db.delete(stale)
+        await db.flush()
 
     sub = PushSubscription(
         user_id=user.id,
@@ -1363,7 +1441,9 @@ async def unsubscribe_push(
 
 
 @router.post("/push/test")
+@limiter.limit(INBOX_PUSH_LIMIT)
 async def send_push_test(
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_staff),
 ):

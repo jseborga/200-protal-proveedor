@@ -259,3 +259,108 @@ def test_json_ld_escapa_cierre_de_script():
     assert "</script>" not in seguro
     assert "<" not in seguro
     assert _json.loads(seguro) == payload
+
+
+# ══════════════════════════════════════════════════════════════
+# Correcciones sobre el codigo nuevo del Inbox (WS, push, logs)
+# ══════════════════════════════════════════════════════════════
+
+# ── Redaccion de secretos en el historial de webhooks ──────────
+def test_webhook_log_redacta_la_apikey():
+    """Evolution manda su apikey en el body; es la credencial del webhook."""
+    from app.services.webhook_monitor import redact_payload, REDACTED
+
+    payload = {
+        "event": "messages.upsert",
+        "apikey": "B6D711FC-XXXX-4B2F-9F1A-000000000000",
+        "server_url": "https://evolution.interno",
+        "data": {"key": {"remoteJid": "591700@s.whatsapp.net"}, "token": "abc"},
+    }
+    limpio = redact_payload(payload)
+
+    assert limpio["apikey"] == REDACTED
+    assert limpio["server_url"] == REDACTED
+    assert limpio["data"]["token"] == REDACTED
+    # No debe destruir el contenido util
+    assert limpio["event"] == "messages.upsert"
+    assert limpio["data"]["key"]["remoteJid"] == "591700@s.whatsapp.net"
+    # El original no se muta
+    assert payload["apikey"].startswith("B6D711FC")
+
+
+def test_webhook_log_redacta_dentro_de_listas():
+    from app.services.webhook_monitor import redact_payload, REDACTED
+
+    limpio = redact_payload({"items": [{"api_key": "secreta"}, {"ok": 1}]})
+    assert limpio["items"][0]["api_key"] == REDACTED
+    assert limpio["items"][1]["ok"] == 1
+
+
+# ── Endpoint de Web Push (SSRF) ────────────────────────────────
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "http://fcm.googleapis.com/fcm/send/x",   # sin TLS
+        "https://127.0.0.1/push",                 # loopback
+        "https://10.0.0.5/push",                  # red privada
+        "https://169.254.169.254/latest/meta-data",  # metadatos de nube
+        "https://localhost/push",
+        "https://redis.internal/push",
+        "https://evolution/push",                 # host sin dominio (interno)
+        "file:///etc/passwd",
+    ],
+)
+def test_push_endpoint_rechaza_destinos_internos(endpoint):
+    """El servidor hace POST a este destino: no puede apuntar a la red interna."""
+    from fastapi import HTTPException
+    from app.api.routes.inbox import _validate_push_endpoint
+
+    with pytest.raises(HTTPException) as exc:
+        _validate_push_endpoint(endpoint)
+    assert exc.value.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://fcm.googleapis.com/fcm/send/abc",
+        "https://updates.push.services.mozilla.com/wpush/v2/abc",
+        "https://wns2-par02p.notify.windows.com/w/?token=abc",
+    ],
+)
+def test_push_endpoint_acepta_servicios_reales(endpoint):
+    """No debe bloquear los servicios push legitimos de los navegadores."""
+    from app.api.routes.inbox import _validate_push_endpoint
+
+    _validate_push_endpoint(endpoint)  # no debe lanzar
+
+
+# ── WebSocket del inbox ────────────────────────────────────────
+def test_ws_no_acepta_refresh_token():
+    """El stream en vivo lleva extractos de todas las conversaciones."""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+    from app.api.routes.inbox_ws import inbox_ws_endpoint
+    from app.core.security import create_refresh_token
+
+    ws = MagicMock()
+    ws.close = AsyncMock()
+    ws.accept = AsyncMock()
+
+    token = create_refresh_token({"sub": "1", "role": "admin"})
+    asyncio.run(inbox_ws_endpoint(websocket=ws, token=token, db=MagicMock()))
+
+    ws.close.assert_awaited_once()
+    ws.accept.assert_not_called()
+    assert ws.close.await_args.kwargs.get("code") == 1008
+
+
+def test_ws_libera_la_conexion_de_bd_antes_del_bucle():
+    """Sin esto, cada pestana abierta retiene una conexion del pool."""
+    import inspect
+    from app.api.routes import inbox_ws
+
+    src = inspect.getsource(inbox_ws.inbox_ws_endpoint)
+    assert "await db.close()" in src
+    # y debe ocurrir antes de aceptar el socket (bucle largo)
+    assert src.index("await db.close()") < src.index("websocket.accept()")
