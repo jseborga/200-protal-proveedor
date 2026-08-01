@@ -1,6 +1,6 @@
 """Endpoints de notificaciones in-app."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,8 +27,8 @@ def _notif_to_dict(n: Notification) -> dict:
 
 @router.get("")
 async def list_notifications(
-    skip: int = 0,
-    limit: int = 20,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
     unread_only: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),

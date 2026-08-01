@@ -18,6 +18,10 @@ from app.services.pedido import (
 
 router = APIRouter()
 
+# Tope de subida: el contenido se parsea (openpyxl/pdfplumber) y se manda a
+# un proveedor de IA facturado por uso, asi que sin limite es un DoS barato.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
 
 # ── Schemas ────────────────────────────────────────────────────
 class PedidoItemIn(BaseModel):
@@ -368,6 +372,12 @@ async def update_precio(
     user: User = Depends(get_current_user),
 ):
     await _get_user_pedido(db, pedido_id, user)
+    # El item debe pertenecer a ESTE pedido: sin esta comprobacion basta con
+    # enviar un pedido propio y el item_id de otra empresa para reescribir
+    # sus precios cotizados.
+    item = await db.get(PedidoItem, item_id)
+    if not item or item.pedido_id != pedido_id:
+        raise HTTPException(404, "Item no encontrado")
     precio = await db.get(PedidoPrecio, precio_id)
     if not precio or precio.pedido_item_id != item_id:
         raise HTTPException(404, "Precio no encontrado")
@@ -388,6 +398,11 @@ async def select_precio(
 ):
     """Marcar un precio como el seleccionado/ganador."""
     await _get_user_pedido(db, pedido_id, user)
+    # Igual que en update_precio: sin atar el item al pedido, este endpoint
+    # decide que proveedor gana la licitacion de otra empresa.
+    item = await db.get(PedidoItem, item_id)
+    if not item or item.pedido_id != pedido_id:
+        raise HTTPException(404, "Item no encontrado")
     # Deselect all prices for this item
     result = await db.execute(
         select(PedidoPrecio).where(PedidoPrecio.pedido_item_id == item_id)
@@ -529,6 +544,11 @@ async def upload_document(
     from app.services.ai_extract import extract_quotation_data
 
     content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Archivo demasiado grande (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+        )
     content_type = file.content_type or ""
     filename = file.filename or "upload"
 

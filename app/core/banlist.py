@@ -179,18 +179,16 @@ def _headers_dict(scope) -> dict[str, str]:
 
 
 def _client_ip_from_scope(scope) -> str:
-    headers = _headers_dict(scope)
-    cf = headers.get("cf-connecting-ip")
-    if cf:
-        return cf
-    fwd = headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    real = headers.get("x-real-ip")
-    if real:
-        return real
+    """IP real del cliente; cabeceras de proxy solo desde TRUSTED_PROXIES.
+
+    Sin este filtro un atacante puede enviar X-Forwarded-For con la IP de un
+    tercero contra un honeypot y conseguir que se banee a una victima.
+    """
+    from .client_ip import resolve_client_ip
+
     client = scope.get("client")
-    return client[0] if client else "unknown"
+    peer = client[0] if client else None
+    return resolve_client_ip(_headers_dict(scope), peer)
 
 
 async def _send_json(send, status_code: int, payload: dict) -> None:

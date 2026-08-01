@@ -663,8 +663,10 @@ async def get_supplier(
 async def create_supplier(
     body: SupplierCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
+    # Alta directa solo para personal: un usuario cualquiera puede proponer
+    # proveedores via POST /suppliers/suggest, que pasa por aprobacion.
     supplier = Supplier(**body.model_dump())
     supplier.user_id = user.id if user.role == "supplier" else None
     db.add(supplier)

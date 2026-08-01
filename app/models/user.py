@@ -25,6 +25,14 @@ class User(TimestampMixin, Base):
         String(50), unique=True, nullable=True, index=True
     )
 
+    # Anti fuerza bruta: intentos fallidos consecutivos y bloqueo temporal.
+    failed_login_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    locked_until: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     # Company membership (Phase 2)
     company_id: Mapped[int | None] = mapped_column(
         ForeignKey("mkt_company.id", ondelete="SET NULL"), nullable=True, index=True,

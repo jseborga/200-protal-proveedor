@@ -12,6 +12,7 @@ from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from sqlalchemy import func, select
 
+from app.core.config import settings
 from app.core.database import async_session
 
 
@@ -778,12 +779,56 @@ async def get_uploaded_excel(token: str) -> str:
     })
 
 
+def _mcp_key_ok(scope) -> bool:
+    """Valida la credencial del cliente MCP en tiempo constante.
+
+    Sin esto el endpoint /mcp queda publico y expone herramientas de escritura
+    (create_supplier, create_products_bulk, notify_telegram, ...) a cualquiera.
+    Se acepta `Authorization: Bearer <key>` o `X-API-Key: <key>`.
+    """
+    import hmac as _hmac
+
+    expected = (settings.admin_api_key or "").strip()
+    if not expected:
+        return False
+
+    headers = {
+        k.decode("latin-1").lower(): v.decode("latin-1")
+        for k, v in scope.get("headers", [])
+    }
+    provided = (
+        headers.get("x-api-key")
+        or headers.get("authorization", "").removeprefix("Bearer ").strip()
+    )
+    return bool(provided) and _hmac.compare_digest(provided, expected)
+
+
+async def _deny(send, status_code: int, detail: str) -> None:
+    body = json.dumps({"ok": False, "error": detail}).encode("utf-8")
+    await send({
+        "type": "http.response.start",
+        "status": status_code,
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode("latin-1")),
+        ],
+    })
+    await send({"type": "http.response.body", "body": body, "more_body": False})
+
+
 def get_mcp_sse_app():
     """Return the MCP SSE Starlette app with proxy-friendly response headers."""
     sse_app = mcp.sse_app()
 
     async def sse_proxy_wrapper(scope, receive, send):
         if scope["type"] == "http":
+            if not _mcp_key_ok(scope):
+                if not (settings.admin_api_key or "").strip():
+                    await _deny(send, 503, "MCP deshabilitado: ADMIN_API_KEY no configurado")
+                else:
+                    await _deny(send, 401, "Credencial MCP requerida")
+                return
+
             original_send = send
 
             async def patched_send(message):

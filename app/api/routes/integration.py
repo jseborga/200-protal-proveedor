@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_scope
 from app.core.database import get_db
 from app.core.security import verify_api_key
 from app.models.supplier import Supplier
@@ -136,7 +137,7 @@ class BulkPriceHistoryIn(BaseModel):
 async def create_supplier(
     body: SupplierIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     """Create a single supplier. Skips if name+city already exists."""
     existing = await _find_supplier(db, body.name, body.city)
@@ -153,7 +154,7 @@ async def create_supplier(
 async def create_suppliers_bulk(
     body: BulkSuppliersIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     """Create multiple suppliers. Skips duplicates by name+city."""
     created, skipped = 0, 0
@@ -209,7 +210,7 @@ async def update_supplier(
     supplier_id: int,
     body: SupplierUpdateIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     supplier = await db.get(Supplier, supplier_id)
     if not supplier:
@@ -226,7 +227,7 @@ async def update_supplier(
 async def create_supplier_rubro(
     body: SupplierRubroIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     """Add a rubro (product line) to a supplier."""
     from app.models.supplier import SupplierRubro
@@ -285,7 +286,7 @@ async def list_supplier_rubros(
 async def delete_supplier_rubro(
     rubro_id: int,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("delete")),
 ):
     """Delete (deactivate) a supplier rubro."""
     from app.models.supplier import SupplierRubro
@@ -346,7 +347,7 @@ async def list_supplier_branches(
 async def create_supplier_branch(
     body: SupplierBranchIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     """Crea una sucursal para un proveedor. Upsert por supplier_id + branch_name."""
     from app.models.supplier import SupplierBranch
@@ -381,7 +382,7 @@ async def create_supplier_branch(
 async def delete_supplier_branch(
     branch_id: int,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("delete")),
 ):
     from app.models.supplier import SupplierBranch
     branch = await db.get(SupplierBranch, branch_id)
@@ -437,7 +438,7 @@ async def list_branch_contacts(
 async def upsert_branch_contact(
     body: BranchContactIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     """Upsert un contacto de sucursal por branch_id + full_name."""
     from app.models.supplier import SupplierBranch, SupplierBranchContact
@@ -484,7 +485,7 @@ async def upsert_branch_contact(
 async def delete_branch_contact(
     contact_id: int,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("delete")),
 ):
     from app.models.supplier import SupplierBranchContact
     contact = await db.get(SupplierBranchContact, contact_id)
@@ -500,7 +501,7 @@ async def delete_branch_contact(
 async def create_product(
     body: ProductIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     """Create a single product. Skips if name+uom already exists."""
     existing = await _find_product(db, body.name, body.uom)
@@ -532,7 +533,7 @@ async def create_product(
 async def create_products_bulk(
     body: BulkProductsIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     """Create multiple products. Skips duplicates by name+uom."""
     from app.services.matching import normalize_text, normalize_uom
@@ -598,7 +599,7 @@ async def update_product(
     product_id: int,
     body: ProductUpdateIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     from app.services.matching import normalize_text, normalize_uom
 
@@ -628,7 +629,7 @@ async def update_product(
 async def create_price_history_bulk(
     body: BulkPriceHistoryIn,
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("write")),
 ):
     """Upload price history records in bulk.
 
@@ -768,7 +769,7 @@ async def get_price_evolution(
 async def purge_all_data(
     confirm: str = Query(..., description="Must be 'yes' to confirm"),
     db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
+    auth: dict = Depends(require_scope("delete")),
 ):
     """Delete ALL suppliers, products and price history. Requires confirm=yes."""
     if confirm != "yes":
@@ -793,29 +794,12 @@ async def purge_all_data(
 
 
 # ── Admin SQL cleanup ─────────────────────────────────────────
-@router.post("/admin/sql")
-async def run_admin_sql(
-    body: dict,
-    db: AsyncSession = Depends(get_db),
-    auth: dict = Depends(verify_api_key),
-):
-    """Run a pre-approved admin SQL statement. Requires confirm=yes."""
-    if body.get("confirm") != "yes":
-        raise HTTPException(status_code=400, detail="Set confirm=yes")
-
-    sql = body.get("sql", "").strip()
-    if not sql:
-        raise HTTPException(status_code=400, detail="No SQL provided")
-
-    # Safety: only allow DELETE/SELECT
-    first_word = sql.split()[0].upper() if sql else ""
-    if first_word not in ("DELETE", "SELECT"):
-        raise HTTPException(status_code=400, detail="Only DELETE and SELECT allowed")
-
-    result = await db.execute(text(sql))
-    rowcount = result.rowcount if hasattr(result, "rowcount") else 0
-
-    return {"ok": True, "sql": sql[:200], "rowcount": rowcount}
+# ELIMINADO por auditoria de seguridad: POST /integration/admin/sql ejecutaba
+# SQL arbitrario con una API key cualquiera. El filtro por primera palabra no
+# es un sandbox: permitia `SELECT * FROM mkt_user` (hashes, emails),
+# `SELECT * FROM mkt_system_setting` (tokens de Telegram/Evolution/SMTP) y
+# `DELETE FROM <tabla>`. Si hace falta mantenimiento puntual, usar una consulta
+# parametrizada con nombre en el codigo, no SQL enviado por el cliente.
 
 
 # ── Stats ──────────────────────────────────────────────────────

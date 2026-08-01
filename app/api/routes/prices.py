@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.deps import require_staff
 from app.core.database import get_db
 from app.core.rate_limit import PUBLIC_LIMIT, SEARCH_LIMIT, limiter
 from app.core.search import tokenized_ilike
@@ -574,7 +575,7 @@ async def get_insumo(
 async def create_insumo(
     body: InsumoCreate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     from app.services.matching import normalize_text, normalize_uom
 
@@ -600,7 +601,7 @@ async def update_insumo(
     insumo_id: int,
     body: InsumoUpdate,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     insumo = await db.get(Insumo, insumo_id)
     if not insumo:
@@ -625,7 +626,7 @@ async def add_regional_price(
     insumo_id: int,
     body: RegionalPriceInput,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     insumo = await db.get(Insumo, insumo_id)
     if not insumo:
@@ -764,7 +765,7 @@ async def get_insumo_price_evolution(
 async def refresh_ref_price(
     insumo_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     """Recalculate ref_price from the median of last 12 months of price history."""
     insumo = await db.get(Insumo, insumo_id)
@@ -832,7 +833,7 @@ async def add_manual_price(
     insumo_id: int,
     body: ManualPriceInput,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     """Add a manual price observation for an insumo."""
     insumo = await db.get(Insumo, insumo_id)
@@ -976,7 +977,7 @@ async def list_review_items(
     category: str | None = Query(None),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     """List items pending review from curated_review.json."""
     if not REVIEW_FILE.exists():
@@ -1004,7 +1005,7 @@ async def list_review_items(
 
 
 @router.get("/review/categories")
-async def review_categories(user: User = Depends(get_current_user)):
+async def review_categories(user: User = Depends(require_staff)):
     """List categories available in review items."""
     if not REVIEW_FILE.exists():
         return {"ok": True, "data": []}
@@ -1033,7 +1034,7 @@ async def approve_review_item(
     index: int,
     body: ReviewApproveInput,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     """Approve a review item: create it as a product and remove from review."""
     if not REVIEW_FILE.exists():
@@ -1071,7 +1072,7 @@ async def approve_review_item(
 @router.delete("/review/{index}")
 async def reject_review_item(
     index: int,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     """Reject/discard a review item."""
     if not REVIEW_FILE.exists():

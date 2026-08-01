@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "apu-marketplace": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "env": {
+        "MKT_API_URL": "https://tu-dominio.example.com",
+        "MKT_API_KEY": "pon-aqui-tu-api-key-no-la-commitees"
+      }
+    }
+  }
+}

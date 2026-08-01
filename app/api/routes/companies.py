@@ -453,6 +453,16 @@ async def get_company_ai_config(
     from app.core.ai_providers import get_all_providers
     ai_config = (company.extra_data or {}).get("ai_config")
 
+    # La api_key nunca vuelve al cliente: solo si esta configurada y su
+    # prefijo, para que la UI pueda mostrar el estado.
+    if ai_config:
+        ai_config = dict(ai_config)
+        raw_key = ai_config.pop("api_key", "") or ""
+        ai_config["api_key_set"] = bool(raw_key)
+        ai_config["api_key_masked"] = (
+            raw_key[:3] + "***" + raw_key[-3:] if len(raw_key) > 6 else ("***" if raw_key else "")
+        )
+
     return {
         "ok": True,
         "data": {

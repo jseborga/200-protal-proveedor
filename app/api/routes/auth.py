@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr
@@ -18,6 +18,22 @@ from app.core.security import (
 from app.models.user import User
 
 router = APIRouter()
+
+# Bloqueo por cuenta tras intentos fallidos consecutivos.
+MAX_FAILED_LOGINS = 8
+LOCKOUT_MINUTES = 15
+
+# Hash de referencia para igualar el tiempo de respuesta cuando el email no
+# existe. Se calcula de forma perezosa (y se cachea) para que un problema del
+# backend de bcrypt no impida arrancar la aplicacion entera.
+_DUMMY_HASH: str | None = None
+
+
+def _dummy_hash() -> str:
+    global _DUMMY_HASH
+    if _DUMMY_HASH is None:
+        _DUMMY_HASH = hash_password("timing-equalizer-not-a-real-password")
+    return _DUMMY_HASH
 
 
 # ── Schemas ─────────────────────────────────────────────────────
@@ -73,12 +89,42 @@ async def register(request: Request, body: RegisterRequest, db: AsyncSession = D
 async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user = result.scalar_one_or_none()
-    if not user or not verify_password(body.password, user.hashed_password):
+
+    if user is None:
+        # Verificar contra un hash ficticio iguala el tiempo de respuesta. Sin
+        # esto, un email inexistente responde en ~1ms y uno existente en
+        # ~100ms (coste de bcrypt), lo que permite enumerar cuentas aunque el
+        # mensaje de error sea identico.
+        verify_password(body.password, _dummy_hash())
         raise HTTPException(status_code=401, detail="Credenciales invalidas")
+
+    now = datetime.now(timezone.utc)
+    locked_until = user.locked_until
+    if locked_until is not None:
+        if locked_until.tzinfo is None:
+            locked_until = locked_until.replace(tzinfo=timezone.utc)
+        if locked_until > now:
+            raise HTTPException(
+                status_code=429,
+                detail="Demasiados intentos fallidos. Reintenta en unos minutos.",
+            )
+
+    if not verify_password(body.password, user.hashed_password):
+        # Bloqueo por cuenta: el rate limit por IP no frena un ataque
+        # distribuido contra un email concreto.
+        user.failed_login_count = (user.failed_login_count or 0) + 1
+        if user.failed_login_count >= MAX_FAILED_LOGINS:
+            user.locked_until = now + timedelta(minutes=LOCKOUT_MINUTES)
+            user.failed_login_count = 0
+        await db.flush()
+        raise HTTPException(status_code=401, detail="Credenciales invalidas")
+
     if not user.is_active:
         raise HTTPException(status_code=403, detail="Cuenta desactivada")
 
-    user.last_login = datetime.now(timezone.utc)
+    user.failed_login_count = 0
+    user.locked_until = None
+    user.last_login = now
     await db.flush()
 
     return _build_tokens(user)

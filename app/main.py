@@ -114,6 +114,13 @@ async def _init_db():
         await conn.execute(text(
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_mkt_user_telegram_user_id ON mkt_user(telegram_user_id) WHERE telegram_user_id IS NOT NULL"
         ))
+        # Anti fuerza bruta en login (bloqueo por cuenta)
+        await conn.execute(text(
+            "ALTER TABLE mkt_user ADD COLUMN IF NOT EXISTS failed_login_count INTEGER NOT NULL DEFAULT 0"
+        ))
+        await conn.execute(text(
+            "ALTER TABLE mkt_user ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ"
+        ))
     # Embedding columns + HNSW indexes (una por provider, distinto # de dims)
     # Corre en su propia transaccion y solo si pgvector cargo OK, para que un
     # error aqui tampoco aborte todo el startup.
@@ -327,13 +334,72 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Ban list (honeypot + burst detection) - ASGI puro.
 app.add_middleware(BanCheckMiddleware)
 
+
+class SecurityHeadersMiddleware:
+    """Cabeceras de seguridad para todas las respuestas.
+
+    La CSP permite 'unsafe-inline' en scripts porque la SPA usa manejadores
+    onclick inline; aun asi restringe de donde pueden cargarse scripts y a
+    donde puede conectarse la pagina, lo que limita la exfiltracion si algun
+    XSS sobrevive. Al migrar los onclick a listeners delegados se puede
+    quitar 'unsafe-inline' y endurecerla.
+    """
+
+    _HEADERS = [
+        (b"x-content-type-options", b"nosniff"),
+        (b"x-frame-options", b"DENY"),
+        (b"referrer-policy", b"strict-origin-when-cross-origin"),
+        (b"permissions-policy", b"geolocation=(self), microphone=(), camera=()"),
+        (
+            b"content-security-policy",
+            b"default-src 'self'; "
+            b"script-src 'self' 'unsafe-inline' https://unpkg.com; "
+            b"style-src 'self' 'unsafe-inline' https://unpkg.com; "
+            b"img-src 'self' data: https:; "
+            b"font-src 'self' data:; "
+            b"connect-src 'self'; "
+            b"frame-ancestors 'none'; "
+            b"object-src 'none'; "
+            b"base-uri 'none'",
+        ),
+    ]
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        async def send_with_headers(message):
+            if message["type"] == "http.response.start":
+                headers = list(message.get("headers", []))
+                present = {k.lower() for k, _ in headers}
+                headers.extend((k, v) for k, v in self._HEADERS if k not in present)
+                message = {**message, "headers": headers}
+            await send(message)
+
+        await self.app(scope, receive, send_with_headers)
+
+
+app.add_middleware(SecurityHeadersMiddleware)
+
 # CORS
+# `allow_origins=["*"]` junto a allow_credentials=True hace que Starlette
+# refleje cualquier Origin: seria permitir llamadas autenticadas desde
+# cualquier web. Si la config trae "*", se descarta y se cae a APP_URL.
+_cors_origins = [o for o in settings.cors_origins if o != "*"]
+if not _cors_origins:
+    _cors_origins = [settings.app_url]
+    print("[CORS] CORS_ORIGINS contenia '*'; usando APP_URL en su lugar.")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key"],
 )
 
 # ── API Routes ──────────────────────────────────────────────────
@@ -408,12 +474,19 @@ async def robots_txt():
 
 
 # ── Emergency unban (protegido por APP_SECRET_KEY) ─────────────
-# Uso: GET /api/v1/banlist/purge/<APP_SECRET_KEY>
+# Uso: POST /api/v1/banlist/purge con cabecera X-Purge-Secret: <APP_SECRET_KEY>
 # Borra toda la tabla mkt_banned_ip y recarga la cache en memoria.
-@app.get("/api/v1/banlist/purge/{secret}", include_in_schema=False)
-async def banlist_purge(secret: str):
-    if secret != settings.app_secret_key:
-        from fastapi import HTTPException
+# El secreto viaja en cabecera (no en la URL) para que no quede en los logs
+# del proxy ni en el historial del navegador.
+@app.post("/api/v1/banlist/purge", include_in_schema=False)
+async def banlist_purge(request: Request):
+    import hmac as _hmac
+    from fastapi import HTTPException
+
+    provided = request.headers.get("x-purge-secret", "")
+    if not settings.app_secret_key or settings.app_secret_key == "change-me":
+        raise HTTPException(503, "APP_SECRET_KEY no configurado")
+    if not provided or not _hmac.compare_digest(provided, settings.app_secret_key):
         raise HTTPException(403, "Invalid secret")
     from sqlalchemy import delete
     from app.models.banned_ip import BannedIP
@@ -426,37 +499,12 @@ async def banlist_purge(secret: str):
     return {"ok": True, "removed": removed}
 
 
-# ── One-time data purge (remove after use) ─────────────────────
-@app.post("/api/v1/purge/{secret}")
-async def purge_data_direct(secret: str):
-    """Emergency purge — validates secret against app_secret_key."""
-    if secret != settings.app_secret_key:
-        from fastapi import HTTPException
-        raise HTTPException(403, "Invalid secret")
-
-    from sqlalchemy import text as sql_text
-    tables = [
-        "mkt_pedido_precio", "mkt_pedido_item", "mkt_pedido",
-        "mkt_notification", "mkt_supplier_suggestion", "mkt_product_match",
-        "mkt_price_history", "mkt_insumo_regional_price",
-        "mkt_quotation_line", "mkt_quotation", "mkt_rfq",
-        "mkt_supplier_rubro", "mkt_supplier_branch", "mkt_supplier",
-        "mkt_insumo", "mkt_insumo_group",
-        "mkt_category", "mkt_unit_of_measure", "mkt_task_log",
-    ]
-    counts = {}
-    for table in tables:
-        try:
-            async with async_session() as db:
-                r = await db.execute(sql_text(f"SELECT COUNT(*) FROM {table}"))
-                c = r.scalar() or 0
-                if c > 0:
-                    await db.execute(sql_text(f"DELETE FROM {table}"))
-                    await db.commit()
-                    counts[table] = c
-        except Exception as e:
-            counts[f"{table}_skip"] = str(e)[:60]
-    return {"ok": True, "purged": sum(v for v in counts.values() if isinstance(v, int)), "details": counts}
+# ── One-time data purge ────────────────────────────────────────
+# ELIMINADO por auditoria de seguridad: POST /api/v1/purge/{secret} borraba 19
+# tablas (proveedores, productos, precios, pedidos) sin autenticacion real —
+# solo un secreto en la URL, comparado con `!=` y con "change-me" por defecto,
+# ademas visible en /api/docs. El equivalente autenticado es
+# POST /api/v1/admin/purge-data, que exige rol admin.
 
 
 # ── Public site config (SEO, branding) ─────────────────────────
@@ -604,6 +652,21 @@ async def product_page(insumo_id: int, request: Request):
 
     image_abs = f"{base_url}{insumo.image_url}" if insumo.image_url else None
 
+    def _safe_ld_json(payload: dict) -> str:
+        """Serializa JSON seguro para incrustar dentro de <script>.
+
+        json.dumps no escapa `<`, asi que un producto llamado
+        `</script><img src=x onerror=...>` cerraba el script y ejecutaba JS con
+        el mismo origen que la SPA. Los escapes \\u00XX son JSON valido e
+        inertes para el parser HTML.
+        """
+        raw = _json.dumps(payload, ensure_ascii=False)
+        return (
+            raw.replace("<", "\\u003c")
+            .replace(">", "\\u003e")
+            .replace("&", "\\u0026")
+        )
+
     product_ld = {
         "@context": "https://schema.org",
         "@type": "Product",
@@ -668,7 +731,7 @@ async def product_page(insumo_id: int, request: Request):
     product_ld_tag = (
         '\n    <!-- Structured Data: Product -->\n'
         '    <script type="application/ld+json">\n'
-        f'    {_json.dumps(product_ld, ensure_ascii=False)}\n'
+        f'    {_safe_ld_json(product_ld)}\n'
         '    </script>\n</head>'
     )
     html = html.replace("</head>", product_ld_tag, 1)
