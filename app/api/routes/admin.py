@@ -142,6 +142,15 @@ async def update_user(
 
     update_data = body.model_dump(exclude_unset=True)
 
+    # Proteger cuentas privilegiadas ante CUALQUIER modificacion, no solo ante
+    # cambios de rol: antes un manager podia desactivar a un admin o apuntar su
+    # telegram_user_id a su propio Telegram y suplantarlo por ese canal.
+    if target.role in ("admin", "superadmin") and current_user.role != "superadmin":
+        if target.id != current_user.id:
+            raise HTTPException(
+                status_code=403, detail="No puede modificar la cuenta de un admin"
+            )
+
     # Role change validation — solo validar cuando el rol realmente cambia.
     # Si el payload trae el mismo rol actual es no-op y no debe disparar guards.
     if "role" in update_data and update_data["role"] != target.role:
@@ -149,8 +158,15 @@ async def update_user(
             raise HTTPException(status_code=400, detail="Rol invalido")
         if update_data["role"] in ("admin", "manager") and current_user.role not in ("admin", "superadmin"):
             raise HTTPException(status_code=403, detail="Solo admins pueden asignar rol admin/manager")
-        if target.role in ("admin", "superadmin") and current_user.role != "superadmin":
-            raise HTTPException(status_code=403, detail="No puede cambiar rol de un admin")
+
+    # telegram_user_id es una credencial de identidad para el bot: solo el
+    # propio usuario o un admin pueden reasignarla.
+    if "telegram_user_id" in update_data and target.id != current_user.id:
+        if current_user.role not in ("admin", "superadmin"):
+            raise HTTPException(
+                status_code=403,
+                detail="Solo un admin puede cambiar el Telegram de otro usuario",
+            )
 
     # Normalize empty strings to None for unique nullable fields
     if update_data.get("telegram_user_id") == "":
@@ -1921,25 +1937,35 @@ async def get_integrations(
     }
     merged = {**defaults, **cfg}
 
-    # Mask secrets for display
+    # Mask secrets for display.
+    # El valor original se ELIMINA de la respuesta: antes se anadia una clave
+    # `_masked` pero el secreto seguia viajando en claro al navegador (y a los
+    # logs del proxy y a cualquier XSS).
     display = dict(merged)
-    for k in ("evolution_api_key", "telegram_bot_token", "smtp_password"):
-        val = display.get(k, "")
+    for k in (
+        "evolution_api_key",
+        "telegram_bot_token",
+        "telegram_webhook_secret",
+        "smtp_password",
+    ):
+        val = display.pop(k, "") or ""
         if val and len(val) > 6:
             display[k + "_masked"] = val[:3] + "***" + val[-3:]
         else:
             display[k + "_masked"] = "***" if val else ""
+        display[k + "_set"] = bool(val)
 
     # Evolution instances (multi-instance support)
     instances = cfg.get("evolution_instances", [])
     display_instances = []
     for inst in instances:
         di = dict(inst)
-        ak = di.get("api_key", "")
+        ak = di.pop("api_key", "") or ""
         if ak and len(ak) > 6:
             di["api_key_masked"] = ak[:3] + "***" + ak[-3:]
         else:
             di["api_key_masked"] = "***" if ak else ""
+        di["api_key_set"] = bool(ak)
         display_instances.append(di)
     display["evolution_instances"] = display_instances
 
@@ -1949,10 +1975,9 @@ async def get_integrations(
 
     # Build webhook URLs using public URL
     display["webhook_whatsapp"] = f"{public_url}/api/v1/webhook/whatsapp"
+    # El secreto ya no se incrusta en la URL mostrada: Telegram lo envia en la
+    # cabecera X-Telegram-Bot-Api-Secret-Token al registrar el webhook.
     display["webhook_telegram"] = f"{public_url}/api/v1/webhook/telegram"
-    if merged.get("telegram_webhook_secret"):
-        from urllib.parse import quote
-        display["webhook_telegram"] += f"?secret={quote(merged['telegram_webhook_secret'], safe='')}"
 
     # Bot authorized users
     bot_setting = await db.get(SystemSetting, "bot_authorized_users")
@@ -2209,6 +2234,11 @@ async def list_webhook_logs(
     def _preview(payload):
         if not isinstance(payload, dict):
             return None
+        # Redactar tambien en lectura: los rows guardados antes de este cambio
+        # pueden contener la apikey de Evolution en claro.
+        from app.services.webhook_monitor import redact_payload
+
+        payload = redact_payload(payload)
         # Solo keys de primer nivel + un extracto corto
         return {k: (str(v)[:80] if not isinstance(v, (dict, list)) else type(v).__name__)
                 for k, v in list(payload.items())[:10]}
@@ -2251,6 +2281,9 @@ async def get_webhook_log(
     row = await db.get(WebhookLog, log_id)
     if not row:
         raise HTTPException(status_code=404, detail="WebhookLog no encontrado")
+    # Redactar en lectura: cubre los rows persistidos antes de esta correccion.
+    from app.services.webhook_monitor import redact_payload
+
     return {
         "ok": True,
         "data": {
@@ -2261,7 +2294,7 @@ async def get_webhook_log(
             "status": row.status,
             "error": row.error,
             "received_at": row.received_at.isoformat() if row.received_at else None,
-            "payload": row.payload,
+            "payload": redact_payload(row.payload),
         },
     }
 
@@ -2357,10 +2390,18 @@ async def setup_telegram_webhook(
     if not app_url.startswith("https://"):
         return {"ok": False, "error": f"Telegram requiere HTTPS. URL actual: {app_url}"}
 
-    from urllib.parse import quote
+    # El webhook es fail-closed: sin secreto configurado cualquiera podria
+    # enviar updates falsos y suplantar a un cliente, asi que no se registra.
+    if not secret:
+        return {
+            "ok": False,
+            "error": (
+                "Falta el secreto del webhook. Configura "
+                "'telegram_webhook_secret' en Integraciones antes de registrar."
+            ),
+        }
+
     webhook_url = f"{app_url}/api/v1/webhook/telegram"
-    if secret:
-        webhook_url += f"?secret={quote(secret, safe='')}"
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
@@ -2368,6 +2409,10 @@ async def setup_telegram_webhook(
                 f"https://api.telegram.org/bot{token}/setWebhook",
                 json={
                     "url": webhook_url,
+                    # Telegram devuelve el secreto en la cabecera
+                    # X-Telegram-Bot-Api-Secret-Token, en vez de dejarlo en la
+                    # URL donde acaba en los logs del proxy.
+                    "secret_token": secret,
                     "allowed_updates": ["message", "callback_query"],
                 },
             )
@@ -2678,13 +2723,15 @@ async def test_agent(
 @router.post("/purge-data")
 async def purge_all_data(
     db: AsyncSession = Depends(get_db),
-    _api_key: str = Depends(verify_api_key),
+    current_user: User = Depends(require_admin),
     confirm: str = Query(..., description="Must be 'CONFIRMAR' to proceed"),
 ):
     """Purge ALL marketplace data (suppliers, products, prices, etc.).
 
     Keeps: users, system settings, AI agents config.
-    Requires API key and confirmation string.
+    Requiere rol admin y confirmacion explicita: era el unico endpoint de
+    admin.py autenticado solo con API key, asi que cualquier key de
+    integracion (incluso de solo lectura) podia truncar 18 tablas.
     """
     if confirm != "CONFIRMAR":
         raise HTTPException(400, "Debes enviar confirm=CONFIRMAR para borrar datos")

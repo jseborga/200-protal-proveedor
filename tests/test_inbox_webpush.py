@@ -148,7 +148,7 @@ class TestSubscribe:
     ):
         existing = PushSubscription(
             user_id=staff_user.id,
-            endpoint="https://ep/1",
+            endpoint="https://fcm.googleapis.com/fcm/send/abc1",
             p256dh="OLD", auth="OLDAUTH",
         )
         push_engine_db.add(existing)
@@ -157,7 +157,7 @@ class TestSubscribe:
         resp = await client.post(
             "/api/v1/inbox/push/subscribe",
             json={
-                "endpoint": "https://ep/1",
+                "endpoint": "https://fcm.googleapis.com/fcm/send/abc1",
                 "keys": {"p256dh": "NEW", "auth": "NEWAUTH"},
             },
         )

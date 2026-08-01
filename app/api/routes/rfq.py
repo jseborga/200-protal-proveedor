@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.api.deps import require_manager
+from app.api.deps import require_manager, require_staff
 from app.models.rfq import RFQ, RFQItem
 from app.models.supplier import Supplier
 from app.models.user import User
@@ -45,8 +45,10 @@ async def list_rfqs(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
+    # Los RFQ traen proveedores, cantidades y plazos: antes cualquier usuario
+    # autenticado los listaba enteros. La escritura ya exigia require_manager.
     query = select(RFQ)
     if state:
         query = query.where(RFQ.state == state)
@@ -64,7 +66,7 @@ async def list_rfqs(
 async def get_rfq(
     rfq_id: int,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     result = await db.execute(
         select(RFQ).where(RFQ.id == rfq_id).options(selectinload(RFQ.items))

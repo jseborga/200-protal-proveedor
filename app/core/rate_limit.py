@@ -3,8 +3,9 @@
 Usa slowapi con storage en memoria por defecto. Para produccion multi-worker
 configurar RATELIMIT_STORAGE_URI=redis://... en el entorno.
 
-Respeta cabeceras de proxy (X-Forwarded-For / X-Real-IP) cuando el servidor
-esta detras de Cloudflare o un reverse proxy.
+Respeta cabeceras de proxy (X-Forwarded-For / X-Real-IP) SOLO cuando la
+conexion llega desde un proxy declarado en TRUSTED_PROXIES; de lo contrario
+cualquier cliente podria rotar la cabecera para saltarse el limite.
 """
 import os
 
@@ -12,19 +13,14 @@ from slowapi import Limiter
 from slowapi.util import get_remote_address
 from starlette.requests import Request
 
+from .client_ip import resolve_client_ip
+
 
 def _client_key(request: Request) -> str:
-    """Obtiene la IP real del cliente respetando cabeceras de proxy."""
-    cf_ip = request.headers.get("cf-connecting-ip")
-    if cf_ip:
-        return cf_ip
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
-    real = request.headers.get("x-real-ip")
-    if real:
-        return real
-    return get_remote_address(request)
+    """Obtiene la IP real del cliente respetando solo proxies confiables."""
+    peer = request.client.host if request.client else None
+    ip = resolve_client_ip(dict(request.headers), peer)
+    return ip if ip != "unknown" else get_remote_address(request)
 
 
 limiter = Limiter(

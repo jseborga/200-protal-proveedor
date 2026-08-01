@@ -1,3 +1,4 @@
+import hmac
 from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, HTTPException, Security, status
@@ -58,12 +59,21 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="No autenticado")
 
     payload = decode_token(credentials.credentials)
+    # Un refresh token vive 30 dias: si se aceptara aqui, seria una credencial
+    # de acceso de larga duracion y la expiracion del access token no serviria.
+    if payload.get("type") == "refresh":
+        raise HTTPException(status_code=401, detail="Token invalido")
+
     user_id = payload.get("sub")
     if not user_id:
         raise HTTPException(status_code=401, detail="Token invalido")
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="Token invalido")
 
     from app.models.user import User
-    result = await db.execute(select(User).where(User.id == int(user_id), User.is_active == True))
+    result = await db.execute(select(User).where(User.id == user_id, User.is_active == True))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=401, detail="Usuario no encontrado")
@@ -91,16 +101,19 @@ async def verify_api_key(
     if not api_key:
         raise HTTPException(status_code=401, detail="API key requerida")
 
-    # Fallback: env var for backwards compat / bootstrap
-    if settings.admin_api_key and api_key == settings.admin_api_key:
+    # Fallback: env var for backwards compat / bootstrap.
+    # compare_digest evita el oraculo de temporizacion de `==`, que filtra el
+    # secreto byte a byte sobre la credencial mas privilegiada del sistema.
+    if settings.admin_api_key and hmac.compare_digest(api_key, settings.admin_api_key):
         return {"role": "admin", "key_id": None, "scopes": ["read", "write", "delete"]}
 
     # DB lookup by hash
     from app.models.api_key import ApiKey
     from datetime import datetime, timezone
 
-    key_hash = pwd_context.hash(api_key) if False else None  # skip — compare below
-    # Since bcrypt is slow for lookups, use prefix + verify pattern
+    # Since bcrypt is slow for lookups, use prefix + verify pattern.
+    # El prefijo se guarda en BD como raw_key[:8] al crear la key (admin.py),
+    # asi que este corte no puede cambiar sin migrar las keys existentes.
     key_prefix = api_key[:8]
     result = await db.execute(
         select(ApiKey).where(ApiKey.key_prefix == key_prefix, ApiKey.is_active == True)

@@ -666,12 +666,16 @@ async def _call_google(
 
     model = config["model"]
     base = config["base_url"].rstrip("/")
-    endpoint = f"{base}/models/{model}:generateContent?key={config['api_key']}"
+    # API key en cabecera para que no aparezca en logs de excepciones/proxy.
+    endpoint = f"{base}/models/{model}:generateContent"
 
     async with httpx.AsyncClient(timeout=90) as client:
         resp = await client.post(
             endpoint,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": config["api_key"],
+            },
             json={
                 "contents": [{"parts": parts}],
                 "generationConfig": {"maxOutputTokens": 4096},

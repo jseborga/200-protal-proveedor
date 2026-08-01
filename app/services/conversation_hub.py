@@ -296,9 +296,12 @@ async def mirror_client_to_topic(
             kind = "document"
         caption_parts = [prefix]
         if media_note:
-            caption_parts.append(f"<i>[{media_note}]</i>")
+            caption_parts.append(f"<i>[{_esc_tg(media_note)}]</i>")
         if text:
-            caption_parts.append(text)
+            # Texto del cliente -> parse_mode=HTML: escapar o puede falsificar
+            # formato/enlaces en el topic (y romper el envio con tags mal
+            # formados, perdiendo el mensaje en silencio).
+            caption_parts.append(_esc_tg(text))
         caption = "\n".join(caption_parts)
         ok = await send_telegram_media_bytes_to_topic(
             session.tg_group_id,
@@ -312,14 +315,14 @@ async def mirror_client_to_topic(
         if ok:
             return
         # Fallback to text note if upload failed
-        body = f"{prefix} <i>[{media_note or 'archivo'}]</i> (no se pudo subir)\n{text or ''}".strip()
+        body = f"{prefix} <i>[{_esc_tg(media_note or 'archivo')}]</i> (no se pudo subir)\n{_esc_tg(text or '')}".strip()
         await send_telegram(session.tg_group_id, body, message_thread_id=session.tg_topic_id)
         return
 
     if media_note:
-        body = f"{prefix} <i>[{media_note}]</i>\n{text or ''}".strip()
+        body = f"{prefix} <i>[{_esc_tg(media_note)}]</i>\n{_esc_tg(text or '')}".strip()
     else:
-        body = f"{prefix}\n{text or ''}"
+        body = f"{prefix}\n{_esc_tg(text or '')}"
 
     await send_telegram(
         session.tg_group_id,
@@ -603,6 +606,13 @@ def _build_quote_summary(pedido: Pedido) -> tuple[str, bool]:
         body = f"{body}\nDetalle: {detail_url}"
 
     return body, is_full
+
+
+def _esc_tg(value: str | None) -> str:
+    """Escapa texto para enviarlo con parse_mode=HTML de Telegram."""
+    import html as _html
+
+    return _html.escape(value or "", quote=False)
 
 
 def _quote_body_to_html(body: str) -> str:

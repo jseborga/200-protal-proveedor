@@ -12,6 +12,9 @@ bcrypt==4.0.1
 python-multipart>=0.0.9
 httpx>=0.27.0
 openpyxl>=3.1.0
+# openpyxl usa defusedxml si esta instalado: evita expansion de entidades
+# (billion laughs) al parsear XLSX subidos por terceros.
+defusedxml>=0.7.1
 jinja2>=3.1.0
 aiofiles>=24.1.0
 aiosmtplib>=3.0.0

@@ -613,9 +613,17 @@ async def _is_authorized_bot_user(db, channel: str, user_id: str) -> bool:
     authorized_str = [str(a).strip() for a in authorized]
     user_id_str = str(user_id).strip()
 
-    # Support both exact match and prefix match (for phone numbers)
+    # Comparacion exacta. La version anterior aceptaba
+    # `user_id.endswith(a) or a.endswith(user_id)`, asi que enviar "9" bastaba
+    # para autorizarse contra un id autorizado "123456789".
+    # Para telefonos se comparan tambien solo los digitos, de modo que
+    # "+591 7000 0000" y "59170000000" sigan considerandose el mismo numero.
+    def _digits(value: str) -> str:
+        return "".join(ch for ch in value if ch.isdigit())
+
+    user_digits = _digits(user_id_str)
     is_auth = any(
-        user_id_str == a or user_id_str.endswith(a) or a.endswith(user_id_str)
+        user_id_str == a or (bool(user_digits) and user_digits == _digits(a))
         for a in authorized_str
     )
     if not is_auth:
@@ -1786,18 +1794,23 @@ async def _run_diagnostics(db, chat_id: str):
         priority = "Principal" if i == 1 else f"Fallback {i-1}"
         lines.append(f"\n<b>{priority}:</b> {c['provider']} / {c['model']}")
         lines.append(f"  Formato: {c['api_format']}")
-        lines.append(f"  Key: {c['api_key'][:8]}...{c['api_key'][-4:]}")
+        # No exponer fragmentos de la key: 12 caracteres bastan para
+        # confirmar/huellear una credencial.
+        lines.append(f"  Key: {'configurada' if c['api_key'] else 'AUSENTE'}")
 
         # 2. Test API call
         try:
             import httpx
             if c["api_format"] == "google":
                 base = c["base_url"].rstrip("/")
-                url = f"{base}/models/{c['model']}:generateContent?key={c['api_key']}"
+                url = f"{base}/models/{c['model']}:generateContent"
                 async with httpx.AsyncClient(timeout=15) as client:
                     resp = await client.post(
                         url,
-                        headers={"Content-Type": "application/json"},
+                        headers={
+                            "Content-Type": "application/json",
+                            "x-goog-api-key": c["api_key"],
+                        },
                         json={
                             "contents": [{"parts": [{"text": "Responde SOLO: ok"}]}],
                             "generationConfig": {"maxOutputTokens": 10},
@@ -1812,7 +1825,7 @@ async def _run_diagnostics(db, chat_id: str):
                     lines.append(f"  Test: OK — respuesta: \"{text.strip()[:50]}\"")
                 else:
                     lines.append(f"  Test: ERROR {resp.status_code}")
-                    lines.append(f"  {resp.text[:100]}")
+                    lines.append("  (detalle omitido: puede contener credenciales)")
 
             elif c["api_format"] == "anthropic":
                 async with httpx.AsyncClient(timeout=15) as client:
@@ -1835,7 +1848,7 @@ async def _run_diagnostics(db, chat_id: str):
                     lines.append(f"  Test: OK — respuesta: \"{text.strip()[:50]}\"")
                 else:
                     lines.append(f"  Test: ERROR {resp.status_code}")
-                    lines.append(f"  {resp.text[:100]}")
+                    lines.append("  (detalle omitido: puede contener credenciales)")
 
             else:  # openai / openrouter
                 base_url = c["base_url"].rstrip("/")
@@ -1862,7 +1875,7 @@ async def _run_diagnostics(db, chat_id: str):
                     lines.append(f"  Test: OK — respuesta: \"{text.strip()[:50]}\"")
                 else:
                     lines.append(f"  Test: ERROR {resp.status_code}")
-                    lines.append(f"  {resp.text[:100]}")
+                    lines.append("  (detalle omitido: puede contener credenciales)")
 
         except Exception as e:
             lines.append(f"  Test: EXCEPCION — {str(e)[:100]}")

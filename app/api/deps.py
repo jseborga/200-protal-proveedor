@@ -39,3 +39,24 @@ async def require_staff(user: User = Depends(get_current_user)) -> User:
             detail="Se requieren permisos de personal",
         )
     return user
+
+
+def require_scope(*required: str):
+    """Dependencia: exige que la API key traiga los scopes indicados.
+
+    Las keys se emiten con scopes ("read", "write", "delete") pero antes nadie
+    los comprobaba, asi que una key de solo lectura podia borrar datos. La key
+    maestra de entorno (ADMIN_API_KEY) trae los tres scopes.
+    """
+
+    async def _dep(auth: dict = Depends(verify_api_key)) -> dict:
+        granted = set(auth.get("scopes") or [])
+        missing = [s for s in required if s not in granted]
+        if missing:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"API key sin permiso: falta scope '{', '.join(missing)}'",
+            )
+        return auth
+
+    return _dep

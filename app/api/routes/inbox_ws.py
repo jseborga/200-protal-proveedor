@@ -68,6 +68,12 @@ async def inbox_ws_endpoint(
 ):
     """Endpoint WebSocket del inbox.
 
+    Ojo con la sesion de BD: en un WebSocket la dependencia solo se libera al
+    cerrar el socket, asi que cada pestana abierta retenia una conexion del
+    pool (pool_size=20 + overflow=10) mientras durase la conexion. Con ~30
+    pestanas se agotaba el pool y toda la API HTTP quedaba bloqueada. Por eso
+    la sesion se cierra explicitamente en cuanto se carga el usuario.
+
     Cierre codes:
     - 1008 (policy violation): token invalido, user inactivo o no staff.
     - 1000 (normal): desconexion del cliente.
@@ -76,6 +82,12 @@ async def inbox_ws_endpoint(
     try:
         payload = decode_token(token)
     except Exception:  # noqa: BLE001
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # Un refresh token dura 30 dias: aceptarlo aqui daria acceso prolongado al
+    # stream en vivo de todas las conversaciones. La via HTTP ya lo rechaza.
+    if payload.get("type") == "refresh":
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
@@ -92,6 +104,12 @@ async def inbox_ws_endpoint(
         return
 
     user = await db.get(User, user_id)
+    # Devolver la conexion al pool antes del bucle largo del socket. Tras
+    # esto no debe usarse `db`; los datos del usuario ya estan cargados.
+    try:
+        await db.close()
+    except Exception:  # noqa: BLE001
+        pass
     if user is None or not user.is_active or user.role not in STAFF_ROLES:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return

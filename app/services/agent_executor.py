@@ -271,7 +271,9 @@ async def _call_ai_with_tools(config: dict, system: str, messages: list) -> dict
         else:
             return await _call_openai(config, system, messages)
     except Exception as e:
-        print(f"[AgentExecutor] AI call error ({config['provider']}): {e}")
+        # Solo el tipo de excepcion: el mensaje puede arrastrar la URL o el
+        # cuerpo de la respuesta del proveedor con credenciales dentro.
+        print(f"[AgentExecutor] AI call error ({config['provider']}): {type(e).__name__}")
         return None
 
 
@@ -300,7 +302,10 @@ async def _call_google_native(config: dict, system: str, messages: list) -> dict
     """Google AI Studio — native Gemini generateContent API with function calling."""
     model = config["model"]
     base = config["base_url"].rstrip("/")
-    endpoint = f"{base}/models/{model}:generateContent?key={config['api_key']}"
+    # La API key va en cabecera, no en la query: httpx incluye la URL completa
+    # en el texto de HTTPStatusError, asi que cualquier 4xx/429 la volcaba
+    # entera al log del contenedor.
+    endpoint = f"{base}/models/{model}:generateContent"
 
     # Convert tools to Gemini function declarations
     function_declarations = []
@@ -352,7 +357,10 @@ async def _call_google_native(config: dict, system: str, messages: list) -> dict
     async with httpx.AsyncClient(timeout=60) as client:
         resp = await client.post(
             endpoint,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": config["api_key"],
+            },
             json=body,
         )
         resp.raise_for_status()
