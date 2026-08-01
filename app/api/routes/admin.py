@@ -2299,6 +2299,30 @@ async def get_webhook_log(
     }
 
 
+@router.delete("/webhook-logs")
+async def purge_webhook_logs(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+    source: str | None = Query(None, description="Limitar a 'whatsapp' o 'telegram'"),
+):
+    """Borra el historial de webhooks.
+
+    Necesario tras rotar credenciales: los registros guardados antes de la
+    redaccion contienen la apikey de Evolution en claro dentro del payload.
+    """
+    from sqlalchemy import delete as sql_delete
+    from app.models.webhook_log import WebhookLog
+
+    stmt = sql_delete(WebhookLog)
+    if source:
+        if source not in ("whatsapp", "telegram"):
+            raise HTTPException(400, "source debe ser 'whatsapp' o 'telegram'")
+        stmt = stmt.where(WebhookLog.source == source)
+    result = await db.execute(stmt)
+    await db.commit()
+    return {"ok": True, "deleted": result.rowcount or 0}
+
+
 @router.post("/integrations/test-whatsapp")
 async def test_whatsapp_connection(
     body: dict | None = None,

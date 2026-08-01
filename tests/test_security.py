@@ -364,3 +364,8 @@ def test_ws_libera_la_conexion_de_bd_antes_del_bucle():
     assert "await db.close()" in src
     # y debe ocurrir antes de aceptar el socket (bucle largo)
     assert src.index("await db.close()") < src.index("websocket.accept()")
+
+
+def test_purga_de_webhook_logs_exige_admin(client):
+    """El historial puede contener credenciales de payloads antiguos."""
+    assert client.delete("/api/v1/admin/webhook-logs").status_code in (401, 403)
