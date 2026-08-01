@@ -21,7 +21,15 @@ class Plan(TimestampMixin, Base):
     label: Mapped[str] = mapped_column(String(100), nullable=False)
     max_users: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     max_pedidos_month: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    # Limite de presupuestos/obras. El plan gratuito da 1-2 de por vida.
+    max_projects: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     price_bob: Mapped[float] = mapped_column(Float, default=0, nullable=False)
+    # Duracion de la prueba gratuita al contratar este plan (0 = sin prueba).
+    trial_days: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Periodo de gracia tras vencer antes de degradar a los limites gratuitos.
+    grace_days: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
+    # Meses de facturacion por defecto al renovar (1 = mensual, 12 = anual).
+    billing_months: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     features: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -33,7 +41,11 @@ class Plan(TimestampMixin, Base):
             "label": self.label,
             "max_users": self.max_users,
             "max_pedidos_month": self.max_pedidos_month,
+            "max_projects": self.max_projects,
             "price_bob": self.price_bob,
+            "trial_days": self.trial_days,
+            "grace_days": self.grace_days,
+            "billing_months": self.billing_months,
             "features": self.features or [],
             "sort_order": self.sort_order,
             "is_active": self.is_active,
@@ -90,13 +102,30 @@ class Subscription(TimestampMixin, Base):
     )  # active, expired, cancelled, suspended
     max_users: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     max_pedidos_month: Mapped[int] = mapped_column(Integer, default=5, nullable=False)
+    # Copia del limite al contratar: si el admin cambia el plan despues, la
+    # empresa conserva lo que se le vendio hasta la renovacion.
+    max_projects: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
 
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False,
     )
+    # expires_at nulo = sin vencimiento (asi es el plan gratuito de por vida).
     expires_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True,
     )
+    # Prueba gratuita: mientras no venza, la empresa usa los limites del plan
+    # aunque todavia no haya pagado.
+    trial_ends_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    # Gracia tras el vencimiento antes de degradar a limites gratuitos.
+    grace_days: Mapped[int] = mapped_column(Integer, default=7, nullable=False)
+
+    # Bonos de descuento (aplicados a mano por ahora; la puerta queda abierta
+    # a automatizar el cobro sin cambiar el modelo).
+    discount_pct: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
+    discount_note: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    discount_until: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     payment_method: Mapped[str | None] = mapped_column(String(30), nullable=True)
     last_payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)

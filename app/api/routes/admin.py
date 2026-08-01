@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import attributes as sa_attrs
@@ -1450,6 +1450,105 @@ class SubscriptionAdminUpdate(BaseModel):
     notes: str | None = None
 
 
+class SubscriptionActivateIn(BaseModel):
+    """Registro de un pago manual que activa o renueva una suscripcion."""
+
+    plan: str
+    months: int | None = Field(default=None, ge=1, le=36)
+    amount: float | None = Field(default=None, ge=0)
+    payment_method: str | None = Field(default=None, max_length=30)
+    payment_ref: str | None = Field(default=None, max_length=100)
+    trial_days: int | None = Field(default=None, ge=0, le=365)
+    discount_pct: float | None = Field(default=None, ge=0, le=100)
+    discount_note: str | None = Field(default=None, max_length=200)
+    discount_until: str | None = None  # ISO date
+    notes: str | None = None
+
+
+@router.post("/subscriptions/{sub_id}/activate")
+async def admin_activate_subscription(
+    sub_id: int,
+    body: SubscriptionActivateIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
+):
+    """Activa o renueva una suscripcion tras un pago manual.
+
+    Calcula el vencimiento a partir de la fecha actual (o del vencimiento
+    vigente, para que renovar antes de tiempo no regale ni quite dias) y
+    copia los limites del plan. Deja abierta la puerta a automatizar el cobro:
+    un webhook de pasarela solo tendria que llamar a esta misma logica.
+    """
+    from datetime import date as _date, datetime as _dt, timedelta, timezone as _tz
+
+    from app.core.plans import get_plan_quota
+    from app.services.quota import compute_period_end
+
+    sub = await db.get(Subscription, sub_id)
+    if not sub:
+        raise HTTPException(404, "Suscripcion no encontrada")
+    if body.plan not in PLANS:
+        raise HTTPException(400, f"Plan invalido: {', '.join(PLANS.keys())}")
+
+    limits = get_plan_quota(body.plan)
+    now = _dt.now(_tz.utc)
+
+    # Renovar antes de vencer extiende desde el vencimiento, no desde hoy.
+    base = now
+    if sub.plan == body.plan and sub.expires_at:
+        current = sub.expires_at
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=_tz.utc)
+        if current > now:
+            base = current
+
+    months = body.months or limits["billing_months"]
+    sub.plan = body.plan
+    sub.state = "active"
+    sub.max_users = limits["max_users"]
+    sub.max_pedidos_month = limits["max_pedidos_month"]
+    sub.max_projects = limits["max_projects"]
+    sub.grace_days = limits["grace_days"]
+    sub.expires_at = compute_period_end(base, months)
+
+    trial_days = body.trial_days if body.trial_days is not None else 0
+    sub.trial_ends_at = now + timedelta(days=trial_days) if trial_days else None
+
+    if body.discount_pct is not None:
+        sub.discount_pct = body.discount_pct
+        sub.discount_note = body.discount_note
+        sub.discount_until = (
+            _date.fromisoformat(body.discount_until) if body.discount_until else None
+        )
+
+    if body.amount is not None:
+        sub.last_payment_amount = body.amount
+        sub.last_payment_date = _date.today()
+    if body.payment_method:
+        sub.payment_method = body.payment_method
+    if body.payment_ref:
+        sub.last_payment_ref = body.payment_ref
+    if body.notes:
+        sub.notes = body.notes
+
+    await db.commit()
+    await db.refresh(sub)
+    return {
+        "ok": True,
+        "data": {
+            "id": sub.id,
+            "company_id": sub.company_id,
+            "plan": sub.plan,
+            "state": sub.state,
+            "expires_at": sub.expires_at.isoformat() if sub.expires_at else None,
+            "trial_ends_at": sub.trial_ends_at.isoformat() if sub.trial_ends_at else None,
+            "max_users": sub.max_users,
+            "max_projects": sub.max_projects,
+            "discount_pct": sub.discount_pct,
+        },
+    }
+
+
 @router.put("/subscriptions/{sub_id}")
 async def admin_update_subscription(
     sub_id: int,
@@ -1467,12 +1566,19 @@ async def admin_update_subscription(
     if "plan" in data and data["plan"]:
         if data["plan"] not in PLANS:
             raise HTTPException(400, f"Plan invalido: {', '.join(PLANS.keys())}")
-        max_u, max_p = get_plan_limits(data["plan"])
+        from app.core.plans import get_plan_quota
+
+        quota_limits = get_plan_quota(data["plan"])
         sub.plan = data.pop("plan")
+        # Se copian los limites del plan a la suscripcion: si mañana el admin
+        # cambia el plan, la empresa conserva lo que se le vendio.
         if "max_users" not in data:
-            sub.max_users = max_u
+            sub.max_users = quota_limits["max_users"]
         if "max_pedidos_month" not in data:
-            sub.max_pedidos_month = max_p
+            sub.max_pedidos_month = quota_limits["max_pedidos_month"]
+        if "max_projects" not in data:
+            sub.max_projects = quota_limits["max_projects"]
+        sub.grace_days = quota_limits["grace_days"]
 
     if "expires_at" in data:
         from datetime import datetime

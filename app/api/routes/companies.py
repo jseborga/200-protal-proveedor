@@ -267,16 +267,12 @@ async def add_member(
     if not company:
         raise HTTPException(404, "Empresa no encontrada")
 
-    sub_result = await db.execute(
-        select(Subscription).where(Subscription.company_id == company_id)
-    )
-    sub = sub_result.scalar_one_or_none()
-    if sub:
-        member_count = (await db.execute(
-            select(func.count(User.id)).where(User.company_id == company_id)
-        )).scalar() or 0
-        if member_count >= sub.max_users:
-            raise HTTPException(400, f"Limite de usuarios alcanzado ({sub.max_users}). Mejora tu plan.")
+    # Cuota de asientos. Se delega en el servicio para que respete el estado
+    # real de la suscripcion (prueba, gracia, vencida) y no solo el numero
+    # guardado: una suscripcion vencida debe volver al limite gratuito.
+    from app.services import quota
+
+    await quota.assert_can_add_user(db, company_id)
 
     # Find user by email
     result = await db.execute(select(User).where(User.email == body.email))

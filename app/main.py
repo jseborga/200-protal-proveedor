@@ -121,6 +121,28 @@ async def _init_db():
         await conn.execute(text(
             "ALTER TABLE mkt_user ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ"
         ))
+        # Planes: limite de presupuestos, pruebas gratuitas y gracia
+        for col, coltype in [
+            ("max_projects", "INTEGER NOT NULL DEFAULT 1"),
+            ("trial_days", "INTEGER NOT NULL DEFAULT 0"),
+            ("grace_days", "INTEGER NOT NULL DEFAULT 7"),
+            ("billing_months", "INTEGER NOT NULL DEFAULT 1"),
+        ]:
+            await conn.execute(text(
+                f"ALTER TABLE mkt_plan ADD COLUMN IF NOT EXISTS {col} {coltype}"
+            ))
+        # Suscripcion: control de tiempos y bonos de descuento
+        for col, coltype in [
+            ("max_projects", "INTEGER NOT NULL DEFAULT 1"),
+            ("trial_ends_at", "TIMESTAMPTZ"),
+            ("grace_days", "INTEGER NOT NULL DEFAULT 7"),
+            ("discount_pct", "DOUBLE PRECISION NOT NULL DEFAULT 0"),
+            ("discount_note", "VARCHAR(200)"),
+            ("discount_until", "DATE"),
+        ]:
+            await conn.execute(text(
+                f"ALTER TABLE mkt_subscription ADD COLUMN IF NOT EXISTS {col} {coltype}"
+            ))
     # Embedding columns + HNSW indexes (una por provider, distinto # de dims)
     # Corre en su propia transaccion y solo si pgvector cargo OK, para que un
     # error aqui tampoco aborte todo el startup.
@@ -294,6 +316,15 @@ async def lifespan(app: FastAPI):
     from app.core.plans import load_plans_from_db
     async with async_session() as db:
         await load_plans_from_db(db)
+    # Plantillas de calculo APU globales (idempotente)
+    from app.services.apu_seed import seed_apu_templates
+    async with async_session() as db:
+        try:
+            created = await seed_apu_templates(db)
+            if created:
+                print(f"[init] plantillas APU creadas: {created}")
+        except Exception as e:
+            print(f"[init] no se pudieron sembrar plantillas APU: {e}")
     # Load embeddings provider config into memory cache
     from app.services.embeddings import load_active_config
     async with async_session() as db:
@@ -403,7 +434,7 @@ app.add_middleware(
 )
 
 # ── API Routes ──────────────────────────────────────────────────
-from app.api.routes import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos, companies, subscriptions, notifications, inbox, inbox_ws  # noqa: E402
+from app.api.routes import auth, suppliers, quotations, prices, rfq, webhooks, admin, integration, groups, pedidos, companies, subscriptions, notifications, inbox, apu, inbox_ws  # noqa: E402
 
 app.include_router(auth.router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(suppliers.router, prefix="/api/v1/suppliers", tags=["Suppliers"])
@@ -419,6 +450,7 @@ app.include_router(companies.router, prefix="/api/v1/companies", tags=["Companie
 app.include_router(subscriptions.router, prefix="/api/v1/subscriptions", tags=["Subscriptions"])
 app.include_router(notifications.router, prefix="/api/v1/notifications", tags=["Notifications"])
 app.include_router(inbox.router, prefix="/api/v1/inbox", tags=["Inbox"])
+app.include_router(apu.router, prefix="/api/v1/apu", tags=["APU y Presupuestos"])
 app.include_router(inbox_ws.router, prefix="/api/v1/inbox", tags=["InboxWS"])
 
 

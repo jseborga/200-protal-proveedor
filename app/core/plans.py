@@ -18,12 +18,18 @@ _DEFAULT_PLANS = [
         "label": "Gratuito",
         "max_users": 1,
         "max_pedidos_month": 5,
+        "max_projects": 1,
         "price_bob": 0,
+        "trial_days": 0,
+        "grace_days": 0,
+        "billing_months": 1,
         "sort_order": 1,
         "features": [
-            "Cotizacion individual",
-            "Hasta 5 pedidos/mes",
-            "Acceso al catalogo publico",
+            "1 usuario",
+            "1 presupuesto de obra, sin vencimiento",
+            "Analisis de precios unitarios completo",
+            "Precios de mercado por region",
+            "Exportacion a Excel",
         ],
     },
     {
@@ -31,10 +37,16 @@ _DEFAULT_PLANS = [
         "label": "Profesional",
         "max_users": 5,
         "max_pedidos_month": 50,
+        "max_projects": 10,
         "price_bob": 350,
+        "trial_days": 14,
+        "grace_days": 7,
+        "billing_months": 1,
         "sort_order": 2,
         "features": [
-            "Equipo de hasta 5 cotizadores",
+            "Equipo de hasta 5 usuarios",
+            "Hasta 10 presupuestos de obra",
+            "14 dias de prueba gratis",
             "50 pedidos/mes",
             "Asignacion de pedidos",
             "Subida de documentos AI",
@@ -46,10 +58,16 @@ _DEFAULT_PLANS = [
         "label": "Empresarial",
         "max_users": 20,
         "max_pedidos_month": 999,
+        "max_projects": 999,
         "price_bob": 900,
+        "trial_days": 14,
+        "grace_days": 15,
+        "billing_months": 1,
         "sort_order": 3,
         "features": [
             "Equipo de hasta 20 usuarios",
+            "Presupuestos ilimitados",
+            "14 dias de prueba gratis",
             "Pedidos ilimitados",
             "Asignacion de pedidos",
             "Subida de documentos AI",
@@ -101,7 +119,11 @@ def _rebuild_cache(rows) -> None:
             "label": r.label,
             "max_users": r.max_users,
             "max_pedidos_month": r.max_pedidos_month,
+            "max_projects": r.max_projects,
             "price_bob": r.price_bob,
+            "trial_days": r.trial_days,
+            "grace_days": r.grace_days,
+            "billing_months": r.billing_months,
             "features": r.features or [],
             "sort_order": r.sort_order,
         }
@@ -117,3 +139,16 @@ def get_plan_limits(plan_key: str) -> tuple[int, int]:
     if not plan:
         return 1, 5  # fallback free
     return plan["max_users"], plan["max_pedidos_month"]
+
+
+def get_plan_quota(plan_key: str) -> dict:
+    """Limites completos del plan, incluido el numero de presupuestos."""
+    plan = PLANS.get(plan_key) or {}
+    return {
+        "max_users": plan.get("max_users", 1),
+        "max_pedidos_month": plan.get("max_pedidos_month", 5),
+        "max_projects": plan.get("max_projects", 1),
+        "trial_days": plan.get("trial_days", 0),
+        "grace_days": plan.get("grace_days", 0),
+        "billing_months": plan.get("billing_months", 1),
+    }
