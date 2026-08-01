@@ -230,3 +230,11 @@ def test_renovar_antes_de_vencer_extiende_desde_el_vencimiento():
     ahora = datetime(2026, 8, 1, tzinfo=timezone.utc)
     base = vence if vence > ahora else ahora
     assert quota.compute_period_end(base, 1) == datetime(2026, 10, 1, tzinfo=timezone.utc)
+
+
+def test_resumen_de_recursos_exige_autenticacion():
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    client = TestClient(app, raise_server_exceptions=False)
+    assert client.get("/api/v1/apu/projects/1/resources").status_code in (401, 403)

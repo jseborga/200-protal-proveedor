@@ -937,6 +937,77 @@ async def list_templates(
     }
 
 
+# ── Resumen de recursos del proyecto ───────────────────────────
+@router.get("/projects/{project_id}/resources")
+async def project_resources(
+    project_id: int,
+    type: str | None = Query(None, description="Filtrar por mat, mo, eq"),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Insumos consolidados de toda la obra, con cantidad total y costo.
+
+    Es el requerimiento de materiales/mano de obra/equipo: la cantidad real
+    de cada recurso es su rendimiento multiplicado por la cantidad de la
+    partida que lo consume, sumado en todas las partidas.
+
+    Las partidas complementarias se excluyen: su costo ya viaja dentro de la
+    partida que las consume, y contarlas dos veces inflaria el requerimiento.
+    """
+    project = await _get_project(db, project_id, user)
+
+    if type is not None and type not in RESOURCE_TYPES:
+        raise HTTPException(400, f"Tipo invalido. Use uno de: {', '.join(RESOURCE_TYPES)}")
+
+    rows = (await db.execute(
+        select(ApuLine, ApuItem.quantity, ApuItem.is_complementary)
+        .join(ApuItem, ApuLine.item_id == ApuItem.id)
+        .where(ApuItem.project_id == project.id)
+    )).all()
+
+    agregado: dict[tuple, dict] = {}
+    for line, item_qty, is_complementary in rows:
+        if is_complementary or line.type == "sub":
+            continue
+        if type is not None and line.type != type:
+            continue
+        # Agrupar por recurso del catalogo cuando exista; si no, por nombre.
+        clave = (line.type, line.insumo_id or f"txt:{line.name.strip().lower()}", line.uom)
+        entrada = agregado.setdefault(clave, {
+            "type": line.type,
+            "insumo_id": line.insumo_id,
+            "name": line.name,
+            "uom": line.uom,
+            "quantity": 0.0,
+            "amount": 0.0,
+            "price_unit": line.price_unit,
+            "used_in_items": 0,
+        })
+        cantidad = (line.quantity or 0.0) * (item_qty or 0.0)
+        entrada["quantity"] += cantidad
+        entrada["amount"] += cantidad * (line.price_unit or 0.0)
+        entrada["used_in_items"] += 1
+
+    data = []
+    for entrada in agregado.values():
+        entrada["quantity"] = apu_round(entrada["quantity"], project.decimals_qty)
+        entrada["amount"] = apu_round(entrada["amount"], project.decimals_total)
+        data.append(entrada)
+    data.sort(key=lambda e: (e["type"], -e["amount"]))
+
+    totales = {t: 0.0 for t in ("mat", "mo", "eq")}
+    for e in data:
+        if e["type"] in totales:
+            totales[e["type"]] += e["amount"]
+
+    return {
+        "ok": True,
+        "data": data,
+        "totals": {k: apu_round(v, project.decimals_total) for k, v in totales.items()},
+        "currency": project.currency,
+    }
+
+
 # ── Exportacion al formato canonico de Odoo ────────────────────
 @router.get("/projects/{project_id}/export.xlsx")
 async def export_project_xlsx(
