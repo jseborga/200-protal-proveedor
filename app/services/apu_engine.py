@@ -309,6 +309,92 @@ def compute_item(
     )
 
 
+# Variables que el motor define antes de evaluar la primera fila.
+BUILTIN_VARS = ("MAT", "MO", "EQ")
+
+# Un `code` se usa como nombre de variable en las formulas: debe ser un
+# identificador simple, no cualquier texto.
+_CODE_RE = __import__("re").compile(r"^[A-Za-z][A-Za-z0-9_]{0,19}$")
+
+
+def validate_template_lines(lines: list[TemplateLineSpec]) -> list[str]:
+    """Comprueba que una plantilla sea evaluable ANTES de guardarla.
+
+    Una plantilla rota no falla al guardarse sino al recalcular, y para
+    entonces ya rompio el presupuesto entero. Devuelve la lista de errores
+    (vacia si esta bien).
+
+    Se valida:
+    * que los codigos sean identificadores validos y no se repitan;
+    * que no pisen MAT/MO/EQ, que las define el motor;
+    * que las formulas solo referencien variables ya definidas ANTES en el
+      orden de evaluacion (una referencia hacia adelante seria None);
+    * que las formulas sean aritmetica segura (mismo interprete del motor);
+    * que haya como mucho una fila marcada como total.
+    """
+    errores: list[str] = []
+    ordenadas = sorted(lines, key=lambda l: (l.sequence, l.code))
+
+    disponibles = set(BUILTIN_VARS)
+    vistos: set[str] = set()
+    totales = 0
+
+    for line in ordenadas:
+        code = (line.code or "").strip()
+
+        if not _CODE_RE.match(code):
+            errores.append(
+                f"Codigo invalido: {code!r}. Use letras, numeros y guion bajo, "
+                f"empezando por letra (max 20)."
+            )
+            continue
+        if code in BUILTIN_VARS and line.type not in (
+            "sum_mat", "sum_mo", "sum_eq",
+        ):
+            errores.append(
+                f"{code} esta reservado para el total de "
+                f"{'materiales' if code == 'MAT' else 'mano de obra' if code == 'MO' else 'equipo'}."
+            )
+            continue
+        if code in vistos:
+            errores.append(f"El codigo {code} esta repetido en la plantilla.")
+            continue
+        vistos.add(code)
+
+        if line.type not in ("sum_mat", "sum_mo", "sum_eq", "percent", "formula"):
+            errores.append(f"Tipo de fila invalido en {code}: {line.type!r}")
+            continue
+
+        if line.type in ("percent", "formula"):
+            formula = (line.formula or "").strip()
+            if not formula:
+                errores.append(
+                    f"La fila {code} es de tipo {line.type} y necesita una formula."
+                )
+            else:
+                try:
+                    # Se evalua con todas las variables disponibles en 1.0: si
+                    # referencia algo aun no definido, levanta aca y no en
+                    # produccion.
+                    safe_eval_formula(formula, {v: 1.0 for v in disponibles})
+                except FormulaError as exc:
+                    errores.append(f"Formula de {code}: {exc}")
+
+        if line.type == "percent" and (line.value is None):
+            errores.append(f"La fila {code} necesita un porcentaje.")
+
+        if line.is_total:
+            totales += 1
+
+        disponibles.add(code)
+
+    if totales > 1:
+        errores.append(
+            "Solo una fila puede marcarse como precio unitario final."
+        )
+    return errores
+
+
 def order_items_for_computation(items: list) -> list:
     """Ordena las partidas para que las complementarias se calculen primero.
 

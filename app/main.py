@@ -131,6 +131,15 @@ async def _init_db():
             await conn.execute(text(
                 f"ALTER TABLE mkt_plan ADD COLUMN IF NOT EXISTS {col} {coltype}"
             ))
+        # Plantillas APU con alcance por proyecto
+        await conn.execute(text(
+            "ALTER TABLE mkt_apu_template ADD COLUMN IF NOT EXISTS project_id "
+            "INTEGER REFERENCES mkt_apu_project(id) ON DELETE CASCADE"
+        ))
+        await conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_mkt_apu_template_project "
+            "ON mkt_apu_template(project_id)"
+        ))
         # Aporte de precios al catalogo publico (opt-in por empresa)
         await conn.execute(text(
             "ALTER TABLE mkt_company ADD COLUMN IF NOT EXISTS "

@@ -321,3 +321,101 @@ async def test_el_limite_de_proyectos_del_plan_se_aplica(apu_env):
     r = await client.post("/api/v1/apu/projects", json={"name": "Obra de mas"})
     assert r.status_code == 402
     assert "limite" in r.json()["detail"].lower()
+
+
+# ══════════════════════════════════════════════════════════════
+# Alcance de plantillas: global -> empresa -> proyecto
+# ══════════════════════════════════════════════════════════════
+async def test_las_globales_se_ven_pero_no_se_editan(apu_env):
+    """Editar una global cambiaria el calculo de todas las empresas."""
+    client, ids = apu_env
+
+    r = await client.get("/api/v1/apu/templates")
+    assert r.status_code == 200
+    globales = [t for t in r.json()["data"] if t["scope"] == "global"]
+    assert globales, "la plantilla de prueba es global"
+    assert globales[0]["editable"] is False
+
+    r = await client.put(f"/api/v1/apu/templates/{ids['template']}", json={
+        "name": "Intento de cambio",
+    })
+    assert r.status_code == 403
+    assert "clon" in r.json()["detail"].lower()
+
+    r = await client.delete(f"/api/v1/apu/templates/{ids['template']}")
+    assert r.status_code == 403
+
+
+async def test_clonar_una_global_la_vuelve_privada_y_editable(apu_env):
+    """Es el camino previsto: partir de una estructura conocida y ajustarla."""
+    client, ids = apu_env
+
+    r = await client.post(f"/api/v1/apu/templates/{ids['template']}/clone", json={
+        "name": "GAMLP ajustada",
+    })
+    assert r.status_code == 201
+    copia = r.json()["data"]
+    assert copia["scope"] == "company"
+    assert copia["editable"] is True
+    assert copia["source_template_id"] == ids["template"]
+    # Se copiaron todas las filas
+    assert len(copia["lines"]) == 7
+
+    # Y ahora si se puede ajustar el porcentaje de utilidad
+    lineas = copia["lines"]
+    for l in lineas:
+        if l["code"] == "U":
+            l["value"] = 15.0
+    r = await client.put(f"/api/v1/apu/templates/{copia['id']}", json={"lines": lineas})
+    assert r.status_code == 200
+    assert [l for l in r.json()["data"]["lines"] if l["code"] == "U"][0]["value"] == 15.0
+
+
+async def test_plantilla_privada_de_una_obra(apu_env):
+    """Un contrato puede exigir porcentajes distintos solo para esa obra."""
+    client, ids = apu_env
+
+    r = await client.post("/api/v1/apu/projects", json={"name": "Obra especial"})
+    project_id = r.json()["data"]["id"]
+
+    r = await client.post(f"/api/v1/apu/templates/{ids['template']}/clone", json={
+        "name": "Solo para esta obra", "project_id": project_id,
+    })
+    assert r.status_code == 201
+    assert r.json()["data"]["scope"] == "project"
+    assert r.json()["data"]["project_id"] == project_id
+
+    # No aparece en el listado general...
+    nombres = [t["name"] for t in (await client.get("/api/v1/apu/templates")).json()["data"]]
+    assert "Solo para esta obra" not in nombres
+
+    # ...pero si al pedir el contexto de esa obra
+    r = await client.get(f"/api/v1/apu/templates?project_id={project_id}")
+    assert "Solo para esta obra" in [t["name"] for t in r.json()["data"]]
+
+
+async def test_no_se_guarda_una_plantilla_invalida(apu_env):
+    """Se valida al guardar, no al recalcular: si no, rompe el presupuesto."""
+    client, ids = apu_env
+
+    r = await client.post("/api/v1/apu/templates", json={
+        "name": "Rota",
+        "lines": [
+            {"code": "A", "name": "A", "type": "formula",
+             "formula": "NO_EXISTE + 1", "sequence": 10},
+        ],
+    })
+    assert r.status_code == 422
+    assert "NO_EXISTE" in r.json()["detail"]
+
+
+async def test_no_se_borra_una_plantilla_en_uso(apu_env):
+    client, ids = apu_env
+
+    r = await client.post(f"/api/v1/apu/templates/{ids['template']}/clone", json={})
+    tid = r.json()["data"]["id"]
+    await client.post("/api/v1/apu/projects", json={"name": "Usa la copia", "template_id": tid})
+
+    r = await client.delete(f"/api/v1/apu/templates/{tid}")
+    assert r.status_code == 409
+    assert "usando" in r.json()["detail"]

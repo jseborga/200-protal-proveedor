@@ -127,6 +127,36 @@ class ComputoIn(BaseModel):
     sequence: int = 10
 
 
+class TemplateLineIn(BaseModel):
+    code: str = Field(min_length=1, max_length=20)
+    name: str = Field(min_length=1, max_length=200)
+    type: str
+    value: float = 0.0
+    formula: str | None = Field(default=None, max_length=300)
+    is_total: bool = False
+    sequence: int = 10
+
+
+class TemplateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=150)
+    description: str | None = None
+    # Si viene, la plantilla queda privada de esa obra.
+    project_id: int | None = None
+    lines: list[TemplateLineIn] = Field(default_factory=list, max_length=60)
+
+
+class TemplateUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=150)
+    description: str | None = None
+    # Si viene, reemplaza TODAS las filas (es como edita la UI).
+    lines: list[TemplateLineIn] | None = Field(default=None, max_length=60)
+
+
+class TemplateCloneIn(BaseModel):
+    name: str | None = Field(default=None, max_length=150)
+    project_id: int | None = None
+
+
 class ComputoUpdate(BaseModel):
     name: str | None = Field(default=None, max_length=255)
     pieces: float | None = None
@@ -964,39 +994,253 @@ async def _default_template_id(db: AsyncSession, company_id: int) -> int | None:
     return row
 
 
+def _template_dict(t: ApuTemplate) -> dict:
+    return {
+        "id": t.id,
+        "name": t.name,
+        "description": t.description,
+        "scope": t.scope,
+        "is_global": t.is_global,
+        "company_id": t.company_id,
+        "project_id": t.project_id,
+        "source_template_id": t.source_template_id,
+        # Una global se usa pero no se edita: la UI necesita saberlo.
+        "editable": not t.is_global,
+        "lines": [
+            {
+                "id": l.id, "code": l.code, "name": l.name, "type": l.type,
+                "value": l.value, "formula": l.formula,
+                "is_total": l.is_total, "sequence": l.sequence,
+            }
+            for l in sorted(t.lines, key=lambda x: (x.sequence, x.id))
+        ],
+    }
+
+
+async def _load_template(db: AsyncSession, template_id: int) -> ApuTemplate:
+    row = (await db.execute(
+        select(ApuTemplate)
+        .where(ApuTemplate.id == template_id)
+        .options(selectinload(ApuTemplate.lines))
+    )).scalars().unique().one_or_none()
+    if row is None or not row.is_active:
+        raise HTTPException(404, "Plantilla no encontrada")
+    return row
+
+
+async def _template_for_edit(
+    db: AsyncSession, template_id: int, user: User,
+) -> ApuTemplate:
+    """Carga una plantilla comprobando que la empresa puede modificarla.
+
+    Las globales son de solo lectura para las empresas: editarlas cambiaria
+    el calculo de todas las demas. Para ajustarlas hay que clonarlas.
+    """
+    template = await _load_template(db, template_id)
+    _require_editor(user)
+
+    if template.company_id is None:
+        if user.role not in STAFF_OVERRIDE:
+            raise HTTPException(
+                403,
+                "Las plantillas globales no se editan. Cloná una para ajustarla.",
+            )
+        return template
+
+    if user.role not in STAFF_OVERRIDE and template.company_id != user.company_id:
+        raise HTTPException(404, "Plantilla no encontrada")
+    return template
+
+
+def _validate_lines_payload(lines: list["TemplateLineIn"]) -> None:
+    from app.services.apu_engine import validate_template_lines
+
+    specs = [
+        TemplateLineSpec(
+            code=l.code, name=l.name, type=l.type, value=l.value or 0.0,
+            formula=l.formula, is_total=l.is_total, sequence=l.sequence,
+        )
+        for l in lines
+    ]
+    errores = validate_template_lines(specs)
+    if errores:
+        raise HTTPException(status_code=422, detail="; ".join(errores[:5]))
+
+
 @router.get("/templates")
 async def list_templates(
+    project_id: int | None = Query(
+        None, description="Incluir tambien las plantillas privadas de esa obra",
+    ),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Plantillas disponibles: globales + de la empresa + las de la obra."""
+    company_id = _require_company(user)
+
+    visibles = (
+        # Globales: punto de partida para todos.
+        (ApuTemplate.company_id.is_(None) & ApuTemplate.project_id.is_(None))
+        # De la empresa, reutilizables en cualquier obra suya.
+        | ((ApuTemplate.company_id == company_id) & ApuTemplate.project_id.is_(None))
+    )
+    if project_id is not None:
+        await _get_project(db, project_id, user)
+        visibles = visibles | (
+            (ApuTemplate.company_id == company_id)
+            & (ApuTemplate.project_id == project_id)
+        )
+
+    rows = (await db.execute(
+        select(ApuTemplate)
+        .where(ApuTemplate.is_active == True, visibles)  # noqa: E712
+        .options(selectinload(ApuTemplate.lines))
+        .order_by(ApuTemplate.company_id.nulls_first(), ApuTemplate.name)
+    )).scalars().unique().all()
+
+    return {"ok": True, "data": [_template_dict(t) for t in rows]}
+
+
+@router.get("/templates/{template_id}")
+async def get_template(
+    template_id: int,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     company_id = _require_company(user)
-    rows = (await db.execute(
-        select(ApuTemplate).where(
-            ApuTemplate.is_active == True,  # noqa: E712
-            (ApuTemplate.company_id.is_(None)) | (ApuTemplate.company_id == company_id),
-        ).options(selectinload(ApuTemplate.lines)).order_by(ApuTemplate.id)
-    )).scalars().unique().all()
+    template = await _load_template(db, template_id)
+    if template.company_id is not None and template.company_id != company_id:
+        if user.role not in STAFF_OVERRIDE:
+            raise HTTPException(404, "Plantilla no encontrada")
+    return {"ok": True, "data": _template_dict(template)}
 
-    return {
-        "ok": True,
-        "data": [
-            {
-                "id": t.id,
-                "name": t.name,
-                "description": t.description,
-                "is_global": t.company_id is None,
-                "lines": [
-                    {
-                        "code": l.code, "name": l.name, "type": l.type,
-                        "value": l.value, "formula": l.formula,
-                        "is_total": l.is_total, "sequence": l.sequence,
-                    }
-                    for l in t.lines
-                ],
-            }
-            for t in rows
-        ],
-    }
+
+@router.post("/templates", status_code=201)
+async def create_template(
+    body: TemplateIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Crea una plantilla privada de la empresa (o de una obra)."""
+    company_id = _require_company(user)
+    _require_editor(user)
+    _validate_lines_payload(body.lines)
+
+    if body.project_id is not None:
+        await _get_project(db, body.project_id, user, for_edit=True)
+
+    template = ApuTemplate(
+        company_id=company_id,
+        project_id=body.project_id,
+        name=body.name,
+        description=body.description,
+    )
+    db.add(template)
+    await db.flush()
+    for line in body.lines:
+        db.add(ApuTemplateLine(template_id=template.id, **line.model_dump()))
+
+    await db.commit()
+    return {"ok": True, "data": _template_dict(await _load_template(db, template.id))}
+
+
+@router.post("/templates/{template_id}/clone", status_code=201)
+async def clone_template(
+    template_id: int,
+    body: TemplateCloneIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Clona una plantilla (tipicamente una global) para poder ajustarla.
+
+    Es el camino previsto: se arranca de una estructura conocida y se cambian
+    los porcentajes, sin tocar el original que usan los demas.
+    """
+    company_id = _require_company(user)
+    _require_editor(user)
+
+    origen = await _load_template(db, template_id)
+    # Se puede clonar una global o una propia; nunca la de otra empresa.
+    if origen.company_id is not None and origen.company_id != company_id:
+        if user.role not in STAFF_OVERRIDE:
+            raise HTTPException(404, "Plantilla no encontrada")
+
+    if body.project_id is not None:
+        await _get_project(db, body.project_id, user, for_edit=True)
+
+    copia = ApuTemplate(
+        company_id=company_id,
+        project_id=body.project_id,
+        name=body.name or f"{origen.name} (copia)",
+        description=origen.description,
+        source_template_id=origen.id,
+    )
+    db.add(copia)
+    await db.flush()
+    for line in origen.lines:
+        db.add(ApuTemplateLine(
+            template_id=copia.id, sequence=line.sequence, code=line.code,
+            name=line.name, type=line.type, value=line.value,
+            formula=line.formula, is_total=line.is_total,
+        ))
+
+    await db.commit()
+    return {"ok": True, "data": _template_dict(await _load_template(db, copia.id))}
+
+
+@router.put("/templates/{template_id}")
+async def update_template(
+    template_id: int,
+    body: TemplateUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Actualiza una plantilla propia. Si vienen lineas, reemplaza todas."""
+    template = await _template_for_edit(db, template_id, user)
+    data = body.model_dump(exclude_unset=True)
+
+    if body.lines is not None:
+        _validate_lines_payload(body.lines)
+        # Se reemplaza via la coleccion del ORM (tiene delete-orphan) y no con
+        # un DELETE crudo: ese bypassea la sesion y deja las filas viejas en el
+        # mapa de identidad, con lo que la respuesta devolveria datos rancios.
+        template.lines.clear()
+        await db.flush()
+        for line in body.lines:
+            template.lines.append(ApuTemplateLine(**line.model_dump()))
+
+    for field in ("name", "description"):
+        if field in data:
+            setattr(template, field, data[field])
+
+    await db.commit()
+    return {"ok": True, "data": _template_dict(await _load_template(db, template.id))}
+
+
+@router.delete("/templates/{template_id}")
+async def delete_template(
+    template_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Baja logica. Se niega si hay obras usandola, para no romper calculos."""
+    template = await _template_for_edit(db, template_id, user)
+
+    en_uso = (await db.execute(
+        select(func.count(ApuProject.id)).where(
+            ApuProject.template_id == template.id,
+            ApuProject.is_active == True,  # noqa: E712
+        )
+    )).scalar() or 0
+    if en_uso:
+        raise HTTPException(
+            409,
+            f"No se puede eliminar: {en_uso} proyecto(s) la estan usando.",
+        )
+
+    template.is_active = False
+    await db.commit()
+    return {"ok": True}
 
 
 # ── Resumen de recursos del proyecto ───────────────────────────

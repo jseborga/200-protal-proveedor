@@ -54,8 +54,19 @@ TEMPLATE_LINE_TYPES = ("sum_mat", "sum_mo", "sum_eq", "percent", "formula")
 class ApuTemplate(TimestampMixin, Base):
     """Plantilla de calculo: define como se llega del costo directo al P.U.
 
-    `company_id` nulo = plantilla global provista por la plataforma
-    (p.ej. GAMLP). Las empresas pueden clonarla y ajustar porcentajes.
+    Tres alcances, del mas abierto al mas cerrado:
+
+    * global   -> company_id NULL, project_id NULL. Las provee la plataforma
+                  (p.ej. la estructura GAMLP). Todos las ven, nadie las edita
+                  salvo el staff: si una empresa pudiera tocarlas, cambiaria
+                  el calculo de todas las demas.
+    * empresa  -> company_id set, project_id NULL. Privada de la empresa,
+                  reutilizable en todos sus proyectos.
+    * proyecto -> company_id set, project_id set. Privada de una sola obra,
+                  para cuando un contrato exige porcentajes distintos.
+
+    El camino normal es clonar una global y ajustarla, por eso queda
+    `source_template_id` apuntando al origen.
     """
 
     __tablename__ = "mkt_apu_template"
@@ -63,6 +74,10 @@ class ApuTemplate(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int | None] = mapped_column(
         ForeignKey("mkt_company.id", ondelete="CASCADE"), nullable=True, index=True,
+    )
+    # Cuando esta seteado, la plantilla solo se ofrece dentro de esa obra.
+    project_id: Mapped[int | None] = mapped_column(
+        ForeignKey("mkt_apu_project.id", ondelete="CASCADE"), nullable=True, index=True,
     )
     name: Mapped[str] = mapped_column(String(150), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -81,6 +96,12 @@ class ApuTemplate(TimestampMixin, Base):
     @property
     def is_global(self) -> bool:
         return self.company_id is None
+
+    @property
+    def scope(self) -> str:
+        if self.company_id is None:
+            return "global"
+        return "project" if self.project_id is not None else "company"
 
     def __repr__(self) -> str:
         return f"<ApuTemplate {self.id} {self.name}>"
@@ -160,7 +181,12 @@ class ApuProject(TimestampMixin, Base):
     decimals_total: Mapped[int] = mapped_column(Integer, default=TOTAL_DIGITS, nullable=False)
     decimals_qty: Mapped[int] = mapped_column(Integer, default=QTY_DIGITS, nullable=False)
 
-    template: Mapped["ApuTemplate | None"] = relationship("ApuTemplate")
+    # foreign_keys explicito: hay DOS FKs entre proyecto y plantilla
+    # (project.template_id y template.project_id, esta ultima para las
+    # plantillas privadas de una obra), asi que el join es ambiguo sin esto.
+    template: Mapped["ApuTemplate | None"] = relationship(
+        "ApuTemplate", foreign_keys=[template_id],
+    )
     rubros: Mapped[list["ApuRubro"]] = relationship(
         "ApuRubro",
         back_populates="project",

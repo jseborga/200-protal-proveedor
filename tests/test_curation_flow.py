@@ -360,3 +360,45 @@ async def test_la_cola_y_su_config_son_solo_para_staff(env):
     ]:
         r = await client.request(method.upper(), path, json={})
         assert r.status_code == 403, f"{path} -> {r.status_code}"
+
+
+async def test_una_empresa_no_ve_ni_edita_la_plantilla_de_otra(env):
+    """Aislamiento entre empresas tambien en las plantillas."""
+    client, ids, usuarios, actual, Session = env
+
+    # La empresa A crea su plantilla privada
+    r = await client.post("/api/v1/apu/templates", json={
+        "name": "Privada de A",
+        "lines": [
+            {"code": "MAT", "name": "Mat", "type": "sum_mat", "sequence": 10},
+            {"code": "T", "name": "Total", "type": "formula",
+             "formula": "MAT", "is_total": True, "sequence": 20},
+        ],
+    })
+    assert r.status_code == 201
+    tid = r.json()["data"]["id"]
+
+    # Aparece una empresa B con su propio usuario
+    async with Session() as db:
+        otra = Company(name="Constructora B", country="BO")
+        db.add(otra)
+        await db.flush()
+        intruso = User(
+            email="b@test.bo", hashed_password="x", full_name="Intruso",
+            role="user", is_active=True, company_id=otra.id,
+            company_role="company_admin",
+        )
+        db.add(intruso)
+        await db.commit()
+
+    actual["user"] = intruso
+
+    # No la ve en su listado
+    r = await client.get("/api/v1/apu/templates")
+    assert "Privada de A" not in [t["name"] for t in r.json()["data"]]
+
+    # No la puede leer ni editar ni borrar (404: no se confirma que exista)
+    assert (await client.get(f"/api/v1/apu/templates/{tid}")).status_code == 404
+    assert (await client.put(f"/api/v1/apu/templates/{tid}",
+                             json={"name": "Robada"})).status_code == 404
+    assert (await client.delete(f"/api/v1/apu/templates/{tid}")).status_code == 404

@@ -318,3 +318,83 @@ def test_redondeo_es_medio_arriba_no_bancario():
 
 def test_el_redondeo_medio_arriba_llega_al_subtotal():
     assert compute_line_subtotal(1.0, 10.555, 2) == 10.56
+
+
+# ── Validacion de plantillas ───────────────────────────────────
+def _T(code, tipo, seq, formula=None, value=0.0, total=False):
+    return TemplateLineSpec(
+        code=code, name=code, type=tipo, value=value,
+        formula=formula, is_total=total, sequence=seq,
+    )
+
+
+def test_plantilla_valida_no_reporta_errores():
+    from app.services.apu_engine import validate_template_lines
+
+    assert validate_template_lines(_plantilla_gamlp()) == []
+
+
+def test_se_rechaza_una_referencia_hacia_adelante():
+    """Usar una variable que se define despues daria None al calcular."""
+    from app.services.apu_engine import validate_template_lines
+
+    errores = validate_template_lines([
+        _T("A", "formula", 10, formula="B + MAT"),   # B aun no existe
+        _T("B", "sum_mo", 20),
+    ])
+    assert errores and "Formula de A" in errores[0]
+
+
+def test_se_rechaza_un_codigo_repetido():
+    from app.services.apu_engine import validate_template_lines
+
+    errores = validate_template_lines([
+        _T("X", "sum_mat", 10),
+        _T("X", "sum_mo", 20),
+    ])
+    assert any("repetido" in e for e in errores)
+
+
+@pytest.mark.parametrize("code", ["", "1A", "con espacio", "a-b", "A" * 25, "__import__"])
+def test_se_rechazan_codigos_invalidos(code):
+    """El codigo se usa como nombre de variable en las formulas."""
+    from app.services.apu_engine import validate_template_lines
+
+    errores = validate_template_lines([_T(code, "sum_mat", 10)])
+    assert errores
+
+
+def test_no_se_puede_pisar_una_variable_del_motor():
+    from app.services.apu_engine import validate_template_lines
+
+    errores = validate_template_lines([
+        _T("MAT", "percent", 10, formula="MO", value=5.0),
+    ])
+    assert any("reservado" in e for e in errores)
+
+
+def test_una_fila_percent_sin_formula_es_error():
+    from app.services.apu_engine import validate_template_lines
+
+    errores = validate_template_lines([_T("D", "percent", 10, value=10.0)])
+    assert any("necesita una formula" in e for e in errores)
+
+
+def test_solo_puede_haber_un_total():
+    from app.services.apu_engine import validate_template_lines
+
+    errores = validate_template_lines([
+        _T("A", "sum_mat", 10),
+        _T("B", "formula", 20, formula="A", total=True),
+        _T("C", "formula", 30, formula="A", total=True),
+    ])
+    assert any("Solo una fila" in e for e in errores)
+
+
+def test_se_rechaza_una_formula_peligrosa_en_la_plantilla():
+    from app.services.apu_engine import validate_template_lines
+
+    errores = validate_template_lines([
+        _T("A", "formula", 10, formula="__import__('os').system('ls')"),
+    ])
+    assert errores
