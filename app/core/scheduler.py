@@ -42,6 +42,13 @@ def _register(name: str, label: str, module_path: str, cron: str, description: s
 def setup_jobs():
     """Registra todos los jobs programados."""
     _register(
+        name="db_backup",
+        label="Respaldo de Base de Datos",
+        module_path="app.tasks.db_backup",
+        cron="15 2 * * *",  # Diario 2:15AM, antes del resto de los jobs
+        description="Genera un respaldo comprimido con pg_dump, verifica que no este corrupto y aplica la retencion configurada.",
+    )
+    _register(
         name="price_refresh",
         label="Recalcular Precios",
         module_path="app.tasks.price_refresh",

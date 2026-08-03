@@ -145,13 +145,20 @@ async def create_company(
     await db.flush()
 
     # Create free subscription
-    max_users, max_pedidos = get_plan_limits("free")
+    from app.core.plans import get_plan_quota
+
+    limites = get_plan_quota("free")
+    max_users, max_pedidos = limites["max_users"], limites["max_pedidos_month"]
     sub = Subscription(
         company_id=company.id,
         plan="free",
         state="active",
         max_users=max_users,
         max_pedidos_month=max_pedidos,
+        # Sin esto la empresa quedaba con el default de columna (1) en vez de
+        # lo que declara el plan gratuito, que el admin puede cambiar.
+        max_projects=limites["max_projects"],
+        grace_days=limites["grace_days"],
         started_at=datetime.now(timezone.utc),
     )
     db.add(sub)

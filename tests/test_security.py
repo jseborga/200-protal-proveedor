@@ -51,8 +51,13 @@ def test_produccion_arranca_con_secretos_fuertes():
     assert s.app_env == "production"
 
 
-def test_app_env_por_defecto_es_produccion():
-    """Fail-closed: sin APP_ENV no deben exponerse /api/docs."""
+def test_app_env_por_defecto_es_produccion(monkeypatch):
+    """Fail-closed: sin APP_ENV no deben exponerse /api/docs.
+
+    Se limpia la variable del entorno: pydantic-settings la lee aunque se
+    pase _env_file=None, y en CI suele venir definida.
+    """
+    monkeypatch.delenv("APP_ENV", raising=False)
     s = Settings(jwt_secret_key="k" * 48, app_secret_key="s" * 48, _env_file=None)
     assert s.app_env == "production"
     assert s.is_dev is False

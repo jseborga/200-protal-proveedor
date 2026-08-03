@@ -1,20 +1,85 @@
-name: Deploy to EasyPanel
+name: Tests y Deploy
+
+# El workflow anterior usaba la accion `easypanel-io/deploy@v1`, que ya no
+# existe en GitHub: todos los despliegues venian fallando en el primer paso
+# sin llegar a tocar el servidor. Se reemplaza por el webhook de despliegue
+# que expone EasyPanel para cada servicio.
+#
+# CONFIGURACION NECESARIA (una sola vez):
+#   EasyPanel -> proyecto -> servicio `app` -> Deployments -> Webhook,
+#   copiar la URL y guardarla en GitHub como el secreto
+#   EASYPANEL_DEPLOY_HOOK (Settings -> Secrets and variables -> Actions).
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
-  deploy:
+  tests:
+    name: Tests
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Deploy to EasyPanel
-        uses: easypanel-io/deploy@v1
+      - uses: actions/setup-python@v5
         with:
-          easypanel-url: ${{ secrets.EASYPANEL_URL }}
-          easypanel-token: ${{ secrets.EASYPANEL_TOKEN }}
-          project-name: ${{ secrets.EASYPANEL_PROJECT }}
-          service-name: app
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Dependencias solo de test: la suite corre sobre SQLite en memoria,
+          # no hace falta levantar Postgres para el CI.
+          pip install pytest pytest-asyncio aiosqlite httpx tzdata
+
+      - name: Ejecutar la suite
+        env:
+          # Valores ficticios: el validador de config exige secretos reales en
+          # produccion y los tests no deben depender de un .env.
+          APP_ENV: development
+          DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+          JWT_SECRET_KEY: clave-solo-para-tests-no-usar-en-produccion
+          APP_SECRET_KEY: clave-solo-para-tests-no-usar-en-produccion
+        run: python -m pytest tests/ -q
+
+      - name: Verificar sintaxis del frontend
+        run: node --check frontend/public/assets/app.js
+
+      - name: Tests de escapado del frontend
+        run: node tests/test_frontend_escaping.js
+
+  deploy:
+    name: Deploy a EasyPanel
+    needs: tests          # sin tests en verde no se despliega
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comprobar que el webhook este configurado
+        env:
+          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::error::Falta el secreto EASYPANEL_DEPLOY_HOOK."
+            echo "Copialo desde EasyPanel (servicio app -> Deployments -> Webhook)"
+            echo "y guardalo en Settings -> Secrets and variables -> Actions."
+            exit 1
+          fi
+
+      - name: Disparar el despliegue
+        env:
+          HOOK: ${{ secrets.EASYPANEL_DEPLOY_HOOK }}
+        run: |
+          # -f para que un 4xx/5xx falle el job en vez de pasar en silencio,
+          # que es justo lo que venia ocurriendo.
+          codigo=$(curl -sS -o /tmp/respuesta.txt -w '%{http_code}' \
+                        -X POST --max-time 60 "$HOOK")
+          echo "HTTP $codigo"
+          cat /tmp/respuesta.txt || true
+          case "$codigo" in
+            2*) echo "Despliegue disparado." ;;
+            *)  echo "::error::EasyPanel respondio $codigo"; exit 1 ;;
+          esac

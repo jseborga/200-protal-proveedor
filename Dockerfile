@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     libffi-dev \
     curl \
+    postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies (cached layer — solo se reconstruye si cambia requirements.txt)
