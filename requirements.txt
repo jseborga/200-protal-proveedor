@@ -21,7 +21,9 @@ aiosmtplib>=3.0.0
 python-dotenv>=1.0.0
 email-validator>=2.1.0
 apscheduler>=3.10.0,<4.0
-mcp[cli]>=1.0.0
+# Acotado a 1.x: la 2.x movio mcp.server.transport_security y el import
+# falla, dejando /mcp sin montar en silencio (lo detecto el CI).
+mcp[cli]>=1.0.0,<2.0.0
 pdfplumber>=0.11.0
 pymupdf>=1.24.0
 pywebpush>=2.0.0

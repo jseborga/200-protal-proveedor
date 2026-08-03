@@ -216,6 +216,29 @@ const API = {
     apuUpdateComputo: (id, data) => API.put(`/apu/computos/${id}`, data),
     apuDeleteComputo: (id) => API.del(`/apu/computos/${id}`),
 
+    // APU — plantillas de calculo (recargos, formulas y precio final)
+    apuTemplates: (projectId = null) =>
+        API.get(`/apu/templates${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`),
+    apuTemplate: (id) => API.get(`/apu/templates/${id}`),
+    apuCreateTemplate: (data) => API.post('/apu/templates', data),
+    apuCloneTemplate: (id, data) => API.post(`/apu/templates/${id}/clone`, data || {}),
+    apuUpdateTemplate: (id, data) => API.put(`/apu/templates/${id}`, data),
+    apuDeleteTemplate: (id) => API.del(`/apu/templates/${id}`),
+
+    // Biblioteca de insumos de la empresa
+    companyInsumos: (params = '') => API.get(`/company-insumos${params}`),
+    createCompanyInsumo: (data) => API.post('/company-insumos', data),
+    updateCompanyInsumo: (id, data) => API.put(`/company-insumos/${id}`, data),
+    deleteCompanyInsumo: (id) => API.del(`/company-insumos/${id}`),
+    importCompanyInsumo: (catalogInsumoId) => API.post(`/company-insumos/${catalogInsumoId}/import-from-catalog`, {}),
+
+    // Cola de curacion de precios (staff)
+    curationQueue: (params = '') => API.get(`/company-insumos/suggestions/queue${params}`),
+    curationAccept: (id, note) => API.post(`/company-insumos/suggestions/${id}/accept`, { note: note || null }),
+    curationReject: (id, note) => API.post(`/company-insumos/suggestions/${id}/reject`, { note: note || null }),
+    curationConfig: () => API.get('/company-insumos/suggestions/config'),
+    curationSetConfig: (data) => API.put('/company-insumos/suggestions/config', data),
+
     // Public — grouped prices
     publicGroupedPrices: (params = '') => API.get(`/prices/public/grouped${params}`),
 
@@ -402,6 +425,12 @@ const ICONS = {
     'chevron-right': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9,18 15,12 9,6"/></svg>',
     ruler: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="8" width="20" height="8" rx="1"/><line x1="6" y1="8" x2="6" y2="12"/><line x1="10" y1="8" x2="10" y2="12"/><line x1="14" y1="8" x2="14" y2="12"/><line x1="18" y1="8" x2="18" y2="12"/></svg>',
     hammer: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 6l3-3 5 5-3 3"/><path d="M16.5 8.5L9 16l-1 4-4 1 1-4 7.5-7.5"/></svg>',
+    book: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>',
+    copy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>',
+    sliders: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>',
+    'arrow-up': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5,12 12,5 19,12"/></svg>',
+    'arrow-down': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19,12 12,19 5,12"/></svg>',
+    'inbox-check': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22,12 16,12 14,15 10,15 8,12 2,12"/><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>',
 };
 
 function icon(name, size = 20) {
@@ -449,11 +478,13 @@ function renderApp() {
     const authPages = {
         pedidos:      { title: 'Cotizaciones', icon: 'clipboard',  render: renderPedidos },
         presupuestos: { title: 'Presupuestos', icon: 'calculator', render: renderPresupuestos },
+        biblioteca:   { title: 'Biblioteca',   icon: 'book',       render: renderBiblioteca },
         company:      { title: 'Mi Empresa',   icon: 'building',   render: renderCompany },
     };
 
     const staffPages = isStaff() ? {
         inbox:     { title: 'Inbox',        icon: 'mail',       render: renderInbox },
+        curacion:  { title: 'Curacion',     icon: 'inbox-check', render: renderCuracion },
         admin:     { title: 'Admin',        icon: 'settings',   render: renderAdmin },
     } : {};
 
@@ -590,11 +621,13 @@ function openMobileMenu() {
     if (state.user) {
         menuPages.push({ key: 'pedidos', label: 'Cotizaciones', ico: 'clipboard' });
         menuPages.push({ key: 'presupuestos', label: 'Presupuestos', ico: 'calculator' });
+        menuPages.push({ key: 'biblioteca', label: 'Biblioteca de insumos', ico: 'book' });
         menuPages.push({ key: 'company', label: 'Mi Empresa', ico: 'building' });
     }
     if (isStaff()) {
         menuPages.push({ key: '_divider' });
         menuPages.push({ key: 'inbox', label: 'Inbox', ico: 'mail' });
+        menuPages.push({ key: 'curacion', label: 'Curacion de precios', ico: 'inbox-check' });
         menuPages.push({ key: 'admin', label: 'Admin', ico: 'settings' });
     }
     if (state.user) {
@@ -11096,6 +11129,9 @@ function renderApuProjectDetail(p) {
                     <button class="btn btn-secondary btn-sm" onclick="apuRefreshPrices(${Number(p.id)})">
                         ${icon('trending-up', 15)} Actualizar precios de mercado
                     </button>
+                    <button class="btn btn-secondary btn-sm" onclick="openApuTemplates(${Number(p.id)})">
+                        ${icon('sliders', 15)} Plantillas de calculo
+                    </button>
                 </div>
             </div>
             <div class="apu-proj-hero-total">
@@ -11700,6 +11736,1407 @@ document.addEventListener('click', (e) => {
     const box = document.getElementById('apu-cat-results');
     if (box && !e.target.closest('.apu-search-wrap')) box.style.display = 'none';
 });
+
+// ═══════════════════════════════════════════════════════════════
+// ── APU — Plantillas de calculo (recargos y precio final) ──────
+// ═══════════════════════════════════════════════════════════════
+
+// Tipos de fila que entiende el motor de calculo del backend.
+const APU_TPL_LINE_TYPES = [
+    { key: 'sum_mat', label: 'Suma materiales',   hint: 'Suma el costo de todos los materiales de la partida' },
+    { key: 'sum_mo',  label: 'Suma mano de obra', hint: 'Suma el costo de mano de obra de la partida' },
+    { key: 'sum_eq',  label: 'Suma equipo',       hint: 'Suma el costo de equipo y herramientas' },
+    { key: 'percent', label: 'Porcentaje',        hint: 'Aplica un % sobre la fila indicada en la formula' },
+    { key: 'formula', label: 'Formula',           hint: 'Expresion libre con los codigos de otras filas. Ej: A + B * 0.15' },
+];
+
+const APU_TPL_SCOPES = [
+    { key: 'global',  label: 'Plantillas globales', desc: 'Definidas por el sistema. Se pueden usar tal cual o clonar para editarlas.' },
+    { key: 'company', label: 'De mi empresa',       desc: 'Disponibles para todos los proyectos de tu empresa.' },
+    { key: 'project', label: 'De esta obra',        desc: 'Solo se aplican al proyecto actual.' },
+];
+
+const _apuTpl = {
+    projectId: null,
+    list: [],
+    editing: null,   // copia local de la plantilla; el servidor manda al guardar
+    errors: [],      // mensajes de validacion devueltos por el backend
+};
+
+/** Alcance de la plantilla, normalizado a global/company/project. */
+function _apuTplScope(t) {
+    if (t.is_global || t.scope === 'global') return 'global';
+    if (t.scope === 'project' || t.project_id) return 'project';
+    return 'company';
+}
+
+/** Las globales llegan bloqueadas: el backend responde 403 si se editan. */
+function _apuTplEditable(t) {
+    if (t.is_global) return false;
+    return t.editable !== false;
+}
+
+function _apuTplTypeLabel(type) {
+    const t = APU_TPL_LINE_TYPES.find(x => x.key === type);
+    return t ? t.label : String(type || '');
+}
+
+// El 422 de FastAPI puede venir como string, lista de strings o lista de
+// objetos {loc, msg}. Se normaliza a una lista de mensajes legibles.
+function _apuDetailList(data) {
+    const d = data && (data.detail !== undefined && data.detail !== null ? data.detail : data.error);
+    if (d === undefined || d === null || d === '') return [];
+    if (typeof d === 'string') return [d];
+    if (Array.isArray(d)) {
+        return d.map(x => {
+            if (typeof x === 'string') return x;
+            if (x && typeof x === 'object') return x.msg || x.message || x.detail || JSON.stringify(x);
+            return String(x);
+        });
+    }
+    if (typeof d === 'object') return [d.msg || d.message || d.detail || JSON.stringify(d)];
+    return [String(d)];
+}
+
+// ── Lista de plantillas ───────────────────────────────────────
+async function openApuTemplates(projectId) {
+    const page = document.getElementById('page-content');
+    if (!page) return;
+    _apuTpl.projectId = projectId ? Number(projectId) : null;
+    _apuTpl.editing = null;
+    _apuTpl.errors = [];
+    page.innerHTML = '<div class="empty-state"><p>Cargando plantillas...</p></div>';
+    loadApuTemplates();
+}
+
+async function loadApuTemplates() {
+    const page = document.getElementById('page-content');
+    if (!page) return;
+    try {
+        const resp = await API.apuTemplates(_apuTpl.projectId);
+        if (!resp.ok) {
+            page.innerHTML = `<div class="empty-state"><p>${esc(_apuDetail(resp, 'No se pudieron cargar las plantillas'))}</p></div>`;
+            return;
+        }
+        _apuTpl.list = resp.data || [];
+        renderApuTemplatesList();
+    } catch {
+        page.innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>';
+    }
+}
+
+function renderApuTemplatesList() {
+    const page = document.getElementById('page-content');
+    if (!page) return;
+
+    const backBtn = _apuTpl.projectId
+        ? `<button class="btn btn-secondary btn-sm" onclick="openApuProject(${Number(_apuTpl.projectId)})">&larr; Volver al presupuesto</button>`
+        : `<button class="btn btn-secondary btn-sm" onclick="renderApuProjects()">&larr; Proyectos</button>`;
+
+    const groups = APU_TPL_SCOPES.map(sc => {
+        const items = _apuTpl.list.filter(t => _apuTplScope(t) === sc.key);
+        if (sc.key === 'project' && !_apuTpl.projectId && !items.length) return '';
+        return `
+            <section class="tpl-group">
+                <header class="tpl-group-head">
+                    <span class="tpl-group-title">${esc(sc.label)}</span>
+                    <span class="tpl-group-count">${esc(String(items.length))}</span>
+                </header>
+                <p class="apu-hint">${esc(sc.desc)}</p>
+                ${items.length
+                    ? `<div class="tpl-grid">${items.map(renderApuTemplateCard).join('')}</div>`
+                    : '<div class="tpl-empty">Sin plantillas en este alcance</div>'}
+            </section>
+        `;
+    }).join('');
+
+    page.innerHTML = `
+        <div class="apu-back">${backBtn}</div>
+        <div class="page-header apu-header">
+            <div>
+                <h1 class="page-title">Plantillas de calculo</h1>
+                <p class="page-subtitle">Cargas sociales, gastos generales, utilidad e impuestos: definen como se llega al precio unitario final</p>
+            </div>
+            <div class="apu-header-actions">
+                <button class="btn btn-primary" onclick="showApuNewTemplateModal()">
+                    ${icon('plus', 16)} Nueva plantilla
+                </button>
+            </div>
+        </div>
+        <div class="tpl-groups">${groups}</div>
+    `;
+}
+
+function renderApuTemplateCard(t) {
+    const tid = Number(t.id);
+    const editable = _apuTplEditable(t);
+    const lines = t.lines || [];
+    const total = lines.find(l => l.is_total);
+    const cloneBtn = `<button class="btn btn-sm btn-secondary" onclick="showApuTemplateCloneModal(${tid}, '${escJs(t.name)}')">
+                          ${icon('copy', 14)} ${editable ? 'Clonar' : 'Clonar para editar'}
+                      </button>`;
+    return `
+        <div class="tpl-card${editable ? '' : ' locked'}">
+            <div class="tpl-card-top">
+                <span class="tpl-card-name">${esc(t.name)}</span>
+                ${editable ? '' : `<span class="tpl-lock" title="Plantilla global: solo lectura">${icon('lock', 14)}</span>`}
+            </div>
+            ${t.description ? `<div class="tpl-card-desc">${esc(t.description)}</div>` : ''}
+            <div class="tpl-card-meta">
+                <span>${esc(String(lines.length))} filas</span>
+                ${total ? `<span class="apu-dot"></span><span>Precio final: ${esc(total.name || total.code || '')}</span>` : ''}
+                ${t.source_template_id ? `<span class="apu-dot"></span><span>Clon de #${esc(String(t.source_template_id))}</span>` : ''}
+            </div>
+            <div class="tpl-card-actions">
+                ${editable
+                    ? `<button class="btn btn-sm btn-primary" onclick="openApuTemplateEditor(${tid})">${icon('edit', 14)} Editar</button>`
+                    : `<button class="btn btn-sm btn-secondary" onclick="openApuTemplateEditor(${tid})">${icon('file-text', 14)} Ver filas</button>`}
+                ${cloneBtn}
+                ${editable ? `<button class="btn btn-sm btn-danger" onclick="deleteApuTemplate(${tid}, '${escJs(t.name)}')">${icon('trash', 14)}</button>` : ''}
+            </div>
+        </div>
+    `;
+}
+
+// ── Alta y clonado ────────────────────────────────────────────
+function showApuNewTemplateModal() {
+    const projOpt = _apuTpl.projectId
+        ? `<div class="form-group">
+               <label class="form-label">Alcance</label>
+               <select class="form-select" name="scope">
+                   <option value="company">De mi empresa (todos los proyectos)</option>
+                   <option value="project">Solo para esta obra</option>
+               </select>
+           </div>`
+        : '';
+    showModal('Nueva plantilla de calculo', `
+        <form onsubmit="handleApuCreateTemplate(event)">
+            <div class="form-group">
+                <label class="form-label">Nombre *</label>
+                <input class="form-input" name="name" required maxlength="120" placeholder="Ej. Recargos obra publica 2026">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Descripcion</label>
+                <textarea class="form-input" name="description" maxlength="400" placeholder="Para que sirve esta plantilla"></textarea>
+            </div>
+            ${projOpt}
+            <p class="apu-hint">Se crea con las filas base (materiales, mano de obra y equipo). Luego podras agregar recargos y marcar cual fila es el precio final.</p>
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Crear plantilla</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleApuCreateTemplate(e) {
+    e.preventDefault();
+    const f = e.target;
+    const scope = f.scope ? f.scope.value : 'company';
+    const payload = {
+        name: f.name.value.trim(),
+        description: f.description.value.trim() || null,
+        project_id: (scope === 'project' && _apuTpl.projectId) ? Number(_apuTpl.projectId) : null,
+        lines: [
+            { code: 'A', name: 'Materiales',   type: 'sum_mat', value: 0, formula: null, is_total: false, sequence: 1 },
+            { code: 'B', name: 'Mano de obra', type: 'sum_mo',  value: 0, formula: null, is_total: false, sequence: 2 },
+            { code: 'C', name: 'Equipo y herramientas', type: 'sum_eq', value: 0, formula: null, is_total: false, sequence: 3 },
+            { code: 'D', name: 'Costo directo', type: 'formula', value: 0, formula: 'A + B + C', is_total: true, sequence: 4 },
+        ],
+    };
+    try {
+        const resp = await API._fetch('/apu/templates', { method: 'POST', body: JSON.stringify(payload) });
+        let data = {};
+        try { data = await resp.json(); } catch {}
+        if (!resp.ok || data.ok === false) {
+            toast(_apuDetailList(data)[0] || 'No se pudo crear la plantilla', 'error');
+            return;
+        }
+        closeModal();
+        toast('Plantilla creada', 'success');
+        if (data.data && data.data.id) openApuTemplateEditor(data.data.id);
+        else loadApuTemplates();
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+function showApuTemplateCloneModal(templateId, name) {
+    const projOpt = _apuTpl.projectId
+        ? `<div class="form-group">
+               <label class="form-label">Alcance de la copia</label>
+               <select class="form-select" name="scope">
+                   <option value="company">De mi empresa (todos los proyectos)</option>
+                   <option value="project">Solo para esta obra</option>
+               </select>
+           </div>`
+        : '';
+    showModal('Clonar plantilla', `
+        <form onsubmit="handleApuTemplateClone(event, ${Number(templateId)})">
+            <p class="apu-hint" style="margin-bottom:12px">
+                Se crea una copia editable de <strong>${esc(name)}</strong> con todas sus filas. La original no se modifica.
+            </p>
+            <div class="form-group">
+                <label class="form-label">Nombre de la copia *</label>
+                <input class="form-input" name="name" required maxlength="120" value="${esc(name)} (copia)">
+            </div>
+            ${projOpt}
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Clonar</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleApuTemplateClone(e, templateId) {
+    e.preventDefault();
+    const f = e.target;
+    const scope = f.scope ? f.scope.value : 'company';
+    const payload = {
+        name: f.name.value.trim() || null,
+        project_id: (scope === 'project' && _apuTpl.projectId) ? Number(_apuTpl.projectId) : null,
+    };
+    try {
+        const resp = await API.apuCloneTemplate(templateId, payload);
+        if (!resp.ok) { toast(_apuDetailList(resp)[0] || 'No se pudo clonar', 'error'); return; }
+        closeModal();
+        toast('Plantilla clonada', 'success');
+        if (resp.data && resp.data.id) openApuTemplateEditor(resp.data.id);
+        else loadApuTemplates();
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function deleteApuTemplate(templateId, name) {
+    if (!confirm(`Eliminar la plantilla "${name}"?`)) return;
+    try {
+        const resp = await API._fetch(`/apu/templates/${Number(templateId)}`, { method: 'DELETE' });
+        let data = {};
+        try { data = await resp.json(); } catch {}
+        if (resp.status === 409) {
+            showModal('No se puede eliminar', `
+                <p style="font-size:14px;color:var(--gray-700);line-height:1.5">
+                    ${esc(_apuDetailList(data)[0] || 'La plantilla esta en uso por uno o mas proyectos.')}
+                </p>
+                <div style="text-align:right;margin-top:16px">
+                    <button class="btn btn-primary" onclick="closeModal()">Entendido</button>
+                </div>
+            `);
+            return;
+        }
+        if (!resp.ok || data.ok === false) {
+            toast(_apuDetailList(data)[0] || 'No se pudo eliminar', 'error');
+            return;
+        }
+        toast('Plantilla eliminada', 'success');
+        loadApuTemplates();
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Editor de filas ───────────────────────────────────────────
+async function openApuTemplateEditor(templateId) {
+    const page = document.getElementById('page-content');
+    if (!page) return;
+    page.innerHTML = '<div class="empty-state"><p>Cargando plantilla...</p></div>';
+    try {
+        const resp = await API.apuTemplate(templateId);
+        if (!resp.ok) {
+            page.innerHTML = `<div class="empty-state"><p>${esc(_apuDetail(resp, 'No se pudo cargar la plantilla'))}</p></div>`;
+            return;
+        }
+        const t = resp.data || {};
+        _apuTpl.errors = [];
+        _apuTpl.editing = {
+            id: t.id,
+            name: t.name || '',
+            description: t.description || '',
+            is_global: !!t.is_global,
+            editable: _apuTplEditable(t),
+            scope: _apuTplScope(t),
+            project_id: t.project_id || null,
+            lines: (t.lines || [])
+                .slice()
+                .sort((a, b) => Number(a.sequence || 0) - Number(b.sequence || 0))
+                .map(l => ({
+                    id: l.id || null,
+                    code: l.code || '',
+                    name: l.name || '',
+                    type: l.type || 'percent',
+                    value: Number(l.value || 0),
+                    formula: l.formula || '',
+                    is_total: !!l.is_total,
+                })),
+        };
+        renderApuTemplateEditor();
+    } catch {
+        page.innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>';
+    }
+}
+
+function renderApuTemplateEditor() {
+    const page = document.getElementById('page-content');
+    const t = _apuTpl.editing;
+    if (!page || !t) return;
+    const ro = !t.editable;
+
+    page.innerHTML = `
+        <div class="apu-back">
+            <button class="btn btn-secondary btn-sm" onclick="loadApuTemplates()">&larr; Plantillas</button>
+        </div>
+
+        <div class="tpl-hero">
+            <div class="tpl-hero-main">
+                <div class="tpl-hero-top">
+                    <span class="badge ${ro ? 'badge-gray' : 'badge-primary'}">${ro ? 'Solo lectura' : 'Editable'}</span>
+                    ${ro ? `<span class="tpl-lock">${icon('lock', 14)}</span>` : ''}
+                </div>
+                <h1 class="tpl-hero-title">${esc(t.name)}</h1>
+                ${t.description ? `<p class="tpl-hero-desc">${esc(t.description)}</p>` : ''}
+                ${ro ? `<p class="apu-hint">Esta plantilla es global. Para adaptarla a tu empresa, clonala y edita la copia.</p>` : ''}
+            </div>
+            <div class="tpl-hero-actions">
+                ${ro
+                    ? `<button class="btn btn-primary" onclick="showApuTemplateCloneModal(${Number(t.id)}, '${escJs(t.name)}')">${icon('copy', 15)} Clonar para editar</button>`
+                    : `<button class="btn btn-primary" onclick="saveApuTemplate()">${icon('check', 15)} Guardar cambios</button>`}
+            </div>
+        </div>
+
+        <div id="apu-tpl-errors">${_apuTplErrorsHtml()}</div>
+
+        ${ro ? '' : `
+        <div class="tpl-meta-form">
+            <div class="form-group">
+                <label class="form-label">Nombre</label>
+                <input class="form-input" id="apu-tpl-name" maxlength="120" value="${esc(t.name)}"
+                       oninput="apuTplMetaSet('name', this.value)">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Descripcion</label>
+                <input class="form-input" id="apu-tpl-desc" maxlength="400" value="${esc(t.description)}"
+                       oninput="apuTplMetaSet('description', this.value)">
+            </div>
+        </div>`}
+
+        <section class="tpl-editor">
+            <header class="tpl-editor-head">
+                ${icon('sliders', 16)}
+                <span>Filas de la plantilla</span>
+                <span class="apu-comp-hint">El orden define como se encadenan los calculos. Marca cual fila es el precio unitario final.</span>
+            </header>
+            <div class="table-wrap">
+                <table class="apu-table tpl-table">
+                    <thead>
+                        <tr>
+                            <th style="width:70px">Codigo</th>
+                            <th>Nombre</th>
+                            <th style="width:160px">Tipo</th>
+                            <th style="width:100px" class="apu-th-num">Valor %</th>
+                            <th style="width:200px">Formula</th>
+                            <th style="width:80px" class="apu-th-num">Final</th>
+                            <th style="width:96px"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="apu-tpl-rows">${_apuTplRowsHtml()}</tbody>
+                </table>
+            </div>
+            ${ro ? '' : `
+            <div class="tpl-editor-foot">
+                <button class="btn btn-sm btn-secondary" onclick="apuTplAddLine()">${icon('plus', 14)} Agregar fila</button>
+                <button class="btn btn-sm btn-primary" onclick="saveApuTemplate()">${icon('check', 14)} Guardar cambios</button>
+            </div>`}
+        </section>
+
+        <div class="tpl-legend">
+            ${APU_TPL_LINE_TYPES.map(x => `<div class="tpl-legend-item"><strong>${esc(x.label)}</strong><span>${esc(x.hint)}</span></div>`).join('')}
+        </div>
+    `;
+}
+
+function _apuTplErrorsHtml() {
+    if (!_apuTpl.errors.length) return '';
+    return `
+        <div class="tpl-errors">
+            <div class="tpl-errors-title">${icon('info', 15)} Revisa estas filas antes de guardar</div>
+            <ul>${_apuTpl.errors.map(m => `<li>${esc(m)}</li>`).join('')}</ul>
+        </div>
+    `;
+}
+
+function _apuTplRowsHtml() {
+    const t = _apuTpl.editing;
+    if (!t) return '';
+    const ro = !t.editable;
+    if (!t.lines.length) {
+        return '<tr><td colspan="7" class="apu-block-empty">La plantilla no tiene filas</td></tr>';
+    }
+    return t.lines.map((l, idx) => {
+        const isPercent = l.type === 'percent';
+        const isFormula = l.type === 'formula' || l.type === 'percent';
+        return `
+            <tr class="${l.is_total ? 'tpl-row-total' : ''}">
+                <td>
+                    <input class="apu-inp apu-inp-text tpl-inp-code" type="text" maxlength="8" ${ro ? 'disabled' : ''}
+                           value="${esc(l.code)}" aria-label="Codigo"
+                           oninput="apuTplLineSet(${idx}, 'code', this.value)">
+                </td>
+                <td>
+                    <input class="apu-inp apu-inp-text" type="text" maxlength="120" ${ro ? 'disabled' : ''}
+                           value="${esc(l.name)}" aria-label="Nombre"
+                           oninput="apuTplLineSet(${idx}, 'name', this.value)">
+                </td>
+                <td>
+                    <select class="apu-inp apu-inp-sel" ${ro ? 'disabled' : ''} aria-label="Tipo"
+                            onchange="apuTplTypeChange(${idx}, this.value)">
+                        ${APU_TPL_LINE_TYPES.map(x => `<option value="${esc(x.key)}"${l.type === x.key ? ' selected' : ''}>${esc(x.label)}</option>`).join('')}
+                    </select>
+                </td>
+                <td>
+                    <input class="apu-inp" type="number" step="0.01" ${(ro || !isPercent) ? 'disabled' : ''}
+                           value="${esc(Number(l.value || 0).toFixed(2))}" aria-label="Valor porcentual"
+                           oninput="apuTplLineSet(${idx}, 'value', this.value)">
+                </td>
+                <td>
+                    <input class="apu-inp apu-inp-text tpl-inp-formula" type="text" maxlength="200" ${(ro || !isFormula) ? 'disabled' : ''}
+                           value="${esc(l.formula)}" aria-label="Formula"
+                           placeholder="${isPercent ? 'Base. Ej: B' : 'Ej: A + B + C'}"
+                           oninput="apuTplLineSet(${idx}, 'formula', this.value)">
+                </td>
+                <td class="apu-cell-act">
+                    <input type="radio" name="apu-tpl-total" ${l.is_total ? 'checked' : ''} ${ro ? 'disabled' : ''}
+                           title="Marcar como precio unitario final"
+                           onchange="apuTplSetTotal(${idx})">
+                </td>
+                <td class="apu-cell-act">
+                    ${ro ? '' : `
+                    <button class="tpl-row-btn" title="Subir" onclick="apuTplMove(${idx}, -1)">${icon('arrow-up', 13)}</button>
+                    <button class="tpl-row-btn" title="Bajar" onclick="apuTplMove(${idx}, 1)">${icon('arrow-down', 13)}</button>
+                    <button class="apu-line-del" title="Eliminar fila" onclick="apuTplDeleteLine(${idx})">${icon('trash', 13)}</button>`}
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+function apuTplRerenderRows() {
+    const box = document.getElementById('apu-tpl-rows');
+    if (box) box.innerHTML = _apuTplRowsHtml();
+}
+
+function apuTplMetaSet(field, value) {
+    if (!_apuTpl.editing) return;
+    _apuTpl.editing[field] = String(value);
+}
+
+function apuTplLineSet(idx, field, value) {
+    const t = _apuTpl.editing;
+    if (!t || !t.lines[idx]) return;
+    t.lines[idx][field] = field === 'value' ? (parseFloat(value) || 0) : String(value);
+}
+
+function apuTplTypeChange(idx, value) {
+    const t = _apuTpl.editing;
+    if (!t || !t.lines[idx]) return;
+    t.lines[idx].type = String(value);
+    apuTplRerenderRows();
+}
+
+function apuTplSetTotal(idx) {
+    const t = _apuTpl.editing;
+    if (!t) return;
+    t.lines.forEach((l, i) => { l.is_total = (i === idx); });
+    apuTplRerenderRows();
+}
+
+function apuTplAddLine() {
+    const t = _apuTpl.editing;
+    if (!t) return;
+    t.lines.push({ id: null, code: '', name: '', type: 'percent', value: 0, formula: '', is_total: false });
+    apuTplRerenderRows();
+}
+
+function apuTplDeleteLine(idx) {
+    const t = _apuTpl.editing;
+    if (!t || !t.lines[idx]) return;
+    if (!confirm(`Eliminar la fila "${t.lines[idx].name || t.lines[idx].code || idx + 1}"?`)) return;
+    t.lines.splice(idx, 1);
+    apuTplRerenderRows();
+}
+
+function apuTplMove(idx, dir) {
+    const t = _apuTpl.editing;
+    if (!t) return;
+    const to = idx + Number(dir);
+    if (to < 0 || to >= t.lines.length) return;
+    const [row] = t.lines.splice(idx, 1);
+    t.lines.splice(to, 0, row);
+    apuTplRerenderRows();
+}
+
+async function saveApuTemplate() {
+    const t = _apuTpl.editing;
+    if (!t || !t.editable) return;
+    if (!t.lines.length) { toast('La plantilla necesita al menos una fila', 'error'); return; }
+    if (!t.lines.some(l => l.is_total)) { toast('Marca cual fila es el precio unitario final', 'error'); return; }
+
+    const payload = {
+        name: t.name.trim(),
+        description: t.description.trim() || null,
+        lines: t.lines.map((l, i) => ({
+            code: l.code.trim(),
+            name: l.name.trim(),
+            type: l.type,
+            value: Number(l.value) || 0,
+            formula: l.formula && l.formula.trim() ? l.formula.trim() : null,
+            is_total: !!l.is_total,
+            sequence: i + 1,
+        })),
+    };
+
+    try {
+        const resp = await API._fetch(`/apu/templates/${Number(t.id)}`, { method: 'PUT', body: JSON.stringify(payload) });
+        let data = {};
+        try { data = await resp.json(); } catch {}
+        if (resp.status === 422) {
+            _apuTpl.errors = _apuDetailList(data);
+            if (!_apuTpl.errors.length) _apuTpl.errors = ['La plantilla tiene errores de validacion'];
+            const box = document.getElementById('apu-tpl-errors');
+            if (box) { box.innerHTML = _apuTplErrorsHtml(); box.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+            toast('Hay formulas invalidas', 'error');
+            return;
+        }
+        if (resp.status === 403) {
+            toast(_apuDetailList(data)[0] || 'Esta plantilla no se puede editar. Clonala primero.', 'error');
+            return;
+        }
+        if (!resp.ok || data.ok === false) {
+            toast(_apuDetailList(data)[0] || 'No se pudo guardar la plantilla', 'error');
+            return;
+        }
+        _apuTpl.errors = [];
+        toast('Plantilla guardada', 'success');
+        openApuTemplateEditor(t.id);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ── Biblioteca de insumos de la empresa ────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const LIB_TYPES = [
+    { key: '',    label: 'Todos' },
+    { key: 'mat', label: 'Materiales' },
+    { key: 'mo',  label: 'Mano de obra' },
+    { key: 'eq',  label: 'Equipo' },
+];
+
+const _lib = {
+    q: '',
+    type: '',
+    offset: 0,
+    limit: 50,
+    total: 0,
+};
+
+function _libTypeLabel(t) {
+    const found = LIB_TYPES.find(x => x.key === String(t || '').toLowerCase());
+    return found && found.key ? found.label : String(t || '');
+}
+
+function _libIsOwn(i) {
+    return String(i.source_type || 'manual').toLowerCase() !== 'catalog';
+}
+
+async function renderBiblioteca() {
+    if (!state.user) { showLoginModal(); return; }
+    const page = document.getElementById('page-content');
+    if (!page) return;
+
+    const chips = LIB_TYPES.map(t => `
+        <button class="chip${_lib.type === t.key ? ' active' : ''}" onclick="filterLibType('${escJs(t.key)}', this)">${esc(t.label)}</button>
+    `).join('');
+
+    page.innerHTML = `
+        <div class="page-header apu-header">
+            <div>
+                <h1 class="page-title">Biblioteca de insumos</h1>
+                <p class="page-subtitle">Los insumos propios de tu empresa y los que importaste del catalogo publico</p>
+            </div>
+            <div class="apu-header-actions">
+                <button class="btn btn-secondary" onclick="showLibImportModal()">
+                    ${icon('upload', 16)} Importar del catalogo
+                </button>
+                <button class="btn btn-primary" onclick="showLibInsumoForm()">
+                    ${icon('plus', 16)} Nuevo insumo
+                </button>
+            </div>
+        </div>
+
+        <div class="lib-toolbar">
+            <input class="form-input lib-search" id="lib-q" autocomplete="off"
+                   value="${esc(_lib.q)}"
+                   placeholder="Buscar por nombre o codigo..."
+                   oninput="debounceLibSearch()">
+            <div class="categories-bar">${chips}</div>
+        </div>
+
+        <div id="lib-list"><div class="empty-state"><p>Cargando insumos...</p></div></div>
+        <div id="lib-pagination" class="lib-pagination"></div>
+    `;
+    loadCompanyInsumos(0);
+}
+
+let _libTimer = null;
+function debounceLibSearch() {
+    clearTimeout(_libTimer);
+    _libTimer = setTimeout(() => {
+        const el = document.getElementById('lib-q');
+        _lib.q = el ? el.value.trim() : '';
+        loadCompanyInsumos(0);
+    }, 300);
+}
+
+function filterLibType(type, chipEl) {
+    _lib.type = type || '';
+    if (chipEl) {
+        const bar = chipEl.closest('.categories-bar');
+        if (bar) bar.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+        chipEl.classList.add('active');
+    }
+    loadCompanyInsumos(0);
+}
+
+async function loadCompanyInsumos(offset = 0) {
+    const box = document.getElementById('lib-list');
+    if (!box) return;
+    _lib.offset = Number(offset) || 0;
+    const q = new URLSearchParams();
+    if (_lib.q) q.set('q', _lib.q);
+    if (_lib.type) q.set('type', _lib.type);
+    q.set('limit', String(_lib.limit));
+    q.set('offset', String(_lib.offset));
+
+    try {
+        const resp = await API.companyInsumos('?' + q.toString());
+        if (!resp.ok) {
+            box.innerHTML = `<div class="empty-state"><p>${esc(_apuDetail(resp, 'No se pudo cargar la biblioteca'))}</p></div>`;
+            return;
+        }
+        const list = resp.data || [];
+        _lib.total = Number(resp.total != null ? resp.total : list.length);
+        if (!list.length) {
+            box.innerHTML = `
+                <div class="apu-empty">
+                    <div class="apu-empty-ico">${icon('book', 40)}</div>
+                    <h3>${_lib.q || _lib.type ? 'Sin resultados' : 'Tu biblioteca esta vacia'}</h3>
+                    <p>Crea insumos propios con los precios que manejas, o importa los que ya existen en el catalogo publico para tenerlos a mano en tus presupuestos.</p>
+                    <button class="btn btn-secondary" onclick="showLibImportModal()">${icon('upload', 15)} Importar del catalogo</button>
+                </div>
+            `;
+            renderLibPagination();
+            return;
+        }
+        box.innerHTML = `
+            <div class="table-wrap">
+                <table class="apu-table lib-table">
+                    <thead>
+                        <tr>
+                            <th style="width:110px">Codigo</th>
+                            <th>Insumo</th>
+                            <th style="width:120px">Tipo</th>
+                            <th style="width:80px">Unidad</th>
+                            <th style="width:140px">Categoria</th>
+                            <th style="width:130px" class="apu-th-num">Precio ref.</th>
+                            <th style="width:130px">Origen</th>
+                            <th style="width:120px">Actualizado</th>
+                            <th style="width:150px"></th>
+                        </tr>
+                    </thead>
+                    <tbody>${list.map(renderLibRow).join('')}</tbody>
+                </table>
+            </div>
+        `;
+        renderLibPagination();
+    } catch {
+        box.innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>';
+    }
+}
+
+function renderLibRow(i) {
+    const id = Number(i.id);
+    const own = _libIsOwn(i);
+    const origen = own
+        ? '<span class="badge badge-gray">Propio</span>'
+        : '<span class="badge badge-primary">Del catalogo</span>';
+    const proposed = i.proposed_to_catalog
+        ? '<span class="badge badge-warning lib-badge-prop" title="Ya enviado a revision">En revision</span>'
+        : '';
+    return `
+        <tr>
+            <td class="apu-cell-code">${esc(i.code || '—')}</td>
+            <td class="apu-cell-name">${esc(i.name)}</td>
+            <td class="apu-cell-uom">${esc(_libTypeLabel(i.type))}</td>
+            <td class="apu-cell-uom">${esc(i.uom || '')}</td>
+            <td class="apu-cell-uom">${esc(i.category || '')}</td>
+            <td class="apu-cell-num apu-cell-strong">${esc(_apuMoney(i.reference_price, i.currency))}</td>
+            <td>${origen} ${proposed}</td>
+            <td class="apu-cell-uom">${esc(_apuDate(i.last_price_update))}</td>
+            <td class="apu-cell-act lib-actions">
+                <button class="tpl-row-btn" title="Editar" onclick="showLibInsumoForm(${id})">${icon('edit', 14)}</button>
+                ${(own && !i.proposed_to_catalog)
+                    ? `<button class="tpl-row-btn" title="Proponer al catalogo publico" onclick="proposeInsumoToCatalog(${id}, '${escJs(i.name)}')">${icon('send', 14)}</button>`
+                    : ''}
+                <button class="apu-line-del" title="Eliminar" onclick="deleteLibInsumo(${id}, '${escJs(i.name)}')">${icon('trash', 14)}</button>
+            </td>
+        </tr>
+    `;
+}
+
+function renderLibPagination() {
+    const box = document.getElementById('lib-pagination');
+    if (!box) return;
+    if (_lib.total <= _lib.limit) { box.innerHTML = ''; return; }
+    const page = Math.floor(_lib.offset / _lib.limit) + 1;
+    const pages = Math.ceil(_lib.total / _lib.limit);
+    box.innerHTML = `
+        <button class="btn btn-sm btn-secondary" ${_lib.offset <= 0 ? 'disabled' : ''}
+                onclick="loadCompanyInsumos(${Math.max(0, _lib.offset - _lib.limit)})">&larr; Anterior</button>
+        <span class="lib-page-info">Pagina ${esc(String(page))} de ${esc(String(pages))} &middot; ${esc(String(_lib.total))} insumos</span>
+        <button class="btn btn-sm btn-secondary" ${page >= pages ? 'disabled' : ''}
+                onclick="loadCompanyInsumos(${_lib.offset + _lib.limit})">Siguiente &rarr;</button>
+    `;
+}
+
+// ── Alta / edicion manual ─────────────────────────────────────
+function showLibInsumoForm(editId) {
+    const uoms = UOM_LIST.length
+        ? UOM_LIST.map(u => `<option value="${esc(u.key)}">${esc(u.key)} - ${esc(u.label)}</option>`).join('')
+        : '';
+    const cats = Object.entries(CATEGORY_META)
+        .map(([k, v]) => `<option value="${esc(k)}">${esc(v.label || k)}</option>`).join('');
+    const types = LIB_TYPES.filter(t => t.key)
+        .map(t => `<option value="${esc(t.key)}">${esc(t.label)}</option>`).join('');
+
+    showModal(editId ? 'Editar insumo' : 'Nuevo insumo propio', `
+        <form onsubmit="handleLibInsumo(event, ${editId ? Number(editId) : 'null'})">
+            <div class="form-group">
+                <label class="form-label">Nombre *</label>
+                <input class="form-input" name="name" id="lib-f-name" required maxlength="200" placeholder="Ej. Cemento IP-30 bolsa 50 kg">
+            </div>
+            <div class="apu-form-3">
+                <div class="form-group">
+                    <label class="form-label">Tipo *</label>
+                    <select class="form-select" name="type" id="lib-f-type" required>${types}</select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Unidad *</label>
+                    <input class="form-input" name="uom" id="lib-f-uom" required maxlength="20" list="lib-uom-list" placeholder="m3, kg, hr...">
+                    <datalist id="lib-uom-list">${uoms}</datalist>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Codigo</label>
+                    <input class="form-input" name="code" id="lib-f-code" maxlength="40" placeholder="INS-001">
+                </div>
+            </div>
+            <div class="apu-form-3">
+                <div class="form-group">
+                    <label class="form-label">Categoria</label>
+                    <select class="form-select" name="category" id="lib-f-category">
+                        <option value="">Sin categoria</option>
+                        ${cats}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Precio de referencia</label>
+                    <input class="form-input" name="reference_price" id="lib-f-price" type="number" step="0.01" min="0" value="0.00">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Moneda</label>
+                    <select class="form-select" name="currency" id="lib-f-currency">
+                        <option value="BOB">BOB — Bolivianos</option>
+                        <option value="USD">USD — Dolares</option>
+                    </select>
+                </div>
+            </div>
+            ${editId ? '' : `
+            <div class="form-group">
+                <label class="form-label">Descripcion</label>
+                <textarea class="form-input" name="description" maxlength="400" placeholder="Detalle, marca, especificacion tecnica"></textarea>
+            </div>`}
+            <div style="text-align:right;margin-top:12px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+                <button type="submit" class="btn btn-primary">${editId ? 'Guardar cambios' : 'Crear insumo'}</button>
+            </div>
+        </form>
+    `);
+    if (editId) loadLibInsumoIntoForm(editId);
+}
+
+async function loadLibInsumoIntoForm(id) {
+    try {
+        const q = new URLSearchParams({ limit: String(_lib.limit), offset: String(_lib.offset) });
+        if (_lib.q) q.set('q', _lib.q);
+        if (_lib.type) q.set('type', _lib.type);
+        const resp = await API.companyInsumos('?' + q.toString());
+        if (!resp.ok) return;
+        const i = (resp.data || []).find(x => Number(x.id) === Number(id));
+        if (!i) return;
+        const set = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
+        set('lib-f-name', i.name || '');
+        set('lib-f-type', i.type || 'mat');
+        set('lib-f-uom', i.uom || '');
+        set('lib-f-code', i.code || '');
+        set('lib-f-category', i.category || '');
+        set('lib-f-price', Number(i.reference_price || 0).toFixed(2));
+        set('lib-f-currency', i.currency || 'BOB');
+    } catch {}
+}
+
+async function handleLibInsumo(e, editId) {
+    e.preventDefault();
+    const f = e.target;
+    const payload = {
+        name: f.name.value.trim(),
+        type: f.type.value,
+        uom: f.uom.value.trim(),
+        code: f.code.value.trim() || null,
+        category: f.category.value || null,
+        reference_price: parseFloat(f.reference_price.value) || 0,
+    };
+    if (!editId) {
+        payload.currency = f.currency.value || 'BOB';
+        payload.description = f.description.value.trim() || null;
+    }
+    try {
+        const resp = editId
+            ? await API.updateCompanyInsumo(editId, payload)
+            : await API.createCompanyInsumo(payload);
+        if (!resp.ok) { toast(_apuDetailList(resp)[0] || 'No se pudo guardar el insumo', 'error'); return; }
+        closeModal();
+        toast(editId ? 'Insumo actualizado' : 'Insumo creado', 'success');
+        loadCompanyInsumos(_lib.offset);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function deleteLibInsumo(id, name) {
+    if (!confirm(`Eliminar "${name}" de tu biblioteca?`)) return;
+    try {
+        const resp = await API.deleteCompanyInsumo(id);
+        if (!resp.ok) { toast(_apuDetailList(resp)[0] || 'No se pudo eliminar', 'error'); return; }
+        toast('Insumo eliminado', 'success');
+        loadCompanyInsumos(_lib.offset);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Importar desde el catalogo publico ────────────────────────
+function showLibImportModal() {
+    showModal('Importar del catalogo publico', `
+        <div class="form-group">
+            <label class="form-label">Buscar en el catalogo de mercado</label>
+            <div class="apu-search-wrap">
+                <input class="form-input" id="lib-cat-q" autocomplete="off"
+                       placeholder="Ej. cemento portland, albanil, mezcladora..."
+                       oninput="debounceLibCatalogSearch()">
+                <div id="lib-cat-results" class="apu-sug" style="display:none"></div>
+            </div>
+            <span class="apu-hint">Al importar, el insumo se copia a tu biblioteca con su unidad y precio actual. Queda marcado como "Del catalogo" y podras ajustarle el precio sin afectar el catalogo publico.</span>
+        </div>
+        <div id="lib-import-log" class="lib-import-log"></div>
+        <div style="text-align:right;margin-top:12px">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cerrar</button>
+        </div>
+    `);
+}
+
+let _libCatalogTimer = null;
+function debounceLibCatalogSearch() {
+    clearTimeout(_libCatalogTimer);
+    _libCatalogTimer = setTimeout(libCatalogSearch, 250);
+}
+
+async function libCatalogSearch() {
+    const input = document.getElementById('lib-cat-q');
+    const box = document.getElementById('lib-cat-results');
+    if (!input || !box) return;
+    const q = input.value.trim();
+    if (q.length < 2) { box.style.display = 'none'; box.innerHTML = ''; return; }
+    try {
+        // smart-search: embeddings + fallback trigram (misma fuente que el buscador publico)
+        const resp = await API.smartSearch(q, null, 8);
+        const base = (resp && resp.ok) ? [...(resp.data || []), ...(resp.suggestions || [])] : [];
+        const seen = new Set();
+        const items = base.filter(p => p.id && !seen.has(p.id) && (seen.add(p.id), true)).slice(0, 8);
+        if (!items.length) {
+            box.innerHTML = '<div class="apu-sug-empty">Sin resultados en el catalogo</div>';
+            box.style.display = '';
+            return;
+        }
+        box.innerHTML = items.map(p => `
+            <div class="apu-sug-item" onclick="libImportFromCatalog(${Number(p.id)}, '${escJs(p.name)}')">
+                <div>
+                    <div class="apu-sug-name">${esc(p.name)}</div>
+                    <div class="apu-sug-meta">${p.category ? esc(p.category) : ''}${p.uom ? ' &middot; ' + esc(p.uom) : ''}</div>
+                </div>
+                <span class="apu-sug-price">${p.ref_price ? esc(_apuNum(p.ref_price, 2)) : '—'}</span>
+            </div>
+        `).join('');
+        box.style.display = '';
+    } catch {
+        box.style.display = 'none';
+    }
+}
+
+async function libImportFromCatalog(insumoId, name) {
+    const box = document.getElementById('lib-cat-results');
+    if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+    const q = document.getElementById('lib-cat-q');
+    if (q) q.value = '';
+    try {
+        const resp = await API.importCompanyInsumo(insumoId);
+        if (!resp.ok) { toast(_apuDetailList(resp)[0] || 'No se pudo importar el insumo', 'error'); return; }
+        const already = !!resp.already_existed;
+        toast(already ? 'Ese insumo ya estaba en tu biblioteca' : 'Insumo importado', already ? 'info' : 'success');
+        const log = document.getElementById('lib-import-log');
+        if (log) {
+            log.insertAdjacentHTML('afterbegin', `
+                <div class="lib-import-row${already ? ' dup' : ''}">
+                    ${icon(already ? 'info' : 'check-circle', 14)}
+                    <span>${esc(name)}</span>
+                    <span class="lib-import-tag">${already ? 'Ya existia' : 'Importado'}</span>
+                </div>
+            `);
+        }
+        loadCompanyInsumos(_lib.offset);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Proponer un insumo propio al catalogo publico ─────────────
+function proposeInsumoToCatalog(id, name) {
+    showModal('Proponer al catalogo publico', `
+        <p style="font-size:14px;color:var(--gray-700);line-height:1.55">
+            Vas a proponer <strong>${esc(name)}</strong> para que forme parte del catalogo publico de insumos.
+        </p>
+        <ul class="lib-propose-list">
+            <li>La propuesta entra a una <strong>cola de revision</strong>: un curador verifica nombre, unidad, categoria y precio antes de publicarla.</li>
+            <li>Mientras se revisa, el insumo sigue siendo tuyo y podes usarlo normalmente en tus presupuestos.</li>
+            <li>Si se aprueba, queda visible para todos y sus precios empiezan a alimentarse de las cotizaciones del mercado.</li>
+            <li>Si se rechaza, no pasa nada con tu insumo: solo no se publica.</li>
+        </ul>
+        <div style="text-align:right;margin-top:16px">
+            <button class="btn btn-secondary" onclick="closeModal()" style="margin-right:8px">Cancelar</button>
+            <button class="btn btn-primary" onclick="confirmProposeInsumo(${Number(id)})">${icon('send', 15)} Enviar a revision</button>
+        </div>
+    `);
+}
+
+async function confirmProposeInsumo(id) {
+    try {
+        const resp = await API._fetch(`/company-insumos/${Number(id)}/propose-to-catalog`, { method: 'POST', body: JSON.stringify({}) });
+        let data = {};
+        try { data = await resp.json(); } catch {}
+        if (resp.status === 409) {
+            closeModal();
+            toast(_apuDetailList(data)[0] || 'Este insumo ya fue propuesto al catalogo', 'info');
+            loadCompanyInsumos(_lib.offset);
+            return;
+        }
+        if (!resp.ok || data.ok === false) {
+            toast(_apuDetailList(data)[0] || 'No se pudo enviar la propuesta', 'error');
+            return;
+        }
+        closeModal();
+        const sid = data.data && data.data.suggestion_id;
+        toast(sid ? `Propuesta #${sid} enviada a revision` : 'Propuesta enviada a revision', 'success');
+        loadCompanyInsumos(_lib.offset);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// Cerrar sugerencias del catalogo (modal de importar) al hacer clic fuera
+document.addEventListener('click', (e) => {
+    const box = document.getElementById('lib-cat-results');
+    if (box && !e.target.closest('.apu-search-wrap')) box.style.display = 'none';
+});
+
+// ═══════════════════════════════════════════════════════════════
+// ── Cola de curacion de precios (staff) ────────────────────────
+// ═══════════════════════════════════════════════════════════════
+
+const CUR_STATES = [
+    { key: 'pending',       label: 'Pendientes' },
+    { key: 'auto_accepted', label: 'Auto-aceptadas' },
+    { key: 'accepted',      label: 'Aceptadas' },
+    { key: 'rejected',      label: 'Rechazadas' },
+];
+
+const CUR_KINDS = {
+    price_update: { label: 'Actualizacion de precio', cls: 'badge-primary' },
+    new_insumo:   { label: 'Insumo nuevo',            cls: 'badge-warning' },
+};
+
+const _cur = {
+    state: 'pending',
+    kind: '',
+    offset: 0,
+    limit: 25,
+    total: 0,
+    stats: null,
+    configOpen: false,
+};
+
+function _curKind(kind) {
+    return CUR_KINDS[String(kind || '').toLowerCase()] || { label: String(kind || ''), cls: 'badge-gray' };
+}
+
+// Alza = rojo (encarece), baja = verde (abarata). Sin variacion = neutro.
+function _curDeltaClass(pct) {
+    const n = Number(pct);
+    if (!isFinite(n) || Math.abs(n) < 0.005) return 'flat';
+    return n > 0 ? 'up' : 'down';
+}
+
+function _curPct(pct) {
+    const n = Number(pct);
+    if (!isFinite(n)) return '—';
+    return `${n > 0 ? '+' : ''}${_apuNum(n, 1)}%`;
+}
+
+async function renderCuracion() {
+    if (!isStaff()) { showLoginModal(); navigate('home'); return; }
+    const page = document.getElementById('page-content');
+    if (!page) return;
+
+    const tabs = CUR_STATES.map(s => `
+        <button class="cur-tab${_cur.state === s.key ? ' active' : ''}" onclick="switchCurationState('${escJs(s.key)}')">
+            ${esc(s.label)}<span class="cur-tab-count" id="cur-count-${esc(s.key)}"></span>
+        </button>
+    `).join('');
+
+    page.innerHTML = `
+        <div class="page-header apu-header">
+            <div>
+                <h1 class="page-title">Curacion de precios</h1>
+                <p class="page-subtitle">Sugerencias que el motor estadistico dejo para revision humana antes de tocar el catalogo</p>
+            </div>
+            <div class="apu-header-actions">
+                <button class="btn btn-secondary" onclick="toggleCurationConfig()">
+                    ${icon('sliders', 16)} Umbrales
+                </button>
+            </div>
+        </div>
+
+        <div id="cur-config" class="cur-config" style="display:${_cur.configOpen ? '' : 'none'}"></div>
+
+        <div class="cur-toolbar">
+            <div class="cur-tabs">${tabs}</div>
+            <select class="form-select cur-kind" onchange="filterCurationKind(this.value)">
+                <option value=""${_cur.kind === '' ? ' selected' : ''}>Todos los tipos</option>
+                <option value="price_update"${_cur.kind === 'price_update' ? ' selected' : ''}>Actualizacion de precio</option>
+                <option value="new_insumo"${_cur.kind === 'new_insumo' ? ' selected' : ''}>Insumo nuevo</option>
+            </select>
+        </div>
+
+        <div id="cur-stats"></div>
+        <div id="cur-list"><div class="empty-state"><p>Cargando cola...</p></div></div>
+        <div id="cur-pagination" class="lib-pagination"></div>
+    `;
+    if (_cur.configOpen) loadCurationConfig();
+    loadCurationQueue(0);
+}
+
+function switchCurationState(st) {
+    _cur.state = st;
+    _cur.offset = 0;
+    document.querySelectorAll('.cur-tab').forEach(t => t.classList.remove('active'));
+    const idx = CUR_STATES.findIndex(s => s.key === st);
+    const el = document.querySelectorAll('.cur-tab')[idx];
+    if (el) el.classList.add('active');
+    loadCurationQueue(0);
+}
+
+function filterCurationKind(kind) {
+    _cur.kind = kind || '';
+    loadCurationQueue(0);
+}
+
+async function loadCurationQueue(offset = 0) {
+    const box = document.getElementById('cur-list');
+    if (!box) return;
+    _cur.offset = Number(offset) || 0;
+    const q = new URLSearchParams();
+    q.set('state', _cur.state);
+    if (_cur.kind) q.set('kind', _cur.kind);
+    q.set('limit', String(_cur.limit));
+    q.set('offset', String(_cur.offset));
+
+    try {
+        const resp = await API.curationQueue('?' + q.toString());
+        if (!resp.ok) {
+            box.innerHTML = `<div class="empty-state"><p>${esc(_apuDetail(resp, 'No se pudo cargar la cola'))}</p></div>`;
+            return;
+        }
+        const list = resp.data || [];
+        _cur.total = Number(resp.total != null ? resp.total : list.length);
+        _cur.stats = resp.stats || null;
+        renderCurationStats();
+        if (!list.length) {
+            box.innerHTML = `
+                <div class="apu-empty">
+                    <div class="apu-empty-ico">${icon('check-circle', 40)}</div>
+                    <h3>Nada por revisar</h3>
+                    <p>No hay sugerencias en este estado con los filtros actuales.</p>
+                </div>
+            `;
+            renderCurationPagination();
+            return;
+        }
+        box.innerHTML = `<div class="cur-grid">${list.map(renderCurationCard).join('')}</div>`;
+        renderCurationPagination();
+    } catch {
+        box.innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>';
+    }
+}
+
+function renderCurationStats() {
+    const box = document.getElementById('cur-stats');
+    const st = _cur.stats;
+    // El contador de cada tab se alimenta de stats si el backend lo manda
+    CUR_STATES.forEach(s => {
+        const el = document.getElementById('cur-count-' + s.key);
+        if (!el) return;
+        const n = st && st[s.key] != null ? st[s.key] : null;
+        el.textContent = n != null ? ` ${n}` : '';
+    });
+    if (!box) return;
+    if (!st) { box.innerHTML = ''; return; }
+    const cells = [
+        { k: 'pending', lbl: 'Pendientes' },
+        { k: 'auto_accepted', lbl: 'Auto-aceptadas' },
+        { k: 'accepted', lbl: 'Aceptadas' },
+        { k: 'rejected', lbl: 'Rechazadas' },
+    ].filter(c => st[c.k] != null);
+    if (!cells.length) { box.innerHTML = ''; return; }
+    box.innerHTML = `
+        <div class="apu-kpis">
+            ${cells.map((c, i) => `
+                <div class="apu-kpi${i === 0 ? ' apu-kpi-hero' : ''}">
+                    <span class="apu-kpi-val">${esc(String(st[c.k]))}</span>
+                    <span class="apu-kpi-lbl">${esc(c.lbl)}</span>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
+function renderCurationCard(s) {
+    const id = Number(s.id);
+    const kind = _curKind(s.kind);
+    const cur = s.currency || 'BOB';
+    const dCls = _curDeltaClass(s.deviation_pct);
+    const isNew = String(s.kind || '') === 'new_insumo' || s.current_price == null;
+    const pending = String(s.state || '') === 'pending';
+
+    return `
+        <article class="cur-card cur-${esc(dCls)}" id="cur-card-${id}">
+            <header class="cur-card-head">
+                <div class="cur-card-title">
+                    <span class="cur-name">${esc(s.name)}</span>
+                    <span class="cur-meta">
+                        ${s.uom ? esc(s.uom) : ''}${s.category ? `<span class="apu-dot"></span>${esc(s.category)}` : ''}
+                        ${s.insumo_id ? `<span class="apu-dot"></span>#${esc(String(s.insumo_id))}` : ''}
+                    </span>
+                </div>
+                <span class="badge ${kind.cls}">${esc(kind.label)}</span>
+            </header>
+
+            <div class="cur-prices">
+                <div class="cur-price">
+                    <span class="cur-price-lbl">Precio vigente</span>
+                    <span class="cur-price-val">${isNew ? '—' : esc(_apuMoney(s.current_price, cur))}</span>
+                </div>
+                <div class="cur-arrow">${icon('chevron-right', 18)}</div>
+                <div class="cur-price cur-price-new">
+                    <span class="cur-price-lbl">Precio propuesto</span>
+                    <span class="cur-price-val">${esc(_apuMoney(s.suggested_price, cur))}</span>
+                </div>
+                <div class="cur-delta cur-delta-${esc(dCls)}">
+                    <span class="cur-delta-val">${isNew ? 'Nuevo' : esc(_curPct(s.deviation_pct))}</span>
+                    <span class="cur-delta-lbl">${isNew ? 'sin historial' : (dCls === 'up' ? 'alza' : dCls === 'down' ? 'baja' : 'sin cambio')}</span>
+                </div>
+            </div>
+
+            <div class="cur-signals">
+                <span class="cur-sig" title="Cuantas desviaciones estandar se aleja del historial">
+                    z = <strong>${s.z_score == null ? '—' : esc(_apuNum(s.z_score, 2))}</strong>
+                </span>
+                <span class="cur-sig" title="Observaciones de precio que respaldan la sugerencia">
+                    ${icon('bar-chart', 13)} <strong>${esc(String(s.sample_count != null ? s.sample_count : 0))}</strong> observaciones
+                </span>
+                ${s.source ? `<span class="cur-sig">${icon('tag', 13)} ${esc(s.source)}</span>` : ''}
+                ${s.created_at ? `<span class="cur-sig">${icon('clock', 13)} ${esc(_apuDate(s.created_at))}</span>` : ''}
+            </div>
+
+            ${s.decision_reason ? `
+                <div class="cur-reason">
+                    ${icon('info', 15)}
+                    <span>${esc(s.decision_reason)}</span>
+                </div>` : ''}
+
+            ${pending ? `
+                <div class="cur-actions">
+                    <input class="form-input cur-note" id="cur-note-${id}" maxlength="240"
+                           placeholder="Nota para el historial (opcional)">
+                    <button class="btn btn-sm btn-success" onclick="acceptCurationSuggestion(${id})">
+                        ${icon('check', 14)} Aceptar
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="rejectCurationSuggestion(${id})">
+                        ${icon('x', 14)} Rechazar
+                    </button>
+                </div>`
+            : `<div class="cur-closed">Estado: <strong>${esc(String(s.state || ''))}</strong>${s.decision_reason ? '' : ''}</div>`}
+        </article>
+    `;
+}
+
+function _curNote(id) {
+    const el = document.getElementById('cur-note-' + Number(id));
+    const v = el ? el.value.trim() : '';
+    return v || null;
+}
+
+async function acceptCurationSuggestion(id) {
+    try {
+        const resp = await API.curationAccept(id, _curNote(id));
+        if (!resp.ok) { toast(_apuDetailList(resp)[0] || 'No se pudo aceptar', 'error'); return; }
+        toast('Sugerencia aceptada', 'success');
+        const card = document.getElementById('cur-card-' + Number(id));
+        if (card) card.remove();
+        loadCurationQueue(_cur.offset);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function rejectCurationSuggestion(id) {
+    try {
+        const resp = await API.curationReject(id, _curNote(id));
+        if (!resp.ok) { toast(_apuDetailList(resp)[0] || 'No se pudo rechazar', 'error'); return; }
+        toast('Sugerencia rechazada', 'success');
+        const card = document.getElementById('cur-card-' + Number(id));
+        if (card) card.remove();
+        loadCurationQueue(_cur.offset);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+function renderCurationPagination() {
+    const box = document.getElementById('cur-pagination');
+    if (!box) return;
+    if (_cur.total <= _cur.limit) { box.innerHTML = ''; return; }
+    const page = Math.floor(_cur.offset / _cur.limit) + 1;
+    const pages = Math.ceil(_cur.total / _cur.limit);
+    box.innerHTML = `
+        <button class="btn btn-sm btn-secondary" ${_cur.offset <= 0 ? 'disabled' : ''}
+                onclick="loadCurationQueue(${Math.max(0, _cur.offset - _cur.limit)})">&larr; Anterior</button>
+        <span class="lib-page-info">Pagina ${esc(String(page))} de ${esc(String(pages))} &middot; ${esc(String(_cur.total))} sugerencias</span>
+        <button class="btn btn-sm btn-secondary" ${page >= pages ? 'disabled' : ''}
+                onclick="loadCurationQueue(${_cur.offset + _cur.limit})">Siguiente &rarr;</button>
+    `;
+}
+
+// ── Umbrales de auto-aceptacion ───────────────────────────────
+function toggleCurationConfig() {
+    _cur.configOpen = !_cur.configOpen;
+    const box = document.getElementById('cur-config');
+    if (!box) return;
+    box.style.display = _cur.configOpen ? '' : 'none';
+    if (_cur.configOpen) loadCurationConfig();
+}
+
+async function loadCurationConfig() {
+    const box = document.getElementById('cur-config');
+    if (!box) return;
+    box.innerHTML = '<div class="empty-state"><p>Cargando umbrales...</p></div>';
+    try {
+        const resp = await API.curationConfig();
+        if (!resp.ok) {
+            box.innerHTML = `<div class="empty-state"><p>${esc(_apuDetail(resp, 'No se pudo cargar la configuracion'))}</p></div>`;
+            return;
+        }
+        renderCurationConfig(resp.data || {});
+    } catch {
+        box.innerHTML = '<div class="empty-state"><p>Error de conexion</p></div>';
+    }
+}
+
+function renderCurationConfig(c) {
+    const box = document.getElementById('cur-config');
+    if (!box) return;
+    box.innerHTML = `
+        <form class="cur-config-form" onsubmit="saveCurationConfig(event)">
+            <div class="cur-config-head">
+                ${icon('sliders', 16)}
+                <span>Umbrales de la cola</span>
+                <span class="apu-comp-hint">Definen que se acepta solo y que baja a revision manual</span>
+            </div>
+            <div class="cur-config-grid">
+                <div class="form-group">
+                    <label class="form-label">Observaciones minimas</label>
+                    <input class="form-input" name="min_samples" type="number" step="1" min="1"
+                           value="${esc(String(c.min_samples != null ? c.min_samples : 3))}">
+                    <span class="apu-hint">Debajo de esto, siempre va a revision</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">z-score de auto-aceptacion</label>
+                    <input class="form-input" name="z_auto" type="number" step="0.1" min="0"
+                           value="${esc(String(c.z_auto != null ? c.z_auto : 2))}">
+                    <span class="apu-hint">Hasta este z, se acepta sin humano</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Variacion % de auto-aceptacion</label>
+                    <input class="form-input" name="pct_auto" type="number" step="0.5" min="0"
+                           value="${esc(String(c.pct_auto != null ? c.pct_auto : 10))}">
+                    <span class="apu-hint">Cambios menores a este % pasan solos</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Ratio maximo aceptable</label>
+                    <input class="form-input" name="max_ratio" type="number" step="0.1" min="1"
+                           value="${esc(String(c.max_ratio != null ? c.max_ratio : 3))}">
+                    <span class="apu-hint">Por encima se descarta como error de carga</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Ventana de dias</label>
+                    <input class="form-input" name="window_days" type="number" step="1" min="1"
+                           value="${esc(String(c.window_days != null ? c.window_days : 90))}">
+                    <span class="apu-hint">Historial considerado para la estadistica</span>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Auto-aceptacion</label>
+                    <select class="form-select" name="auto_accept_enabled">
+                        <option value="1"${c.auto_accept_enabled ? ' selected' : ''}>Activada</option>
+                        <option value="0"${c.auto_accept_enabled ? '' : ' selected'}>Desactivada (todo a revision)</option>
+                    </select>
+                </div>
+            </div>
+            <div style="text-align:right;margin-top:8px">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="toggleCurationConfig()" style="margin-right:8px">Cerrar</button>
+                <button type="submit" class="btn btn-primary btn-sm">Guardar umbrales</button>
+            </div>
+        </form>
+    `;
+}
+
+async function saveCurationConfig(e) {
+    e.preventDefault();
+    const f = e.target;
+    const payload = {
+        min_samples: parseInt(f.min_samples.value, 10) || 1,
+        z_auto: parseFloat(f.z_auto.value) || 0,
+        pct_auto: parseFloat(f.pct_auto.value) || 0,
+        max_ratio: parseFloat(f.max_ratio.value) || 1,
+        window_days: parseInt(f.window_days.value, 10) || 1,
+        auto_accept_enabled: f.auto_accept_enabled.value === '1',
+    };
+    try {
+        const resp = await API.curationSetConfig(payload);
+        if (!resp.ok) { toast(_apuDetailList(resp)[0] || 'No se pudo guardar', 'error'); return; }
+        toast('Umbrales actualizados', 'success');
+        loadCurationQueue(0);
+    } catch { toast('Error de conexion', 'error'); }
+}
 
 // ── Init ───────────────────────────────────────────────────────
 async function init() {

@@ -593,9 +593,11 @@ try:
     app.mount("/mcp", get_mcp_sse_app())
     print("[MCP] SSE endpoint mounted at /mcp/sse")
 except ImportError as e:
-    print(f"[MCP] Not available (missing dependency): {e}")
+    # No es un detalle menor: si /mcp no monta, las integraciones que
+    # dependen de el dejan de funcionar sin ningun error visible.
+    print(f"[MCP] ERROR: no se monto por dependencia faltante: {e}")
 except Exception as e:
-    print(f"[MCP] Failed to mount: {e}")
+    print(f"[MCP] ERROR: fallo el montaje: {type(e).__name__}: {e}")
 
 # ── Static / SPA ────────────────────────────────────────────────
 # Middleware ASGI puro para cabeceras de cache. Se evita BaseHTTPMiddleware

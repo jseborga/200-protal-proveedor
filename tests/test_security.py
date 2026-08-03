@@ -120,7 +120,23 @@ def test_validador_de_webhook_acepta_secreto_correcto():
 
 
 # ── MCP autenticado ────────────────────────────────────────────
-def test_mcp_requiere_credencial(client):
+def test_mcp_esta_montado_y_requiere_credencial(client):
+    """Dos cosas a la vez, y las dos importan.
+
+    Que este montado: `mcp` es una dependencia declarada, asi que /mcp debe
+    existir. El CI cazo que con la version sin acotar se instalaba una 2.x
+    incompatible, el import fallaba y el endpoint desaparecia en silencio.
+
+    Y que pida credencial: expone herramientas de escritura a la base.
+    """
+    montado = any(
+        getattr(r, "path", "").startswith("/mcp") for r in app.routes
+    )
+    assert montado, (
+        "/mcp no esta montado: revisa la version de `mcp` en requirements.txt "
+        "(debe quedar acotada a 1.x) y el mensaje [MCP] ERROR del arranque"
+    )
+
     resp = client.get("/mcp/sse")
     assert resp.status_code in (401, 503), "MCP no puede quedar publico"
 
