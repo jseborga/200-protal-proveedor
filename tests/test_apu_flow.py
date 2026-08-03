@@ -419,3 +419,90 @@ async def test_no_se_borra_una_plantilla_en_uso(apu_env):
     r = await client.delete(f"/api/v1/apu/templates/{tid}")
     assert r.status_code == 409
     assert "usando" in r.json()["detail"]
+
+
+# ══════════════════════════════════════════════════════════════
+# Alta y edicion de rubros y partidas (lo que usa la interfaz)
+# ══════════════════════════════════════════════════════════════
+async def test_se_puede_renombrar_un_rubro(apu_env):
+    """Faltaba el endpoint: la UI tenia el boton pero no habia a donde pegarle."""
+    client, ids = apu_env
+    r = await client.post("/api/v1/apu/projects", json={"name": "Obra"})
+    pid = r.json()["data"]["id"]
+    r = await client.post(f"/api/v1/apu/projects/{pid}/rubros", json={
+        "name": "Obra gruesa", "code": "2",
+    })
+    rid = r.json()["data"]["id"]
+
+    r = await client.put(f"/api/v1/apu/rubros/{rid}", json={
+        "name": "Obra gruesa y cubiertas", "code": "2.0",
+    })
+    assert r.status_code == 200
+    assert r.json()["data"]["name"] == "Obra gruesa y cubiertas"
+    assert r.json()["data"]["code"] == "2.0"
+
+
+async def test_no_se_renombra_el_rubro_de_otra_empresa(apu_env):
+    client, ids = apu_env
+    r = await client.put("/api/v1/apu/rubros/999999", json={"name": "X"})
+    assert r.status_code == 404
+
+
+async def test_borrar_un_rubro_no_borra_sus_partidas(apu_env):
+    """Quedan como 'sin rubro', que es lo que dice el aviso de la interfaz."""
+    client, ids = apu_env
+    r = await client.post("/api/v1/apu/projects", json={"name": "Obra"})
+    pid = r.json()["data"]["id"]
+    r = await client.post(f"/api/v1/apu/projects/{pid}/rubros", json={"name": "R"})
+    rid = r.json()["data"]["id"]
+    r = await client.post(f"/api/v1/apu/projects/{pid}/items", json={
+        "name": "Partida", "uom": "m2", "rubro_id": rid,
+    })
+    item_id = r.json()["data"]["id"]
+
+    assert (await client.delete(f"/api/v1/apu/rubros/{rid}")).status_code == 200
+
+    r = await client.get(f"/api/v1/apu/projects/{pid}")
+    data = r.json()["data"]
+    assert data["rubros"] == []
+    assert [i["id"] for i in data["unassigned_items"]] == [item_id]
+
+
+async def test_flujo_de_alta_que_hace_la_interfaz(apu_env):
+    """Proyecto -> rubro -> partida en el rubro -> aparece en el arbol."""
+    client, ids = apu_env
+    r = await client.post("/api/v1/apu/projects", json={"name": "Vivienda"})
+    pid = r.json()["data"]["id"]
+
+    r = await client.post(f"/api/v1/apu/projects/{pid}/rubros", json={
+        "name": "Obra gruesa", "code": "2", "sequence": 10,
+    })
+    assert r.status_code == 201
+    rid = r.json()["data"]["id"]
+
+    r = await client.post(f"/api/v1/apu/projects/{pid}/items", json={
+        "name": "Muro de ladrillo", "uom": "m2", "code": "2.1",
+        "rubro_id": rid, "quantity": 25.0,
+    })
+    assert r.status_code == 201
+
+    r = await client.get(f"/api/v1/apu/projects/{pid}")
+    rubros = r.json()["data"]["rubros"]
+    assert len(rubros) == 1
+    assert len(rubros[0]["items"]) == 1
+    assert rubros[0]["items"][0]["name"] == "Muro de ladrillo"
+
+
+async def test_una_partida_no_se_asigna_al_rubro_de_otro_proyecto(apu_env):
+    client, ids = apu_env
+    r = await client.post("/api/v1/apu/projects", json={"name": "A"})
+    pid_a = r.json()["data"]["id"]
+    r = await client.post("/api/v1/apu/projects", json={"name": "B"})
+    pid_b = r.json()["data"]["id"]
+    r = await client.post(f"/api/v1/apu/projects/{pid_b}/rubros", json={"name": "De B"})
+    rid_b = r.json()["data"]["id"]
+
+    r = await client.post(f"/api/v1/apu/projects/{pid_a}/items", json={
+        "name": "Partida", "uom": "m2", "rubro_id": rid_b,
+    })
+    assert r.status_code == 400

@@ -1993,3 +1993,31 @@ textarea.form-input { resize: vertical; min-height: 80px; }
     .cur-actions .btn { flex: 1; justify-content: center; }
     .lib-search { max-width: none; }
 }
+
+
+/* ── Acciones de rubro y partida ─────────────────────────────── */
+.apu-back-split {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+.apu-rubro-actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 10px 14px 14px;
+    border-top: 1px solid var(--gray-100);
+}
+.apu-empty-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 16px;
+}
+@media (max-width: 700px) {
+    .apu-rubro-actions .btn,
+    .apu-empty-actions .btn { flex: 1 1 100%; justify-content: center; }
+}

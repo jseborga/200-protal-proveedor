@@ -706,6 +706,29 @@ async def create_rubro(
     }
 
 
+@router.put("/rubros/{rubro_id}")
+async def update_rubro(
+    rubro_id: int,
+    body: RubroIn,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    rubro = await db.get(ApuRubro, rubro_id)
+    if rubro is None:
+        raise HTTPException(404, "Rubro no encontrado")
+    # La pertenencia se comprueba subiendo al proyecto, como todo el modulo.
+    await _get_project(db, rubro.project_id, user, for_edit=True)
+
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(rubro, field, value)
+    await db.commit()
+    return {
+        "ok": True,
+        "data": {"id": rubro.id, "name": rubro.name, "code": rubro.code,
+                 "sequence": rubro.sequence},
+    }
+
+
 @router.delete("/rubros/{rubro_id}")
 async def delete_rubro(
     rubro_id: int,

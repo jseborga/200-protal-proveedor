@@ -208,6 +208,12 @@ const API = {
     apuRecomputeProject: (id) => API.post(`/apu/projects/${id}/recompute`, {}),
     apuRefreshProjectPrices: (id, includeManual = false) =>
         API.post(`/apu/projects/${id}/refresh-prices?include_manual=${includeManual ? 'true' : 'false'}`, {}),
+    apuCreateRubro: (projectId, data) => API.post(`/apu/projects/${projectId}/rubros`, data),
+    apuUpdateRubro: (id, data) => API.put(`/apu/rubros/${id}`, data),
+    apuDeleteRubro: (id) => API.del(`/apu/rubros/${id}`),
+    apuCreateItem: (projectId, data) => API.post(`/apu/projects/${projectId}/items`, data),
+    apuUpdateItem: (id, data) => API.put(`/apu/items/${id}`, data),
+    apuDeleteItem: (id) => API.del(`/apu/items/${id}`),
     apuItem: (id) => API.get(`/apu/items/${id}`),
     apuAddLine: (itemId, data) => API.post(`/apu/items/${itemId}/lines`, data),
     apuUpdateLine: (id, data) => API.put(`/apu/lines/${id}`, data),
@@ -11133,6 +11139,14 @@ function renderApuProjectDetail(p) {
                         ${icon('sliders', 15)} Plantillas de calculo
                     </button>
                 </div>
+                <div class="apu-proj-hero-actions">
+                    <button class="btn btn-primary btn-sm" onclick="showApuRubroModal(${Number(p.id)})">
+                        ${icon('plus', 15)} Nuevo rubro
+                    </button>
+                    <button class="btn btn-primary btn-sm" onclick="showApuItemModal(${Number(p.id)})">
+                        ${icon('plus', 15)} Nueva partida
+                    </button>
+                </div>
             </div>
             <div class="apu-proj-hero-total">
                 <span class="apu-proj-hero-total-lbl">Total del presupuesto</span>
@@ -11148,7 +11162,16 @@ function renderApuProjectDetail(p) {
                 <div class="apu-empty">
                     <div class="apu-empty-ico">${icon('layers', 40)}</div>
                     <h3>El presupuesto esta vacio</h3>
-                    <p>Este proyecto todavia no tiene rubros ni partidas cargadas.</p>
+                    <p>Empeza creando un rubro (el capitulo de obra) y despues agregale partidas.
+                       Tambien podes crear una partida suelta y asignarle rubro mas tarde.</p>
+                    <div class="apu-empty-actions">
+                        <button class="btn btn-primary" onclick="showApuRubroModal(${Number(p.id)})">
+                            ${icon('plus', 16)} Crear el primer rubro
+                        </button>
+                        <button class="btn btn-secondary" onclick="showApuItemModal(${Number(p.id)})">
+                            ${icon('plus', 16)} Crear una partida
+                        </button>
+                    </div>
                 </div>` : ''}
         </div>
 
@@ -11204,6 +11227,18 @@ function renderApuRubro(r, idx, cur) {
                         <tbody>${rows}</tbody>
                     </table>
                 </div>` : '<div class="apu-rubro-empty">Sin partidas en este rubro</div>'}
+                ${rid ? `
+                <div class="apu-rubro-actions">
+                    <button class="btn btn-secondary btn-sm" onclick="showApuItemModal(${Number(_apu.projectId)}, ${rid})">
+                        ${icon('plus', 14)} Agregar partida
+                    </button>
+                    <button class="btn btn-secondary btn-sm" onclick="showApuRubroModal(${Number(_apu.projectId)}, ${rid})">
+                        ${icon('edit', 14)} Renombrar
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteApuRubro(${rid})">
+                        ${icon('trash', 14)} Eliminar rubro
+                    </button>
+                </div>` : ''}
             </div>
         </section>
     `;
@@ -11226,6 +11261,149 @@ async function apuRecompute(projectId) {
         toast(`Recalculado: ${d.items_computed || 0} partidas${cycles ? ` — ${cycles} referencias circulares detectadas` : ''}`,
               cycles ? 'error' : 'success');
         openApuProject(projectId);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+// ── Rubros y partidas ──────────────────────────────────────────
+// El rubro es el capitulo de obra (Obra gruesa, Instalaciones...) y la
+// partida es el item que se presupuesta y que tiene su propio APU.
+
+function showApuRubroModal(projectId, rubroId = null) {
+    const rubro = rubroId
+        ? (_apu.project?.rubros || []).find(r => Number(r.id) === Number(rubroId))
+        : null;
+    const titulo = rubro ? 'Renombrar rubro' : 'Nuevo rubro';
+
+    showModal(titulo, `
+        <form onsubmit="handleApuRubro(event, ${Number(projectId)}, ${rubro ? Number(rubro.id) : 'null'})">
+            <div class="apu-form-2">
+                <div class="form-group" style="flex:0 0 120px">
+                    <label class="form-label">Codigo</label>
+                    <input class="form-input" name="code" maxlength="30"
+                           value="${rubro ? esc(rubro.code || '') : ''}" placeholder="1, 2, 2.1">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label class="form-label">Nombre del rubro *</label>
+                    <input class="form-input" name="name" required maxlength="255"
+                           value="${rubro ? esc(rubro.name || '') : ''}"
+                           placeholder="Obra gruesa, Instalaciones sanitarias...">
+                </div>
+            </div>
+            <p class="apu-hint">Los rubros agrupan partidas y muestran su subtotal.</p>
+            <div style="text-align:right;margin-top:16px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">${rubro ? 'Guardar' : 'Crear rubro'}</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleApuRubro(e, projectId, rubroId) {
+    e.preventDefault();
+    const f = e.target;
+    const payload = {
+        name: f.name.value.trim(),
+        code: f.code.value.trim() || null,
+    };
+    if (!payload.name) { toast('El rubro necesita un nombre', 'error'); return; }
+    try {
+        const resp = rubroId
+            ? await API.apuUpdateRubro(rubroId, payload)
+            : await API.apuCreateRubro(projectId, payload);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo guardar el rubro'), 'error'); return; }
+        closeModal();
+        toast(rubroId ? 'Rubro actualizado' : 'Rubro creado', 'success');
+        openApuProject(projectId);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function deleteApuRubro(rubroId) {
+    if (!confirm('Eliminar el rubro? Sus partidas NO se borran: quedan como "sin rubro".')) return;
+    try {
+        const resp = await API.apuDeleteRubro(rubroId);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo eliminar'), 'error'); return; }
+        toast('Rubro eliminado', 'success');
+        openApuProject(_apu.projectId);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+function showApuItemModal(projectId, rubroId = null) {
+    const rubros = _apu.project?.rubros || [];
+    const opciones = rubros.map(r =>
+        `<option value="${Number(r.id)}"${Number(r.id) === Number(rubroId) ? ' selected' : ''}>${esc(r.code ? r.code + ' - ' : '')}${esc(r.name)}</option>`
+    ).join('');
+
+    showModal('Nueva partida', `
+        <form onsubmit="handleApuItem(event, ${Number(projectId)})">
+            <div class="apu-form-2">
+                <div class="form-group" style="flex:0 0 120px">
+                    <label class="form-label">Codigo</label>
+                    <input class="form-input" name="code" maxlength="30" placeholder="2.1">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label class="form-label">Descripcion de la partida *</label>
+                    <input class="form-input" name="name" required maxlength="500"
+                           placeholder="Muro de ladrillo visto de 6 huecos">
+                </div>
+            </div>
+            <div class="apu-form-2">
+                <div class="form-group" style="flex:0 0 120px">
+                    <label class="form-label">Unidad *</label>
+                    <input class="form-input" name="uom" required maxlength="30" value="m2">
+                </div>
+                <div class="form-group" style="flex:0 0 140px">
+                    <label class="form-label">Cantidad</label>
+                    <input class="form-input" name="quantity" type="number" step="0.0001"
+                           min="0" value="1">
+                </div>
+                <div class="form-group" style="flex:1">
+                    <label class="form-label">Rubro</label>
+                    <select class="form-select apu-inp-sel" name="rubro_id">
+                        <option value="">Sin rubro</option>
+                        ${opciones}
+                    </select>
+                </div>
+            </div>
+            <p class="apu-hint">
+                Si cargas computos metricos, la cantidad se recalcula sola a partir de ellos.
+                Despues de crearla, abri la partida para componer su precio unitario.
+            </p>
+            <div style="text-align:right;margin-top:16px">
+                <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Crear partida</button>
+            </div>
+        </form>
+    `);
+}
+
+async function handleApuItem(e, projectId) {
+    e.preventDefault();
+    const f = e.target;
+    const payload = {
+        name: f.name.value.trim(),
+        uom: f.uom.value.trim() || 'u',
+        code: f.code.value.trim() || null,
+        quantity: parseFloat(f.quantity.value) || 1,
+        rubro_id: f.rubro_id.value ? Number(f.rubro_id.value) : null,
+    };
+    if (!payload.name) { toast('La partida necesita una descripcion', 'error'); return; }
+    try {
+        const resp = await API.apuCreateItem(projectId, payload);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo crear la partida'), 'error'); return; }
+        closeModal();
+        toast('Partida creada', 'success');
+        // Se abre directo el editor: recien ahi la partida cobra sentido.
+        openApuItem(resp.data.id);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+async function deleteApuItem(itemId) {
+    if (!confirm('Eliminar la partida y toda su composicion?')) return;
+    try {
+        const resp = await API.apuDeleteItem(itemId);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo eliminar'), 'error'); return; }
+        toast('Partida eliminada', 'success');
+        openApuProject(_apu.projectId);
     } catch { toast('Error de conexion', 'error'); }
 }
 
@@ -11301,7 +11479,12 @@ function renderApuItemEditor(it) {
         : `<button class="btn btn-secondary btn-sm" onclick="renderApuProjects()">&larr; Proyectos</button>`;
 
     page.innerHTML = `
-        <div class="apu-back">${backBtn}</div>
+        <div class="apu-back apu-back-split">
+            ${backBtn}
+            <button class="btn btn-danger btn-sm" onclick="deleteApuItem(${Number(it.id)})">
+                ${icon('trash', 14)} Eliminar partida
+            </button>
+        </div>
 
         <div class="apu-item-hero">
             <div class="apu-item-hero-main">
