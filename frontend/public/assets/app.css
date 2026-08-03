@@ -2021,3 +2021,84 @@ textarea.form-input { resize: vertical; min-height: 80px; }
     .apu-rubro-actions .btn,
     .apu-empty-actions .btn { flex: 1 1 100%; justify-content: center; }
 }
+
+
+/* ── Grilla de composicion: fila de alta y verificacion ──────── */
+.apu-line-row-new {
+    background: var(--gray-50);
+    border-top: 2px solid var(--gray-200);
+}
+.apu-line-row-new.saving { opacity: .5; pointer-events: none; }
+.apu-inp-text {
+    width: 100%;
+    font-size: 13px;
+}
+.apu-search-wrap { position: relative; }
+.apu-sug-grid {
+    position: absolute;
+    z-index: 40;
+    top: 100%;
+    left: 0;
+    right: 0;
+    max-height: 260px;
+    overflow-y: auto;
+    background: #fff;
+    border: 1px solid var(--gray-200);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+}
+.apu-sug-grid .apu-sug-item.active { background: var(--gray-100); }
+.apu-line-add {
+    background: var(--primary);
+    color: #fff;
+    border: 0;
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.apu-line-add:hover { filter: brightness(1.08); }
+
+/* Fila con cambios sin confirmar por el servidor */
+.apu-line.dirty { background: #fffbeb; }
+.apu-line.saving { opacity: .55; }
+
+.apu-verif {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-top: 14px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    font-size: 12.5px;
+}
+.apu-verif.ok {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    background: #f0fdf4;
+    color: #166534;
+    border: 1px solid #bbf7d0;
+}
+.apu-verif.warn {
+    background: #fef2f2;
+    color: #991b1b;
+    border: 1px solid #fecaca;
+}
+.apu-verif-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+}
+.apu-verif-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding-left: 22px;
+}
+.apu-verif-hint { padding-left: 22px; opacity: .85; }

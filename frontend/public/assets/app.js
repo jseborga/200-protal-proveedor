@@ -401,6 +401,7 @@ const ICONS = {
     'user-plus': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>',
     key: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 11-7.778 7.778 5.5 5.5 0 017.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>',
     'check-circle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22,4 12,14.01 9,11.01"/></svg>',
+    'alert-triangle': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
     check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20,6 9,17 4,12"/></svg>',
     x: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>',
     globe: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
@@ -10812,7 +10813,10 @@ const _apu = {
     limitReason: null,     // motivo devuelto por el backend en un 402
     closedRubros: {},      // { rubroId: true } => colapsado
     closedBlocks: {},      // { blockKey: true } => colapsado
-    pick: null,            // insumo elegido del catalogo al agregar recurso
+    cur: 'BOB',            // moneda vigente en el editor abierto
+    newPick: {},           // { blockKey: {id,name,uom,price} } insumo elegido en la fila de alta
+    sugIndex: {},          // { blockKey: n } opcion resaltada del desplegable (-1 = ninguna)
+    focusBlock: null,      // bloque cuya fila de alta debe recuperar el foco tras re-render
 };
 
 // ── Helpers de formato ────────────────────────────────────────
@@ -11484,10 +11488,24 @@ async function openApuItem(itemId, keepScroll) {
     }
 }
 
+/** Chips de costo por bloque + costo directo (se refrescan sin re-render total). */
+function _apuCostChips(it) {
+    const directCost = it.direct_cost != null
+        ? it.direct_cost
+        : (Number(it.mat_cost || 0) + Number(it.mo_cost || 0) + Number(it.eq_cost || 0));
+    return `
+        <div class="apu-cost-chip mat"><span>Materiales</span><strong>${esc(_apuNum(it.mat_cost, 2))}</strong></div>
+        <div class="apu-cost-chip mo"><span>Mano de obra</span><strong>${esc(_apuNum(it.mo_cost, 2))}</strong></div>
+        <div class="apu-cost-chip eq"><span>Equipo</span><strong>${esc(_apuNum(it.eq_cost, 2))}</strong></div>
+        <div class="apu-cost-chip total"><span>Costo directo</span><strong>${esc(_apuNum(directCost, 2))}</strong></div>
+    `;
+}
+
 function renderApuItemEditor(it) {
     const page = document.getElementById('page-content');
     if (!page) return;
     const cur = (_apu.project && _apu.project.currency) || it.currency || 'BOB';
+    _apu.cur = cur;
     const lines = it.lines || [];
 
     const grouped = {};
@@ -11497,9 +11515,10 @@ function renderApuItemEditor(it) {
     const fallbackCost = { material: it.mat_cost, labor: it.mo_cost, equipment: it.eq_cost };
     const blocksHtml = APU_BLOCKS.map(b => renderApuBlock(b, grouped[b.key], cur, fallbackCost[b.key])).join('');
 
-    const directCost = it.direct_cost != null
-        ? it.direct_cost
-        : (Number(it.mat_cost || 0) + Number(it.mo_cost || 0) + Number(it.eq_cost || 0));
+    // Datalist compartido por las celdas de unidad de toda la grilla
+    const uomOptions = UOM_LIST.length
+        ? UOM_LIST.map(u => `<option value="${esc(u.key)}">${esc(u.key)} - ${esc(u.label)}</option>`).join('')
+        : '';
 
     const backBtn = _apu.projectId
         ? `<button class="btn btn-secondary btn-sm" onclick="openApuProject(${Number(_apu.projectId)})">&larr; Volver al presupuesto</button>`
@@ -11528,62 +11547,86 @@ function renderApuItemEditor(it) {
             </div>
             <div class="apu-item-hero-price">
                 <span class="apu-item-hero-price-lbl">Precio unitario</span>
-                <span class="apu-item-hero-price-val">${esc(_apuNum(it.unit_price, 2))}</span>
+                <span class="apu-item-hero-price-val" id="apu-hero-price">${esc(_apuNum(it.unit_price, 2))}</span>
                 <span class="apu-item-hero-price-cur">${esc(_apuCurSymbol(cur))} / ${esc(it.uom || 'und')}</span>
             </div>
         </div>
 
-        <div class="apu-cost-strip">
-            <div class="apu-cost-chip mat"><span>Materiales</span><strong>${esc(_apuNum(it.mat_cost, 2))}</strong></div>
-            <div class="apu-cost-chip mo"><span>Mano de obra</span><strong>${esc(_apuNum(it.mo_cost, 2))}</strong></div>
-            <div class="apu-cost-chip eq"><span>Equipo</span><strong>${esc(_apuNum(it.eq_cost, 2))}</strong></div>
-            <div class="apu-cost-chip total"><span>Costo directo</span><strong>${esc(_apuNum(directCost, 2))}</strong></div>
-        </div>
+        <div class="apu-cost-strip" id="apu-cost-strip">${_apuCostChips(it)}</div>
 
         <div class="apu-editor">
             <div class="apu-editor-left">
                 ${blocksHtml}
                 ${renderApuComputos(it)}
+                <div id="apu-verify">${renderApuVerify(it)}</div>
             </div>
-            <div class="apu-editor-right">
+            <div class="apu-editor-right" id="apu-editor-right">
                 ${renderApuSummary(it, cur)}
             </div>
         </div>
+        <datalist id="apu-uom-list">${uomOptions}</datalist>
     `;
+
+    // Tras guardar una fila volvemos a dejar el cursor listo para la siguiente
+    if (_apu.focusBlock) {
+        const bk = _apu.focusBlock;
+        _apu.focusBlock = null;
+        const el = document.getElementById('apu-new-name-' + bk);
+        if (el) el.focus({ preventScroll: true });
+    }
 }
 
 function renderApuBlock(b, lines, cur, fallbackCost) {
     const closed = !!_apu.closedBlocks[b.key];
+    // El subtotal se recalcula siempre con apuLineSubtotal para que coincida
+    // con lo que se ve mientras se edita. Si no hay lineas, se muestra el
+    // costo que trae el servidor (partidas cargadas sin composicion).
     const subtotal = lines.length
-        ? lines.reduce((a, l) => a + Number(l.price_subtotal != null ? l.price_subtotal : (Number(l.quantity || 0) * Number(l.price_unit || 0))), 0)
+        ? apuRound(lines.reduce((a, l) => a + apuLineSubtotal(l.quantity, l.price_unit), 0), 2)
         : Number(fallbackCost || 0);
 
     const rows = lines.map(l => {
         const lid = Number(l.id);
-        const sub = l.price_subtotal != null ? l.price_subtotal : (Number(l.quantity || 0) * Number(l.price_unit || 0));
+        const qty = Number(l.quantity || 0);
+        const pu = Number(l.price_unit || 0);
+        const sub = apuLineSubtotal(qty, pu);
         const src = l.insumo_id
             ? `<span class="apu-src apu-src-mkt" title="Vinculado al catalogo de mercado">${icon('tag', 11)} ${esc(l.price_source || 'mercado')}</span>`
             : `<span class="apu-src">${esc(l.price_source || 'manual')}</span>`;
         return `
-            <div class="apu-line" id="apu-line-${lid}">
+            <div class="apu-line apu-line-row" id="apu-line-${lid}" data-block="${esc(b.key)}"
+                 data-qty="${esc(String(qty))}" data-price="${esc(String(pu))}"
+                 data-sqty="${esc(String(qty))}" data-sprice="${esc(String(pu))}">
                 <div class="apu-line-desc">
-                    <span class="apu-line-name">${esc(l.name)}</span>
+                    <input class="apu-inp apu-inp-text" type="text" maxlength="200"
+                           value="${esc(l.name)}" aria-label="Descripcion"
+                           onfocus="apuCellFocus(this)" onkeydown="apuRowKey(event)"
+                           onchange="apuLineEdit(${lid}, 'name', this.value, this)">
                     ${src}
                 </div>
-                <div class="apu-line-uom">${esc(l.uom || '')}</div>
+                <div class="apu-line-uom">
+                    <input class="apu-inp apu-inp-text" type="text" maxlength="20" list="apu-uom-list"
+                           value="${esc(l.uom || '')}" aria-label="Unidad"
+                           onfocus="apuCellFocus(this)" onkeydown="apuRowKey(event)"
+                           onchange="apuLineEdit(${lid}, 'uom', this.value, this)">
+                </div>
                 <div class="apu-line-inp apu-line-qty">
                     <input class="apu-inp" type="number" step="0.001" min="0"
-                           value="${esc(Number(l.quantity || 0).toFixed(3))}"
+                           value="${esc(qty.toFixed(3))}"
                            aria-label="Rendimiento"
-                           onchange="apuLineEdit(${lid}, 'quantity', this.value)">
+                           onfocus="apuCellFocus(this)" onkeydown="apuRowKey(event)"
+                           oninput="apuLineLive(${lid}, 'quantity', this.value)"
+                           onchange="apuLineEdit(${lid}, 'quantity', this.value, this)">
                 </div>
                 <div class="apu-line-inp apu-line-price">
                     <input class="apu-inp" type="number" step="0.01" min="0"
-                           value="${esc(Number(l.price_unit || 0).toFixed(2))}"
+                           value="${esc(pu.toFixed(2))}"
                            aria-label="Precio unitario"
-                           onchange="apuLineEdit(${lid}, 'price_unit', this.value)">
+                           onfocus="apuCellFocus(this)" onkeydown="apuRowKey(event)"
+                           oninput="apuLineLive(${lid}, 'price_unit', this.value)"
+                           onchange="apuLineEdit(${lid}, 'price_unit', this.value, this)">
                 </div>
-                <div class="apu-line-sub">${esc(_apuNum(sub, 2))}</div>
+                <div class="apu-line-sub" id="apu-sub-${lid}">${esc(_apuNum(sub, 2))}</div>
                 <button class="apu-line-del" title="Quitar recurso" onclick="apuDeleteLine(${lid})">${icon('trash', 14)}</button>
             </div>
         `;
@@ -11596,7 +11639,7 @@ function renderApuBlock(b, lines, cur, fallbackCost) {
                 <span class="apu-block-ico">${icon(b.ico, 16)}</span>
                 <span class="apu-block-title">${esc(b.label)}</span>
                 <span class="apu-block-count">${esc(String(lines.length))}</span>
-                <span class="apu-block-sub">${esc(_apuNum(subtotal, 2))}</span>
+                <span class="apu-block-sub" id="apu-blocksub-${esc(b.key)}">${esc(_apuNum(subtotal, 2))}</span>
             </header>
             <div class="apu-block-body">
                 <div class="apu-line apu-line-head">
@@ -11607,15 +11650,318 @@ function renderApuBlock(b, lines, cur, fallbackCost) {
                     <div class="apu-line-sub">Subtotal</div>
                     <div class="apu-line-del-h"></div>
                 </div>
-                ${rows || '<div class="apu-block-empty">Sin recursos cargados en este bloque</div>'}
+                ${rows || '<div class="apu-block-empty">Sin recursos cargados. Carga el primero en la fila de abajo.</div>'}
+                ${renderApuNewLine(b)}
                 <div class="apu-block-foot">
-                    <button class="btn btn-sm btn-secondary" onclick="showApuAddLineModal('${escJs(b.key)}')">
-                        ${icon('plus', 14)} Agregar recurso
-                    </button>
-                    <span class="apu-block-foot-total">Subtotal ${esc(b.label.toLowerCase())}: <strong>${esc(_apuMoney(subtotal, cur))}</strong></span>
+                    <span class="apu-block-foot-hint">Enter guarda la fila y deja lista la siguiente &middot; Tab avanza de celda</span>
+                    <span class="apu-block-foot-total">Subtotal ${esc(b.label.toLowerCase())}: <strong id="apu-foot-${esc(b.key)}">${esc(_apuMoney(subtotal, cur))}</strong></span>
                 </div>
             </div>
         </section>
+    `;
+}
+
+/** Fila de alta siempre visible al pie del bloque (sin modal). */
+// ── Fila de alta en linea (estilo planilla) ────────────────────
+// Se completa sin abrir modales: se escribe la descripcion (que busca en el
+// catalogo), Tab entre celdas y Enter guarda y deja listo para el siguiente.
+
+const _apuNewTimers = {};
+
+function _apuNewEls(blockKey) {
+    return {
+        name: document.getElementById(`apu-new-name-${blockKey}`),
+        uom: document.getElementById(`apu-new-uom-${blockKey}`),
+        qty: document.getElementById(`apu-new-qty-${blockKey}`),
+        price: document.getElementById(`apu-new-price-${blockKey}`),
+        sub: document.getElementById(`apu-new-sub-${blockKey}`),
+        sug: document.getElementById(`apu-new-sug-${blockKey}`),
+        link: document.getElementById(`apu-new-link-${blockKey}`),
+    };
+}
+
+function _apuNewCloseSug(blockKey) {
+    const { sug } = _apuNewEls(blockKey);
+    if (sug) { sug.style.display = 'none'; sug.innerHTML = ''; }
+    _apu.sugIndex[blockKey] = -1;
+}
+
+/** Subtotal en vivo, con el mismo redondeo que usa el servidor. */
+function apuNewLive(blockKey) {
+    const { qty, price, sub } = _apuNewEls(blockKey);
+    if (!sub) return;
+    sub.textContent = _apuNum(
+        apuLineSubtotal(qty ? qty.value : 0, price ? price.value : 0), 2,
+    );
+}
+
+function apuNewSearchDebounced(blockKey) {
+    // Escribir a mano descarta el insumo elegido antes: si el texto ya no es
+    // el del catalogo, la linea deja de estar vinculada.
+    const pick = _apu.newPick[blockKey];
+    const { name, link } = _apuNewEls(blockKey);
+    if (pick && name && name.value.trim() !== pick.name) {
+        delete _apu.newPick[blockKey];
+        if (link) link.innerHTML = '';
+    }
+    clearTimeout(_apuNewTimers[blockKey]);
+    _apuNewTimers[blockKey] = setTimeout(() => apuNewSearch(blockKey), 250);
+}
+
+async function apuNewSearch(blockKey) {
+    const { name, sug } = _apuNewEls(blockKey);
+    if (!name || !sug) return;
+    const q = name.value.trim();
+    if (q.length < 2) { _apuNewCloseSug(blockKey); return; }
+
+    try {
+        const resp = await API.smartSearch(q, null, 8);
+        const base = (resp && resp.ok) ? [...(resp.data || []), ...(resp.suggestions || [])] : [];
+        const vistos = new Set();
+        const items = base.filter(p => p.id && !vistos.has(p.id) && (vistos.add(p.id), true)).slice(0, 8);
+
+        if (!items.length) {
+            sug.innerHTML = '<div class="apu-sug-empty">Sin resultados: se cargara como recurso manual</div>';
+            sug.style.display = '';
+            _apu.sugIndex[blockKey] = -1;
+            return;
+        }
+        sug.innerHTML = items.map((p, i) => `
+            <div class="apu-sug-item${i === 0 ? ' active' : ''}" data-i="${i}"
+                 onmousedown="apuNewPick('${escJs(blockKey)}', ${Number(p.id)}, '${escJs(p.name)}', '${escJs(p.uom || '')}', ${Number(p.ref_price) || 0})">
+                <div>
+                    <div class="apu-sug-name">${esc(p.name)}</div>
+                    <div class="apu-sug-meta">${p.category ? esc(p.category) : ''}${p.uom ? ' &middot; ' + esc(p.uom) : ''}</div>
+                </div>
+                <span class="apu-sug-price">${p.ref_price ? esc(_apuNum(p.ref_price, 2)) : '—'}</span>
+            </div>
+        `).join('');
+        sug.style.display = '';
+        _apu.sugIndex[blockKey] = 0;
+    } catch {
+        _apuNewCloseSug(blockKey);
+    }
+}
+
+/** Elegir del catalogo completa unidad y precio y vincula el insumo. */
+function apuNewPick(blockKey, insumoId, nombre, uom, precio) {
+    _apu.newPick[blockKey] = { id: insumoId, name: nombre, uom, price: precio };
+    const els = _apuNewEls(blockKey);
+    if (els.name) els.name.value = nombre;
+    if (els.uom) els.uom.value = uom || els.uom.value;
+    if (els.price && Number(precio) > 0) els.price.value = Number(precio).toFixed(2);
+    if (els.link) {
+        els.link.innerHTML = `<span class="apu-src apu-src-mkt" title="Vinculado al catalogo">${icon('tag', 11)} catalogo</span>`;
+    }
+    _apuNewCloseSug(blockKey);
+    apuNewLive(blockKey);
+    if (els.qty) { els.qty.focus(); els.qty.select(); }
+}
+
+function apuNewKey(e, blockKey) {
+    const { sug } = _apuNewEls(blockKey);
+    const abierto = sug && sug.style.display !== 'none' && sug.children.length;
+
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        _apuNewCloseSug(blockKey);
+        return;
+    }
+    if (abierto && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+        e.preventDefault();
+        const n = sug.children.length;
+        let i = _apu.sugIndex[blockKey] ?? -1;
+        i = e.key === 'ArrowDown' ? (i + 1) % n : (i - 1 + n) % n;
+        _apu.sugIndex[blockKey] = i;
+        [...sug.children].forEach((c, k) => c.classList.toggle('active', k === i));
+        return;
+    }
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        const i = _apu.sugIndex[blockKey] ?? -1;
+        if (abierto && i >= 0) {
+            // Enter sobre una sugerencia la elige; no guarda todavia.
+            sug.children[i].dispatchEvent(new Event('mousedown'));
+            return;
+        }
+        apuNewSave(blockKey);
+    }
+}
+
+function apuNewBlur(blockKey) {
+    // Con retraso: si no, el desplegable se cierra antes de registrar el clic.
+    setTimeout(() => _apuNewCloseSug(blockKey), 150);
+}
+
+async function apuNewSave(blockKey) {
+    if (!_apu.itemId) return;
+    const els = _apuNewEls(blockKey);
+    const nombre = els.name ? els.name.value.trim() : '';
+    if (!nombre) {
+        toast('Escribi una descripcion para el recurso', 'error');
+        if (els.name) els.name.focus();
+        return;
+    }
+
+    const pick = _apu.newPick[blockKey];
+    const payload = {
+        type: _apuApiType(blockKey),
+        name: nombre,
+        uom: (els.uom ? els.uom.value.trim() : '') || 'u',
+        quantity: parseFloat(els.qty ? els.qty.value : '1') || 0,
+        price_unit: parseFloat(els.price ? els.price.value : '0') || 0,
+        insumo_id: pick ? pick.id : null,
+    };
+
+    const fila = document.getElementById(`apu-new-${blockKey}`);
+    if (fila) fila.classList.add('saving');
+    try {
+        const resp = await API.apuAddLine(_apu.itemId, payload);
+        if (!resp.ok) {
+            toast(_apuDetail(resp, 'No se pudo agregar el recurso'), 'error');
+            return;
+        }
+        delete _apu.newPick[blockKey];
+        // Que el foco vuelva a la fila de alta: se cargan varios seguidos.
+        _apu.focusBlock = blockKey;
+        toast('Recurso agregado', 'success');
+        openApuItem(_apu.itemId, true);
+    } catch {
+        toast('Error de conexion', 'error');
+    } finally {
+        if (fila) fila.classList.remove('saving');
+    }
+}
+
+// ── Verificacion de calculos ───────────────────────────────────
+// Recalcula en el navegador lo que devolvio el servidor y compara. Es una
+// red de seguridad: si alguna vez el redondeo del navegador y el del backend
+// vuelven a divergir, se ve en pantalla en vez de descubrirse revisando un
+// presupuesto ya entregado.
+
+const APU_VERIF_TOLERANCIA = 0.01;
+
+/** Suma en el navegador los subtotales de un bloque, desde el DOM si esta
+ *  montado (para reflejar lo que se esta escribiendo) o desde los datos. */
+function _apuVerifBloque(it, blockKey) {
+    const filas = _apuBlockRows(blockKey);
+    if (filas.length) {
+        return apuRound(
+            filas.reduce((a, r) => a + apuLineSubtotal(r.dataset.qty, r.dataset.price), 0), 2);
+    }
+    const b = APU_BLOCKS.find(x => x.key === blockKey);
+    // _apuBlockOf devuelve el bloque, no su clave.
+    const lineas = (it.lines || []).filter(l => _apuBlockOf(l.type).key === blockKey);
+    return apuRound(
+        lineas.reduce((a, l) => a + apuLineSubtotal(l.quantity, l.price_unit), 0), 2);
+}
+
+function renderApuVerify(it) {
+    if (!it) return '';
+
+    const comparaciones = APU_BLOCKS.map(b => {
+        const campo = { mat: 'mat_cost', mo: 'mo_cost', eq: 'eq_cost' }[b.apiType];
+        return {
+            label: b.label,
+            local: _apuVerifBloque(it, b.key),
+            servidor: apuRound(Number(it[campo] || 0), 2),
+        };
+    });
+    const directoLocal = apuRound(comparaciones.reduce((a, c) => a + c.local, 0), 2);
+    comparaciones.push({
+        label: 'Costo directo',
+        local: directoLocal,
+        servidor: apuRound(Number(it.direct_cost || 0), 2),
+        total: true,
+    });
+
+    const difieren = comparaciones.filter(
+        c => Math.abs(c.local - c.servidor) > APU_VERIF_TOLERANCIA);
+
+    if (!difieren.length) {
+        return `
+            <div class="apu-verif ok">
+                ${icon('check', 14)}
+                <span>Calculos verificados: lo que ves coincide con lo guardado.</span>
+            </div>`;
+    }
+
+    const filas = difieren.map(c => `
+        <div class="apu-verif-row">
+            <span class="apu-verif-lbl">${esc(c.label)}</span>
+            <span class="apu-verif-vals">
+                en pantalla <strong>${esc(_apuNum(c.local, 2))}</strong>
+                &middot; guardado <strong>${esc(_apuNum(c.servidor, 2))}</strong>
+            </span>
+        </div>`).join('');
+
+    return `
+        <div class="apu-verif warn">
+            <div class="apu-verif-head">
+                ${icon('alert-triangle', 14)}
+                <span>Hay diferencias entre lo que se muestra y lo guardado</span>
+            </div>
+            ${filas}
+            <div class="apu-verif-hint">
+                Suele resolverse con <button class="btn-link" onclick="apuRecomputeFromItem()">recalcular la obra</button>.
+                Si persiste, avisá: es un desajuste que hay que corregir en el codigo.
+            </div>
+        </div>`;
+}
+
+/** Vuelve a pintar el panel tras editar una celda. */
+function apuVerifyRefresh() {
+    const cont = document.getElementById('apu-verify');
+    if (cont && _apu.item) cont.innerHTML = renderApuVerify(_apu.item);
+}
+
+/** Recalcula la obra desde el editor de una partida. */
+async function apuRecomputeFromItem() {
+    if (!_apu.projectId) return;
+    try {
+        const resp = await API.apuRecomputeProject(_apu.projectId);
+        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo recalcular'), 'error'); return; }
+        toast('Obra recalculada', 'success');
+        openApuItem(_apu.itemId, true);
+    } catch { toast('Error de conexion', 'error'); }
+}
+
+function renderApuNewLine(b) {
+    return `
+        <div class="apu-line apu-line-row-new" id="apu-new-${esc(b.key)}" data-block="${esc(b.key)}">
+            <div class="apu-line-desc">
+                <div class="apu-search-wrap">
+                    <input class="apu-inp apu-inp-text" id="apu-new-name-${esc(b.key)}" type="text" maxlength="200"
+                           autocomplete="off" aria-label="Descripcion del nuevo recurso"
+                           placeholder="Escribi para buscar en el catalogo o carga un recurso manual"
+                           oninput="apuNewSearchDebounced('${escJs(b.key)}')"
+                           onkeydown="apuNewKey(event, '${escJs(b.key)}')"
+                           onblur="apuNewBlur('${escJs(b.key)}')">
+                    <div class="apu-sug apu-sug-grid" id="apu-new-sug-${esc(b.key)}" style="display:none"></div>
+                </div>
+                <span id="apu-new-link-${esc(b.key)}"></span>
+            </div>
+            <div class="apu-line-uom">
+                <input class="apu-inp apu-inp-text" id="apu-new-uom-${esc(b.key)}" type="text" maxlength="20"
+                       list="apu-uom-list" placeholder="und" aria-label="Unidad del nuevo recurso"
+                       onkeydown="apuNewKey(event, '${escJs(b.key)}')">
+            </div>
+            <div class="apu-line-inp apu-line-qty">
+                <input class="apu-inp" id="apu-new-qty-${esc(b.key)}" type="number" step="0.001" min="0" value="1.000"
+                       aria-label="Rendimiento del nuevo recurso"
+                       oninput="apuNewLive('${escJs(b.key)}')"
+                       onkeydown="apuNewKey(event, '${escJs(b.key)}')">
+            </div>
+            <div class="apu-line-inp apu-line-price">
+                <input class="apu-inp" id="apu-new-price-${esc(b.key)}" type="number" step="0.01" min="0" value="0.00"
+                       aria-label="Precio unitario del nuevo recurso"
+                       oninput="apuNewLive('${escJs(b.key)}')"
+                       onkeydown="apuNewKey(event, '${escJs(b.key)}')">
+            </div>
+            <div class="apu-line-sub" id="apu-new-sub-${esc(b.key)}">${esc(_apuNum(0, 2))}</div>
+            <button class="apu-line-add" title="Agregar recurso (Enter)"
+                    onclick="apuNewSave('${escJs(b.key)}')">${icon('plus', 14)}</button>
+        </div>
     `;
 }
 
@@ -11785,14 +12131,146 @@ async function apuDeleteComputo(computoId) {
 }
 
 // ── Lineas de composicion: alta, edicion, baja ────────────────
-async function apuLineEdit(lineId, field, value) {
+
+/** Guarda el valor previo de la celda para poder revertir si el PUT falla. */
+function apuCellFocus(el) {
+    if (el) el.dataset.prev = el.value;
+}
+
+/** Enter confirma la celda (dispara el change/PUT); Escape la revierte. */
+function apuRowKey(e) {
+    const el = e.target;
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        el.blur();
+    } else if (e.key === 'Escape') {
+        e.preventDefault();
+        if (el.dataset.prev != null) {
+            el.value = el.dataset.prev;
+            el.dispatchEvent(new Event('input'));
+        }
+        el.blur();
+    }
+}
+
+function _apuBlockRows(blockKey) {
+    const b = APU_BLOCKS.find(x => x.key === blockKey);
+    if (!b) return [];
+    return Array.from(document.querySelectorAll('.apu-line-row[data-block="' + b.key + '"]'));
+}
+
+/** Una fila esta sucia si lo que se ve difiere de lo confirmado por el servidor. */
+function _apuRowDirty(r) {
+    return Number(r.dataset.qty) !== Number(r.dataset.sqty)
+        || Number(r.dataset.price) !== Number(r.dataset.sprice);
+}
+
+/** Recalculo en vivo mientras se tipea: subtotal de la fila (sin ir al servidor). */
+function apuLineLive(lineId, field, value) {
+    const row = document.getElementById('apu-line-' + Number(lineId));
+    if (!row) return;
+    const n = parseFloat(value);
+    if (field === 'quantity') row.dataset.qty = String(isFinite(n) ? n : 0);
+    else row.dataset.price = String(isFinite(n) ? n : 0);
+    const cell = document.getElementById('apu-sub-' + Number(lineId));
+    if (cell) cell.textContent = _apuNum(apuLineSubtotal(row.dataset.qty, row.dataset.price), 2);
+    apuRecalcBlock(row.dataset.block);
+}
+
+/** Subtotal del bloque a partir de lo que muestra la grilla. */
+function apuRecalcBlock(blockKey) {
+    const b = APU_BLOCKS.find(x => x.key === blockKey);
+    if (!b) return 0;
+    const total = apuRound(
+        _apuBlockRows(b.key).reduce((a, r) => a + apuLineSubtotal(r.dataset.qty, r.dataset.price), 0), 2);
+    const head = document.getElementById('apu-blocksub-' + b.key);
+    if (head) head.textContent = _apuNum(total, 2);
+    const foot = document.getElementById('apu-foot-' + b.key);
+    if (foot) foot.textContent = _apuMoney(total, _apu.cur);
+    apuVerifyRefresh();
+    return total;
+}
+
+/** PUT de una celda. Numericos (quantity/price_unit) y texto (name/uom). */
+async function apuLineEdit(lineId, field, value, el) {
+    const id = Number(lineId);
+    const row = document.getElementById('apu-line-' + id);
+    const isNum = (field === 'quantity' || field === 'price_unit');
+    const prev = (el && el.dataset.prev != null) ? el.dataset.prev : null;
+
     const payload = {};
-    payload[field] = parseFloat(value) || 0;
+    if (isNum) {
+        payload[field] = parseFloat(value) || 0;
+    } else {
+        const txt = String(value == null ? '' : value).trim();
+        if (!txt) {
+            toast(field === 'uom' ? 'La unidad no puede quedar vacia' : 'La descripcion no puede quedar vacia', 'error');
+            if (el && prev != null) el.value = prev;
+            return;
+        }
+        payload[field] = txt;
+    }
+
+    if (row) row.classList.add('apu-line-saving');
     try {
-        const resp = await API.apuUpdateLine(lineId, payload);
-        if (!resp.ok) { toast(_apuDetail(resp, 'No se pudo actualizar la linea'), 'error'); return; }
-        openApuItem(_apu.itemId, true);
-    } catch { toast('Error de conexion', 'error'); }
+        const resp = await API.apuUpdateLine(id, payload);
+        if (row) row.classList.remove('apu-line-saving');
+        if (!resp.ok) {
+            _apuRevertCell(row, el, prev);
+            toast(_apuDetail(resp, 'No se pudo actualizar la linea'), 'error');
+            return;
+        }
+        if (el) el.dataset.prev = el.value;
+        if (row) {
+            if (field === 'quantity') { row.dataset.qty = String(payload.quantity); row.dataset.sqty = String(payload.quantity); }
+            if (field === 'price_unit') { row.dataset.price = String(payload.price_unit); row.dataset.sprice = String(payload.price_unit); }
+        }
+        // Espejo local para que el panel de verificacion compare contra lo ultimo
+        const ln = ((_apu.item && _apu.item.lines) || []).find(l => Number(l.id) === id);
+        if (ln) {
+            ln[field] = payload[field];
+            if (isNum) ln.price_subtotal = apuLineSubtotal(ln.quantity, ln.price_unit);
+        }
+        if (isNum) apuRecalcBlock(row ? row.dataset.block : null);
+        apuSyncTotals();
+    } catch {
+        if (row) row.classList.remove('apu-line-saving');
+        _apuRevertCell(row, el, prev);
+        toast('Error de conexion', 'error');
+    }
+}
+
+/** No dejar en pantalla un valor que el servidor no acepto. */
+function _apuRevertCell(row, el, prev) {
+    if (el && prev != null) {
+        el.value = prev;
+        el.dispatchEvent(new Event('input'));
+    }
+    if (row) {
+        row.classList.add('apu-line-err');
+        setTimeout(() => row.classList.remove('apu-line-err'), 1400);
+    }
+}
+
+/** Refresca totales (chips, planilla, verificacion) sin re-render de la grilla,
+ *  para no perder el foco de la celda que se esta editando. */
+async function apuSyncTotals() {
+    if (!_apu.itemId) return;
+    const itemId = _apu.itemId;
+    try {
+        const resp = await API.apuItem(itemId);
+        if (!resp || !resp.ok || !resp.data) return;
+        if (_apu.view !== 'item' || Number(_apu.itemId) !== Number(itemId)) return;
+        const it = resp.data;
+        _apu.item = it;
+        const strip = document.getElementById('apu-cost-strip');
+        if (strip) strip.innerHTML = _apuCostChips(it);
+        const right = document.getElementById('apu-editor-right');
+        if (right) right.innerHTML = renderApuSummary(it, _apu.cur);
+        const hero = document.getElementById('apu-hero-price');
+        if (hero) hero.textContent = _apuNum(it.unit_price, 2);
+        apuVerifyRefresh();
+    } catch { /* los totales quedan como estan; se recargan al reabrir la partida */ }
 }
 
 async function apuDeleteLine(lineId) {
