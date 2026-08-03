@@ -10816,6 +10816,33 @@ const _apu = {
 };
 
 // ── Helpers de formato ────────────────────────────────────────
+/** Redondeo medio-arriba, igual que `apu_round` del backend.
+ *
+ * No usar toFixed() para calcular: (10.555).toFixed(2) devuelve "10.55"
+ * porque el double vale 10.55499..., mientras el servidor guarda 10.56.
+ * Esa diferencia de un centavo aparece al guardar y hace desconfiar del
+ * presupuesto. Se desplaza la coma sobre la representacion DECIMAL del
+ * numero (string), no multiplicando en binario.
+ */
+function apuRound(value, decimals = 2) {
+    const n = Number(value);
+    if (!isFinite(n)) return 0;
+    const sign = n < 0 ? -1 : 1;
+    const abs = Math.abs(n);
+    const s = abs.toString();
+    // Notacion exponencial (1e-7): no aplica a importes, se cae a toFixed.
+    if (s.indexOf('e') !== -1 || s.indexOf('E') !== -1) {
+        return sign * Number(abs.toFixed(decimals));
+    }
+    const rounded = Math.round(Number(s + 'e' + decimals));
+    return sign * Number(rounded.toString() + 'e-' + decimals);
+}
+
+/** Subtotal de una linea: rendimiento x precio, con el redondeo del backend. */
+function apuLineSubtotal(quantity, priceUnit) {
+    return apuRound(Number(quantity || 0) * Number(priceUnit || 0), 2);
+}
+
 function _apuNum(v, dec = 2) {
     const n = Number(v);
     if (!isFinite(n)) return (0).toFixed(dec);

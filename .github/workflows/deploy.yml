@@ -52,6 +52,11 @@ jobs:
       - name: Tests de escapado del frontend
         run: node tests/test_frontend_escaping.js
 
+      - name: Tests de calculo del frontend
+        # Verifica que el navegador redondee igual que el backend: una
+        # diferencia de un centavo aparece recien al guardar.
+        run: node tests/test_frontend_calc.js
+
   deploy:
     name: Deploy a EasyPanel
     needs: tests          # sin tests en verde no se despliega
